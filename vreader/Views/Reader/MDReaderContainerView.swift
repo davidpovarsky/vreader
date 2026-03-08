@@ -3,19 +3,27 @@
 //
 // Key decisions:
 // - Owns MDReaderViewModel lifecycle (open on appear, close on disappear).
-// - Delegates scroll/selection events from bridge to ViewModel.
+// - Delegates scroll/selection events from bridge to ViewModel for position persistence.
 // - Shows loading spinner during file open.
 // - Shows error message on failure.
 // - Passes rendered NSAttributedString to bridge for rich display.
 //
 // @coordinates-with: MDReaderViewModel.swift, TXTTextViewBridge.swift
 
+#if canImport(UIKit)
 import SwiftUI
+import UIKit
 
 /// Container view for the Markdown reader screen.
 struct MDReaderContainerView: View {
     let fileURL: URL
     let viewModel: MDReaderViewModel
+    var settingsStore: ReaderSettingsStore?
+
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Captured scroll position for one-shot restore. Set once after file opens.
+    @State private var initialRestoreOffset: Int?
 
     var body: some View {
         ZStack {
@@ -32,9 +40,32 @@ struct MDReaderContainerView: View {
         }
         .task {
             await viewModel.open(url: fileURL)
+            initialRestoreOffset = viewModel.currentOffsetUTF16
         }
         .onDisappear {
-            Task { await viewModel.close() }
+            let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+            Task {
+                await viewModel.close()
+                if bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background, .inactive:
+                let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+                Task {
+                    await viewModel.onBackground()
+                    if bgTaskID != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgTaskID)
+                    }
+                }
+            case .active:
+                viewModel.onForeground()
+            @unknown default:
+                break
+            }
         }
         .accessibilityIdentifier("mdReaderContainer")
     }
@@ -72,11 +103,12 @@ struct MDReaderContainerView: View {
         TXTTextViewBridge(
             text: attributedString.string,
             attributedText: attributedString,
-            config: TXTViewConfig(),
-            restoreOffset: viewModel.currentOffsetUTF16,
-            delegate: nil // Delegate wiring will come with bridge hardening
+            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+            restoreOffset: initialRestoreOffset,
+            delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("mdReaderContent")
     }
 }
+#endif

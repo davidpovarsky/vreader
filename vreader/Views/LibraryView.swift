@@ -29,7 +29,11 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.isEmpty {
+                if viewModel.isInitialLoad {
+                    ProgressView()
+                        .controlSize(.large)
+                        .accessibilityIdentifier("libraryLoadingIndicator")
+                } else if viewModel.isEmpty {
                     emptyState
                 } else {
                     bookCollection

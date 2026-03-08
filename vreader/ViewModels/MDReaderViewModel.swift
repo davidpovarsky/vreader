@@ -76,6 +76,9 @@ final class MDReaderViewModel {
     private var accumulatedActiveSeconds: TimeInterval = 0
     /// Generation counter to guard against open/close races.
     private var openGeneration: Int = 0
+    /// True after open() completes position restore. Guards close() from saving
+    /// stale position 0 when close() races with an in-progress open().
+    private var isOpenComplete = false
 
     // MARK: - Init
 
@@ -105,6 +108,7 @@ final class MDReaderViewModel {
 
         openGeneration += 1
         let myGeneration = openGeneration
+        isOpenComplete = false
 
         isLoading = true
         errorMessage = nil
@@ -169,6 +173,7 @@ final class MDReaderViewModel {
         )
 
         startPeriodicFlush()
+        isOpenComplete = true
         isLoading = false
     }
 
@@ -182,7 +187,7 @@ final class MDReaderViewModel {
         debounceTask?.cancel()
         debounceTask = nil
 
-        if renderedText != nil {
+        if renderedText != nil, isOpenComplete {
             let locator = makeLocator()
             sessionTracker.recordProgress(locator: locator)
 
@@ -202,16 +207,16 @@ final class MDReaderViewModel {
     }
 
     /// Called when the app moves to background while reader is open.
-    func onBackground() {
+    /// Awaits the position save to guarantee it completes before iOS suspends.
+    /// Callers must use `beginBackgroundTask` to ensure execution time.
+    func onBackground() async {
         if renderedText != nil {
             let locator = makeLocator()
-            Task { [bookFingerprintKey, deviceId, positionStore] in
-                try? await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            }
+            try? await positionStore.savePosition(
+                bookFingerprintKey: bookFingerprintKey,
+                locator: locator,
+                deviceId: deviceId
+            )
         }
 
         if let start = segmentStartDate {
@@ -349,6 +354,10 @@ final class MDReaderViewModel {
         renderedAttributedString = nil
         renderedTextLengthUTF16 = 0
         currentOffsetUTF16 = 0
+        segmentStartDate = nil
+        accumulatedActiveSeconds = 0
+        sessionTimeDisplay = nil
+        isOpenComplete = false
     }
 
     // MARK: - Private: Offset Clamping
@@ -357,3 +366,17 @@ final class MDReaderViewModel {
         min(max(offset, 0), renderedTextLengthUTF16)
     }
 }
+
+// MARK: - TXTTextViewBridgeDelegate Conformance
+
+#if canImport(UIKit)
+extension MDReaderViewModel: TXTTextViewBridgeDelegate {
+    func scrollPositionDidChange(topCharOffsetUTF16: Int) {
+        updateScrollPosition(charOffsetUTF16: topCharOffsetUTF16)
+    }
+
+    func selectionDidChange(utf16Range: UTF16Range) {
+        // MD reader does not support selection tracking yet
+    }
+}
+#endif

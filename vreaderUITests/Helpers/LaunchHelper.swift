@@ -19,6 +19,10 @@ enum TestSeedState {
     case empty
     /// Pre-populated with fixture books.
     case books
+    /// Single TXT book with real file for position persistence testing.
+    case positionTest
+    /// Keep existing database state (no seeding). For relaunch tests.
+    case keepExisting
     /// Corrupted database (triggers init error screen).
     case corruptDB
 
@@ -27,6 +31,8 @@ enum TestSeedState {
         switch self {
         case .empty: return "--seed-empty"
         case .books: return "--seed-books"
+        case .positionTest: return "--seed-position-test"
+        case .keepExisting: return "--uitesting-no-seed"
         case .corruptDB: return "--seed-corrupt-db"
         }
     }

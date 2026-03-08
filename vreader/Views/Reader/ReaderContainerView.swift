@@ -3,50 +3,109 @@
 //
 // Key decisions:
 // - Dispatches to format-specific reader based on BookFormat.
-// - EPUB reader is a stub until its WI is fully wired.
-// - All format readers (EPUB/PDF/TXT/MD) have containers + ViewModels implemented.
-// - Full wiring requires file URL resolved from BookRecord persistence layer.
-// - Placeholders remain until navigation pipeline provides file URLs.
+// - EPUB reader wired with production EPUBParser (ZIP extraction + OPF parsing).
+// - TXT, PDF, MD readers are fully wired with real ViewModels and containers.
+// - File URL resolved from fingerprintKey using the sandbox import convention.
+// - DocumentFingerprint parsed from the canonical key string.
+// - Each format host view owns its ViewModel via @State for stable lifecycle.
 // - Provides navigation bar with back button, search button, settings button, and annotations menu.
 // - Settings panel presented as a sheet for theme/typography controls.
 // - Annotations sheet provides access to bookmarks, TOC, highlights, annotations.
-// - Search sheet placeholder until SearchService is instantiated in reader pipeline.
+// - Search sheet wired with SearchService, SearchViewModel, and SearchView.
+// - Book content is indexed for search on first open using format-specific extractors.
 //
 // @coordinates-with: EPUBReaderViewModel.swift, TXTReaderViewModel.swift,
 //   MDReaderViewModel.swift, PDFReaderViewModel.swift, LibraryView.swift,
 //   ReaderSettingsStore.swift, ReaderSettingsPanel.swift,
-//   BookmarkListView.swift, TOCListView.swift, HighlightListView.swift,
-//   AnnotationListView.swift, SearchView.swift, SearchViewModel.swift
+//   TXTReaderContainerView.swift, PDFReaderContainerView.swift,
+//   MDReaderContainerView.swift, DocumentFingerprint.swift,
+//   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift,
+//   TXTTextExtractor.swift, PDFTextExtractor.swift, EPUBTextExtractor.swift, MDTextExtractor.swift
 
 import SwiftUI
+import SwiftData
+import os
+import Combine
+
+extension Notification.Name {
+    /// Posted by reader bridges when the user taps the content area.
+    /// Used by ReaderContainerView to toggle toolbar visibility.
+    static let readerContentTapped = Notification.Name("vreader.readerContentTapped")
+}
 
 /// Container view that dispatches to the correct format-specific reader.
 struct ReaderContainerView: View {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "vreader",
+        category: "Search"
+    )
+
     let book: LibraryBookItem
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var settingsStore = ReaderSettingsStore()
     @State private var showSettings = false
     @State private var showAnnotationsPanel = false
     @State private var showSearch = false
     @State private var selectedAnnotationsTab: AnnotationsPanelTab = .bookmarks
+    @State private var searchViewModel: SearchViewModel?
+    @State private var searchService: SearchService?
+    /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
+    @State private var isChromeVisible = true
 
     var body: some View {
         Group {
-            switch book.format.lowercased() {
-            case "epub":
-                epubReaderContent
-            case "pdf":
-                pdfReaderContent
-            case "txt":
-                txtReaderContent
-            case "md":
-                mdReaderContent
-            default:
-                unsupportedFormatView(format: book.format.uppercased())
+            if let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+                switch book.format.lowercased() {
+                case "epub":
+                    EPUBReaderHost(
+                        fileURL: resolvedFileURL,
+                        fingerprint: fingerprint,
+                        modelContainer: modelContext.container,
+                        settingsStore: settingsStore
+                    )
+                case "pdf":
+                    PDFReaderHost(
+                        fileURL: resolvedFileURL,
+                        fingerprint: fingerprint,
+                        modelContainer: modelContext.container
+                    )
+                case "txt":
+                    TXTReaderHost(
+                        fileURL: resolvedFileURL,
+                        fingerprint: fingerprint,
+                        modelContainer: modelContext.container,
+                        settingsStore: settingsStore
+                    )
+                case "md":
+                    MDReaderHost(
+                        fileURL: resolvedFileURL,
+                        fingerprint: fingerprint,
+                        modelContainer: modelContext.container,
+                        settingsStore: settingsStore
+                    )
+                default:
+                    unsupportedFormatView(format: book.format.uppercased())
+                }
+            } else {
+                fingerprintErrorView
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isChromeVisible.toggle()
+            }
+        }
+        .accessibilityAction(named: isChromeVisible ? "Hide toolbar" : "Show toolbar") {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isChromeVisible.toggle()
             }
         }
         .navigationBarBackButtonHidden(true)
+        .toolbar(isChromeVisible ? .visible : .hidden, for: .navigationBar)
+        .statusBarHidden(!isChromeVisible)
+        .ignoresSafeArea(edges: isChromeVisible ? [] : [.top])
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -89,7 +148,11 @@ struct ReaderContainerView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAnnotationsPanel) {
-            AnnotationsPanelSheet(selectedTab: $selectedAnnotationsTab)
+            AnnotationsPanelSheet(
+                selectedTab: $selectedAnnotationsTab,
+                bookFingerprintKey: book.fingerprintKey,
+                modelContainer: modelContext.container
+            )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -98,63 +161,180 @@ struct ReaderContainerView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-    }
-
-    /// Search sheet placeholder — wired when SearchService is available.
-    @ViewBuilder
-    private var searchSheet: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label("Search", systemImage: "magnifyingglass")
-            } description: {
-                Text("Search will be available once the book is indexed.")
+        .task {
+            guard searchService == nil,
+                  let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
+                return
             }
-            .navigationTitle("Search")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") {
-                        showSearch = false
-                    }
+            do {
+                let store = try SearchIndexStore()
+                let service = SearchService(store: store)
+                searchService = service
+
+                // Create ViewModel immediately so the search panel opens instantly.
+                // Searching before indexing returns empty results (acceptable UX).
+                let vm = SearchViewModel(
+                    searchService: service,
+                    bookFingerprint: fingerprint
+                )
+                searchViewModel = vm
+
+                let alreadyIndexed = await service.isIndexed(fingerprint: fingerprint)
+                if !alreadyIndexed {
+                    await Self.indexBookContent(
+                        service: service,
+                        fileURL: resolvedFileURL,
+                        fingerprint: fingerprint,
+                        format: book.format.lowercased()
+                    )
+                    // Re-trigger search if user typed a query while indexing
+                    vm.retriggerIfNeeded()
                 }
+            } catch {
+                Self.logger.error("Search setup failed: \(error.localizedDescription)")
             }
         }
-        .accessibilityIdentifier("searchSheet")
     }
 
-    @ViewBuilder
-    private var epubReaderContent: some View {
-        // EPUB reader will be wired here in the full implementation.
-        // For now, show a placeholder that will be replaced when
-        // EPUBReaderView is fully wired with WKWebView.
-        Text("EPUB Reader: \(book.title)")
-            .accessibilityIdentifier("epubReaderPlaceholder")
+    // MARK: - File URL Resolution
+
+    /// Resolves the sandbox file URL using the same convention as BookImporter.
+    private var resolvedFileURL: URL {
+        let booksDir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ImportedBooks", isDirectory: true)
+        let safeName = book.fingerprintKey.replacingOccurrences(of: ":", with: "_")
+        let bookFormat = BookFormat(rawValue: book.format.lowercased())
+        let ext = bookFormat?.fileExtensions.first ?? book.format.lowercased()
+        return booksDir
+            .appendingPathComponent(safeName)
+            .appendingPathExtension(ext)
     }
 
-    @ViewBuilder
-    private var pdfReaderContent: some View {
-        // PDFReaderContainerView + PDFReaderViewModel implemented (WI-7).
-        // Placeholder until navigation pipeline resolves file URLs from BookRecord.
-        Text("PDF Reader: \(book.title)")
-            .accessibilityIdentifier("pdfReaderPlaceholder")
+    // MARK: - Device ID
+
+    /// Stable device identifier for reading position and session tracking.
+    static let deviceId: String = {
+        #if canImport(UIKit)
+        return UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        #else
+        return UUID().uuidString
+        #endif
+    }()
+
+    // MARK: - Search Indexing
+
+    /// Extracts text from the book and indexes it for search.
+    /// Runs on the calling task — use from a `.task` modifier for background execution.
+    private static func indexBookContent(
+        service: SearchService,
+        fileURL: URL,
+        fingerprint: DocumentFingerprint,
+        format: String
+    ) async {
+        do {
+            switch format {
+            case "txt":
+                let extractor = TXTTextExtractor()
+                let result = try await extractor.extractWithOffsets(from: fileURL)
+                try await service.indexBook(
+                    fingerprint: fingerprint,
+                    textUnits: result.textUnits,
+                    segmentBaseOffsets: result.segmentBaseOffsets
+                )
+
+            case "md":
+                let extractor = MDTextExtractor()
+                let result = try await extractor.extractWithOffsets(from: fileURL)
+                try await service.indexBook(
+                    fingerprint: fingerprint,
+                    textUnits: result.textUnits,
+                    segmentBaseOffsets: result.segmentBaseOffsets
+                )
+
+            case "pdf":
+                let extractor = PDFTextExtractor()
+                let units = try await extractor.extractTextUnits(
+                    from: fileURL, fingerprint: fingerprint
+                )
+                try await service.indexBook(
+                    fingerprint: fingerprint,
+                    textUnits: units,
+                    segmentBaseOffsets: nil
+                )
+
+            case "epub":
+                let parser = EPUBParser()
+                do {
+                    let metadata = try await parser.open(url: fileURL)
+                    let extractor = EPUBTextExtractor()
+                    let units = try await extractor.extractFromParser(
+                        parser, metadata: metadata
+                    )
+                    await parser.close()
+                    try await service.indexBook(
+                        fingerprint: fingerprint,
+                        textUnits: units,
+                        segmentBaseOffsets: nil
+                    )
+                } catch {
+                    await parser.close()
+                    throw error
+                }
+
+            default:
+                break
+            }
+        } catch {
+            Self.logger.error("Search indexing failed for \(format): \(error.localizedDescription)")
+        }
     }
 
+    // MARK: - Sheets & Placeholders
+
+    /// Search sheet — uses SearchView when search pipeline is ready.
     @ViewBuilder
-    private var txtReaderContent: some View {
-        // TXT reader ViewModel and container are implemented (WI-6A).
-        // Full wiring requires file URL from BookRecord persistence layer,
-        // which will be connected when the navigation pipeline is complete.
-        Text("TXT Reader: \(book.title)")
-            .accessibilityIdentifier("txtReaderPlaceholder")
+    private var searchSheet: some View {
+        if let searchViewModel {
+            SearchView(
+                viewModel: searchViewModel,
+                onNavigate: { _ in
+                    // Navigation to search result location — format-specific
+                    // readers will wire this when they support search navigation.
+                    showSearch = false
+                },
+                onDismiss: {
+                    showSearch = false
+                }
+            )
+            .accessibilityIdentifier("searchSheet")
+        } else {
+            NavigationStack {
+                ProgressView("Preparing search…")
+                    .navigationTitle("Search")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") {
+                                showSearch = false
+                            }
+                        }
+                    }
+            }
+            .accessibilityIdentifier("searchSheet")
+        }
     }
 
-    @ViewBuilder
-    private var mdReaderContent: some View {
-        // MD reader ViewModel and container are implemented (WI-6B).
-        // Full wiring requires file URL from BookRecord persistence layer,
-        // which will be connected when the navigation pipeline is complete.
-        Text("MD Reader: \(book.title)")
-            .accessibilityIdentifier("mdReaderPlaceholder")
+    private var fingerprintErrorView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Unable to open this book.")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("fingerprintErrorView")
     }
 
     private func unsupportedFormatView(format: String) -> some View {
@@ -167,6 +347,158 @@ struct ReaderContainerView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("unsupportedFormatView")
+    }
+}
+
+// MARK: - Format-Specific Host Views
+
+/// Owns TXTReaderViewModel lifecycle via @State.
+private struct TXTReaderHost: View {
+    let fileURL: URL
+    let fingerprint: DocumentFingerprint
+    let modelContainer: ModelContainer
+    let settingsStore: ReaderSettingsStore
+
+    @State private var viewModel: TXTReaderViewModel?
+
+    var body: some View {
+        Group {
+            if let viewModel {
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard viewModel == nil else { return }
+            let persistence = PersistenceActor(modelContainer: modelContainer)
+            let tracker = ReadingSessionTracker(
+                clock: SystemClock(),
+                store: NoOpSessionStore(),
+                deviceId: ReaderContainerView.deviceId
+            )
+            viewModel = TXTReaderViewModel(
+                bookFingerprint: fingerprint,
+                txtService: TXTService(),
+                positionStore: persistence,
+                sessionTracker: tracker,
+                deviceId: ReaderContainerView.deviceId
+            )
+        }
+    }
+}
+
+/// Owns PDFReaderViewModel lifecycle via @State.
+private struct PDFReaderHost: View {
+    let fileURL: URL
+    let fingerprint: DocumentFingerprint
+    let modelContainer: ModelContainer
+
+    @State private var viewModel: PDFReaderViewModel?
+
+    var body: some View {
+        Group {
+            if let viewModel {
+                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard viewModel == nil else { return }
+            let persistence = PersistenceActor(modelContainer: modelContainer)
+            let tracker = ReadingSessionTracker(
+                clock: SystemClock(),
+                store: NoOpSessionStore(),
+                deviceId: ReaderContainerView.deviceId
+            )
+            viewModel = PDFReaderViewModel(
+                bookFingerprint: fingerprint,
+                positionStore: persistence,
+                sessionTracker: tracker,
+                deviceId: ReaderContainerView.deviceId
+            )
+        }
+    }
+}
+
+/// Owns MDReaderViewModel lifecycle via @State.
+private struct MDReaderHost: View {
+    let fileURL: URL
+    let fingerprint: DocumentFingerprint
+    let modelContainer: ModelContainer
+    let settingsStore: ReaderSettingsStore
+
+    @State private var viewModel: MDReaderViewModel?
+
+    var body: some View {
+        Group {
+            if let viewModel {
+                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard viewModel == nil else { return }
+            let persistence = PersistenceActor(modelContainer: modelContainer)
+            let tracker = ReadingSessionTracker(
+                clock: SystemClock(),
+                store: NoOpSessionStore(),
+                deviceId: ReaderContainerView.deviceId
+            )
+            viewModel = MDReaderViewModel(
+                bookFingerprint: fingerprint,
+                parser: MDParser(),
+                positionStore: persistence,
+                sessionTracker: tracker,
+                deviceId: ReaderContainerView.deviceId
+            )
+        }
+    }
+}
+
+/// Owns EPUBReaderViewModel lifecycle via @State.
+private struct EPUBReaderHost: View {
+    let fileURL: URL
+    let fingerprint: DocumentFingerprint
+    let modelContainer: ModelContainer
+    let settingsStore: ReaderSettingsStore
+
+    @State private var viewModel: EPUBReaderViewModel?
+    @State private var parser: EPUBParser?
+
+    var body: some View {
+        Group {
+            if let viewModel, let parser {
+                EPUBReaderContainerView(
+                    fileURL: fileURL,
+                    viewModel: viewModel,
+                    parser: parser,
+                    settingsStore: settingsStore
+                )
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard viewModel == nil else { return }
+            let persistence = PersistenceActor(modelContainer: modelContainer)
+            let tracker = ReadingSessionTracker(
+                clock: SystemClock(),
+                store: NoOpSessionStore(),
+                deviceId: ReaderContainerView.deviceId
+            )
+            let epubParser = EPUBParser()
+            parser = epubParser
+            viewModel = EPUBReaderViewModel(
+                bookFingerprint: fingerprint,
+                parser: epubParser,
+                positionStore: persistence,
+                sessionTracker: tracker,
+                deviceId: ReaderContainerView.deviceId
+            )
+        }
     }
 }
 
@@ -192,9 +524,16 @@ enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
 }
 
 /// Sheet that hosts the tabbed annotations panel.
-/// Placeholder panels are shown until ViewModels are wired with live persistence.
+/// Wires real list views for bookmarks, highlights, and annotations.
+/// TOC tab currently shows empty state — requires format-specific metadata wiring.
 private struct AnnotationsPanelSheet: View {
     @Binding var selectedTab: AnnotationsPanelTab
+    let bookFingerprintKey: String
+    let modelContainer: ModelContainer
+
+    @State private var bookmarkVM: BookmarkListViewModel?
+    @State private var highlightVM: HighlightListViewModel?
+    @State private var annotationVM: AnnotationListViewModel?
 
     var body: some View {
         NavigationStack {
@@ -215,29 +554,25 @@ private struct AnnotationsPanelSheet: View {
                 Group {
                     switch selectedTab {
                     case .bookmarks:
-                        placeholderView(
-                            title: "Bookmarks",
-                            systemImage: "bookmark",
-                            description: "Bookmarks will appear here once the reader is fully wired."
-                        )
+                        if let vm = bookmarkVM {
+                            BookmarkListView(viewModel: vm, onNavigate: { _ in })
+                        } else {
+                            ProgressView()
+                        }
                     case .toc:
-                        placeholderView(
-                            title: "Table of Contents",
-                            systemImage: "list.bullet",
-                            description: "Table of contents will appear here once the reader is fully wired."
-                        )
+                        TOCListView(entries: [], onNavigate: { _ in })
                     case .highlights:
-                        placeholderView(
-                            title: "Highlights",
-                            systemImage: "highlighter",
-                            description: "Highlights will appear here once the reader is fully wired."
-                        )
+                        if let vm = highlightVM {
+                            HighlightListView(viewModel: vm, onNavigate: { _ in })
+                        } else {
+                            ProgressView()
+                        }
                     case .annotations:
-                        placeholderView(
-                            title: "Notes",
-                            systemImage: "note.text",
-                            description: "Notes will appear here once the reader is fully wired."
-                        )
+                        if let vm = annotationVM {
+                            AnnotationListView(viewModel: vm, onNavigate: { _ in })
+                        } else {
+                            ProgressView()
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -245,14 +580,23 @@ private struct AnnotationsPanelSheet: View {
             .navigationTitle("Reader Panels")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .accessibilityIdentifier("annotationsPanelSheet")
-    }
-
-    private func placeholderView(title: String, systemImage: String, description: String) -> some View {
-        ContentUnavailableView {
-            Label(title, systemImage: systemImage)
-        } description: {
-            Text(description)
+        .task {
+            guard bookmarkVM == nil else { return }
+            let persistence = PersistenceActor(modelContainer: modelContainer)
+            bookmarkVM = BookmarkListViewModel(
+                bookFingerprintKey: bookFingerprintKey,
+                store: persistence
+            )
+            highlightVM = HighlightListViewModel(
+                bookFingerprintKey: bookFingerprintKey,
+                store: persistence,
+                totalTextLengthUTF16: nil
+            )
+            annotationVM = AnnotationListViewModel(
+                bookFingerprintKey: bookFingerprintKey,
+                store: persistence
+            )
         }
+        .accessibilityIdentifier("annotationsPanelSheet")
     }
 }

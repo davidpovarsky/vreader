@@ -206,17 +206,17 @@ final class EPUBReaderViewModel {
     }
 
     /// Called when the app moves to background while reader is open.
-    func onBackground() {
+    /// Awaits the position save to guarantee it completes before iOS suspends.
+    /// Callers must use `beginBackgroundTask` to ensure execution time.
+    func onBackground() async {
         // Save current position immediately (best-effort) before potential kill
         if let position = currentPosition {
             let locator = makeLocator(from: position)
-            Task { [bookFingerprintKey, deviceId, positionStore] in
-                try? await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            }
+            try? await positionStore.savePosition(
+                bookFingerprintKey: bookFingerprintKey,
+                locator: locator,
+                deviceId: deviceId
+            )
         }
 
         // Accumulate active time from current segment before pausing

@@ -98,6 +98,15 @@ final class TXTReaderViewModel {
     private var accumulatedActiveSeconds: TimeInterval = 0
     /// Generation counter to guard against open/close races.
     private var openGeneration: Int = 0
+    /// True after open() completes position restore. Guards close() from saving
+    /// stale position 0 when close() races with an in-progress open().
+    private var isOpenComplete = false
+    /// Time until which scroll position saves are suppressed after a position restore.
+    /// Handles any residual TextKit relayout callbacks that escape the bridge-level guard.
+    private var restoreSuppressUntil: Date?
+    /// Duration to suppress scroll saves after position restore (seconds).
+    /// Must be longer than the bridge's Phase 2 restore delay (0.8s) + margin.
+    private static let restoreSuppressDuration: TimeInterval = 1.5
 
     // MARK: - Init
 
@@ -127,6 +136,7 @@ final class TXTReaderViewModel {
 
         openGeneration += 1
         let myGeneration = openGeneration
+        isOpenComplete = false
 
         isLoading = true
         errorMessage = nil
@@ -143,8 +153,12 @@ final class TXTReaderViewModel {
             return
         }
 
-        // Guard: another open() may have started while we were awaiting
-        guard myGeneration == openGeneration else { return }
+        // Guard: another open() may have started while we were awaiting.
+        // Close the service we just opened so it doesn't leak in .alreadyOpen state.
+        guard myGeneration == openGeneration else {
+            await txtService.close()
+            return
+        }
 
         textContent = meta.text
         totalTextLengthUTF16 = meta.totalTextLengthUTF16
@@ -152,12 +166,14 @@ final class TXTReaderViewModel {
         currentOffsetUTF16 = 0
 
         // Stage 2: Restore saved position (non-fatal on failure)
+        restoreSuppressUntil = nil
         do {
             let savedLocator = try await positionStore.loadPosition(
                 bookFingerprintKey: bookFingerprintKey
             )
             if let savedLocator, let savedOffset = savedLocator.charOffsetUTF16 {
                 currentOffsetUTF16 = clampOffset(savedOffset)
+                restoreSuppressUntil = Date().addingTimeInterval(Self.restoreSuppressDuration)
             }
         } catch {
             // Position restore failed — start from beginning
@@ -189,6 +205,7 @@ final class TXTReaderViewModel {
         // Start periodic session flush
         startPeriodicFlush()
 
+        isOpenComplete = true
         isLoading = false
     }
 
@@ -202,8 +219,11 @@ final class TXTReaderViewModel {
         debounceTask?.cancel()
         debounceTask = nil
 
-        // Save final position immediately
-        if textContent != nil {
+        // Save final position immediately.
+        // Guard: only save if open() completed position restore. If close() races
+        // with an in-progress open(), currentOffsetUTF16 may be 0 (initial value
+        // before position restore), which would overwrite the correct saved position.
+        if textContent != nil, isOpenComplete {
             let locator = makeLocator()
             sessionTracker.recordProgress(locator: locator)
 
@@ -224,16 +244,16 @@ final class TXTReaderViewModel {
     }
 
     /// Called when the app moves to background while reader is open.
-    func onBackground() {
+    /// Awaits the position save to guarantee it completes before iOS suspends.
+    /// Callers must use `beginBackgroundTask` to ensure execution time.
+    func onBackground() async {
         if textContent != nil {
             let locator = makeLocator()
-            Task { [bookFingerprintKey, deviceId, positionStore] in
-                try? await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            }
+            try? await positionStore.savePosition(
+                bookFingerprintKey: bookFingerprintKey,
+                locator: locator,
+                deviceId: deviceId
+            )
         }
 
         if let start = segmentStartDate {
@@ -263,6 +283,21 @@ final class TXTReaderViewModel {
     /// Called when the scroll position changes. Offset is in UTF-16 code units.
     func updateScrollPosition(charOffsetUTF16: Int) {
         let clamped = clampOffset(charOffsetUTF16)
+
+        // Suppress scroll position saves during the post-restore settling window.
+        // TextKit relayout storms after position restore can fire scrollViewDidScroll
+        // with wrong offsets (including near-zero). The bridge suppresses most of these,
+        // but this is defense in depth.
+        if let suppressUntil = restoreSuppressUntil {
+            if Date() < suppressUntil {
+                // Still track position for display, but don't persist.
+                // This allows real user scrolls during the window to update the UI.
+                currentOffsetUTF16 = clamped
+                return
+            }
+            restoreSuppressUntil = nil
+        }
+
         currentOffsetUTF16 = clamped
 
         // Use lightweight locator (no quote extraction) for transient progress updates
@@ -284,8 +319,8 @@ final class TXTReaderViewModel {
             currentSelectionStart = nil
             currentSelectionEnd = nil
         } else {
-            currentSelectionStart = startUTF16
-            currentSelectionEnd = endUTF16
+            currentSelectionStart = clampOffset(min(startUTF16, endUTF16))
+            currentSelectionEnd = clampOffset(max(startUTF16, endUTF16))
         }
     }
 
@@ -402,6 +437,8 @@ final class TXTReaderViewModel {
         segmentStartDate = nil
         accumulatedActiveSeconds = 0
         sessionTimeDisplay = nil
+        isOpenComplete = false
+        restoreSuppressUntil = nil
     }
 
     // MARK: - Private: Offset Clamping

@@ -11,7 +11,9 @@
 // @coordinates-with: PDFReaderViewModel.swift, PDFViewBridge.swift,
 //   PDFPasswordPromptView.swift
 
+#if canImport(UIKit)
 import SwiftUI
+import UIKit
 
 /// Container view for the PDF reader screen.
 struct PDFReaderContainerView: View {
@@ -23,6 +25,7 @@ struct PDFReaderContainerView: View {
     @State private var passwordAttemptId: Int = 0
     @State private var restoredPage: Int?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -62,7 +65,29 @@ struct PDFReaderContainerView: View {
             viewModel.beginLoading()
         }
         .onDisappear {
-            Task { await viewModel.close() }
+            let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+            Task {
+                await viewModel.close()
+                if bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background, .inactive:
+                let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+                Task {
+                    await viewModel.onBackground()
+                    if bgTaskID != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgTaskID)
+                    }
+                }
+            case .active:
+                viewModel.onForeground()
+            @unknown default:
+                break
+            }
         }
         .task(id: viewModel.isDocumentLoaded) {
             if viewModel.isDocumentLoaded {
@@ -156,3 +181,4 @@ struct PDFReaderContainerView: View {
         .accessibilityIdentifier("pdfBottomOverlay")
     }
 }
+#endif

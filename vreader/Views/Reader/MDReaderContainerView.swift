@@ -10,13 +10,20 @@
 //
 // @coordinates-with: MDReaderViewModel.swift, TXTTextViewBridge.swift
 
+#if canImport(UIKit)
 import SwiftUI
+import UIKit
 
 /// Container view for the Markdown reader screen.
 struct MDReaderContainerView: View {
     let fileURL: URL
     let viewModel: MDReaderViewModel
     var settingsStore: ReaderSettingsStore?
+
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Captured scroll position for one-shot restore. Set once after file opens.
+    @State private var initialRestoreOffset: Int?
 
     var body: some View {
         ZStack {
@@ -33,9 +40,32 @@ struct MDReaderContainerView: View {
         }
         .task {
             await viewModel.open(url: fileURL)
+            initialRestoreOffset = viewModel.currentOffsetUTF16
         }
         .onDisappear {
-            Task { await viewModel.close() }
+            let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+            Task {
+                await viewModel.close()
+                if bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background, .inactive:
+                let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+                Task {
+                    await viewModel.onBackground()
+                    if bgTaskID != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgTaskID)
+                    }
+                }
+            case .active:
+                viewModel.onForeground()
+            @unknown default:
+                break
+            }
         }
         .accessibilityIdentifier("mdReaderContainer")
     }
@@ -74,10 +104,11 @@ struct MDReaderContainerView: View {
             text: attributedString.string,
             attributedText: attributedString,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-            restoreOffset: viewModel.currentOffsetUTF16,
+            restoreOffset: initialRestoreOffset,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("mdReaderContent")
     }
 }
+#endif

@@ -291,10 +291,7 @@ struct MDReaderViewModelLifecycleTests {
         await vm.open(url: url)
 
         let saveCountBefore = await positionStore.saveCallCount
-        vm.onBackground()
-
-        // Give the Task time to execute
-        try? await Task.sleep(for: .milliseconds(50))
+        await vm.onBackground()
 
         let saveCountAfter = await positionStore.saveCallCount
         #expect(saveCountAfter > saveCountBefore)
@@ -309,7 +306,7 @@ struct MDReaderViewModelLifecycleTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         await vm.open(url: url)
-        vm.onBackground()
+        await vm.onBackground()
         vm.onForeground()
 
         // Should not have an error
@@ -331,6 +328,103 @@ struct MDReaderViewModelLifecycleTests {
 
         #expect(vm.currentOffsetUTF16 == 0)
         #expect(vm.errorMessage == nil) // Position failure is non-fatal
+    }
+}
+
+// MARK: - Bug #23: Position Save Guards
+
+@Suite("MDReaderViewModel - Position Save Guards (Bug #23)")
+@MainActor
+struct MDReaderViewModelPositionGuardTests {
+
+    @Test("close saves restored position, not stale 0, when user never scrolled")
+    func closeSavesRestoredOffset() async {
+        let (vm, _, positionStore, _) = await makeViewModel()
+
+        // Seed a saved position at offset 25
+        let savedLocator = Locator(
+            bookFingerprint: testFingerprint,
+            href: nil, progression: nil, totalProgression: 0.5,
+            cfi: nil, page: nil,
+            charOffsetUTF16: 25,
+            charRangeStartUTF16: nil, charRangeEndUTF16: nil,
+            textQuote: nil, textContextBefore: nil, textContextAfter: nil
+        )
+        await positionStore.seed(
+            bookFingerprintKey: testFingerprint.canonicalKey,
+            locator: savedLocator
+        )
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("guard_test_\(UUID().uuidString).md")
+        try! testMDSource.data(using: .utf8)!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await vm.open(url: url)
+        #expect(vm.currentOffsetUTF16 == 25)
+
+        // Close without scrolling — should save offset 25, not 0
+        await vm.close()
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved != nil)
+        #expect(saved?.charOffsetUTF16 == 25)
+    }
+
+    @Test("close after failed session start does not save position")
+    func closeAfterSessionFailureDoesNotSave() async {
+        let parser = MockMDParser()
+        parser.setDocumentInfo(makeDocumentInfo())
+
+        let positionStore = MockPositionStore()
+        let sessionStore = MockSessionStore()
+        sessionStore.saveError = NSError(domain: "test", code: 1)
+        let clock = MockClock()
+        let tracker = ReadingSessionTracker(
+            clock: clock,
+            store: sessionStore,
+            deviceId: "test-device"
+        )
+
+        let vm = MDReaderViewModel(
+            bookFingerprint: testFingerprint,
+            parser: parser,
+            positionStore: positionStore,
+            sessionTracker: tracker,
+            deviceId: "test-device"
+        )
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("fail_test_\(UUID().uuidString).md")
+        try! testMDSource.data(using: .utf8)!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // open() fails at session start → isOpenComplete stays false
+        await vm.open(url: url)
+        #expect(vm.errorMessage != nil)
+
+        let saveCountBeforeClose = await positionStore.saveCallCount
+
+        await vm.close()
+
+        let saveCountAfterClose = await positionStore.saveCallCount
+        // close() should NOT have saved since isOpenComplete was false
+        #expect(saveCountAfterClose == saveCountBeforeClose)
+    }
+
+    @Test("onBackground awaits save — position persisted without sleep hack")
+    func onBackgroundSavesImmediately() async {
+        let (vm, _, positionStore, _) = await makeViewModel()
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("bg_save_\(UUID().uuidString).md")
+        try! testMDSource.data(using: .utf8)!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await vm.open(url: url)
+        vm.updateScrollPosition(charOffsetUTF16: 20)
+        await vm.onBackground()
+
+        // Save is guaranteed complete after await — no Task.sleep needed
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 20)
     }
 }
 

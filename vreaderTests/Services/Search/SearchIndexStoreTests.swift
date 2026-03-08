@@ -341,12 +341,14 @@ struct SearchIndexStoreTests {
 
     @Test func searchMultiTokenNonAdjacentDoesNotMatch() throws {
         let store = try makeStore()
-        // "quick" and "dog" both exist but are far apart — should not match as a phrase
-        let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "the quick brown fox jumps over the lazy dog")]
+        // "alpha" and "omega" are separated by >50 UTF-16 units — exceeds maxTokenGap
+        let filler = String(repeating: "x ", count: 30) // 60 chars of filler
+        let text = "alpha \(filler)omega"
+        let units = [TextUnit(sourceUnitId: "txt:segment:0", text: text)]
         try store.indexBook(fingerprintKey: "txt:abc:1024", textUnits: units)
 
-        let hits = try store.search(query: "quick dog", bookFingerprintKey: "txt:abc:1024")
-        #expect(hits.isEmpty, "Non-adjacent tokens 'quick' and 'dog' should not match as phrase, got \(hits.count)")
+        let hits = try store.search(query: "alpha omega", bookFingerprintKey: "txt:abc:1024")
+        #expect(hits.isEmpty, "Tokens separated by >50 UTF-16 units should not match as phrase, got \(hits.count)")
     }
 
     @Test func searchFullWidthDigitsMixedWithCJK() throws {

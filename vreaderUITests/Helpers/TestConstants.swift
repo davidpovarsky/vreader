@@ -48,6 +48,7 @@ enum AccessibilityID {
     static let txtReaderLoading = "txtReaderLoading"
     static let txtReaderError = "txtReaderError"
     static let txtReaderContent = "txtReaderContent"
+    static let txtReaderChunkedContent = "txtReaderChunkedContent"
     static let mdReaderContainer = "mdReaderContainer"
     static let mdReaderLoading = "mdReaderLoading"
     static let mdReaderError = "mdReaderError"

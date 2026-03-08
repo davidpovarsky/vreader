@@ -24,6 +24,14 @@ actor EPUBParser: EPUBParserProtocol {
 
     var isOpen: Bool { _isOpen }
 
+    deinit {
+        // Safety net: remove temp directory if close() was never called.
+        // Actor deinit runs outside isolation, so we capture the URL value.
+        if let dir = extractedDir {
+            try? FileManager.default.removeItem(at: dir)
+        }
+    }
+
     func open(url: URL) async throws -> EPUBMetadata {
         guard !_isOpen else { throw EPUBParserError.alreadyOpen }
         guard FileManager.default.fileExists(atPath: url.path) else {

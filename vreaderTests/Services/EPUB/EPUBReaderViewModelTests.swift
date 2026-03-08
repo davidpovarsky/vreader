@@ -452,11 +452,9 @@ struct EPUBReaderViewModelLifecycleTests {
             cfi: nil
         ))
 
-        vm.onBackground()
+        await vm.onBackground()
 
-        // Position should have been saved on background entry
-        // Give the background task a moment to complete
-        try? await Task.sleep(for: .milliseconds(50))
+        // Save is guaranteed complete after await — no Task.sleep needed
         let saveCount = await positionStore.saveCallCount
         #expect(saveCount >= 1)
     }
@@ -466,7 +464,7 @@ struct EPUBReaderViewModelLifecycleTests {
         let (vm, _, _, _) = await makeViewModel()
         await vm.open(url: testURL)
 
-        vm.onBackground()
+        await vm.onBackground()
         vm.onForeground()
 
         // Should not throw, session should be active again

@@ -201,8 +201,7 @@ struct PDFBackgroundForegroundTests {
         vm.pageDidChange(to: 5)
 
         // Background
-        vm.onBackground()
-        try? await Task.sleep(for: .milliseconds(50))
+        await vm.onBackground()
 
         let saveCountAfterBg = await positionStore.saveCallCount
         #expect(saveCountAfterBg >= 1)

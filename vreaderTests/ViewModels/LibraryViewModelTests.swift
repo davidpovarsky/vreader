@@ -30,6 +30,46 @@ struct LibraryViewModelTests {
         #expect(vm.isEmpty)
     }
 
+    // MARK: - Initial Load State
+
+    @Test @MainActor func isInitialLoadTrueBeforeFirstLoad() {
+        let mock = MockLibraryPersistence()
+        let vm = LibraryViewModel(persistence: mock)
+        #expect(vm.isInitialLoad == true, "Should be true before loadBooks is called")
+    }
+
+    @Test @MainActor func isInitialLoadFalseAfterFirstLoad() async {
+        let mock = MockLibraryPersistence()
+        await mock.seed(.stub(title: "Book"))
+        let vm = LibraryViewModel(persistence: mock)
+        await vm.loadBooks()
+        #expect(vm.isInitialLoad == false, "Should become false after first load")
+    }
+
+    @Test @MainActor func isInitialLoadFalseAfterEmptyLoad() async {
+        let mock = MockLibraryPersistence()
+        let vm = LibraryViewModel(persistence: mock)
+        await vm.loadBooks()
+        #expect(vm.isInitialLoad == false, "Should become false even when library is empty")
+    }
+
+    @Test @MainActor func isInitialLoadFalseAfterFailedLoad() async {
+        let mock = MockLibraryPersistence()
+        await mock.setFetchError(LibraryTestError.networkFailure)
+        let vm = LibraryViewModel(persistence: mock)
+        await vm.loadBooks()
+        #expect(vm.isInitialLoad == false, "Should become false even on error")
+    }
+
+    @Test @MainActor func isEmptyNotTrueDuringInitialLoad() {
+        let mock = MockLibraryPersistence()
+        let vm = LibraryViewModel(persistence: mock)
+        // Before first load, isEmpty is technically true (no books) but
+        // isInitialLoad distinguishes "haven't loaded yet" from "loaded and empty"
+        #expect(vm.isInitialLoad == true)
+        #expect(vm.books.isEmpty) // books are empty, but isInitialLoad signals we haven't tried yet
+    }
+
     @Test @MainActor func isEmptyTrueWhenNoBooks() async {
         let mock = MockLibraryPersistence()
         let vm = LibraryViewModel(persistence: mock)

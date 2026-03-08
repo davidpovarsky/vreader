@@ -41,6 +41,10 @@ final class LibraryViewModel {
         }
     }
 
+    /// Whether the initial load has not yet completed.
+    /// True until the first `loadBooks()` call finishes (success or failure).
+    private(set) var isInitialLoad = true
+
     /// Whether a refresh is in progress.
     private(set) var isRefreshing = false
 
@@ -94,6 +98,7 @@ final class LibraryViewModel {
                 ? nil
                 : ErrorMessageAuditor.sanitize(error)
         }
+        isInitialLoad = false
     }
 
     /// Refreshes the book list, throttled to prevent rapid consecutive calls.

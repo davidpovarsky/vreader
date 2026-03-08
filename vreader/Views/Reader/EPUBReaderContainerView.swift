@@ -14,12 +14,14 @@
 
 #if canImport(UIKit)
 import SwiftUI
+import UIKit
 
 /// Container view for the EPUB reader screen.
 struct EPUBReaderContainerView: View {
     let fileURL: URL
     let viewModel: EPUBReaderViewModel
     let parser: any EPUBParserProtocol
+    var settingsStore: ReaderSettingsStore?
 
     /// OPF directory — spine hrefs are resolved relative to this.
     @State private var resourceBase: URL?
@@ -29,6 +31,7 @@ struct EPUBReaderContainerView: View {
     @State private var webViewError: String?
     @State private var openTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -81,7 +84,29 @@ struct EPUBReaderContainerView: View {
         .onDisappear {
             openTask?.cancel()
             openTask = nil
-            Task { await viewModel.close() }
+            let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+            Task {
+                await viewModel.close()
+                if bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background, .inactive:
+                let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+                Task {
+                    await viewModel.onBackground()
+                    if bgTaskID != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgTaskID)
+                    }
+                }
+            case .active:
+                viewModel.onForeground()
+            @unknown default:
+                break
+            }
         }
         .accessibilityIdentifier("epubReaderContainer")
     }
@@ -119,6 +144,9 @@ struct EPUBReaderContainerView: View {
         EPUBWebViewBridge(
             contentURL: contentURL,
             baseDirectory: accessRoot,
+            themeCSS: settingsStore.map {
+                $0.theme.epubOverrideCSS(fontSize: $0.typography.fontSize)
+            },
             onProgressChange: { progress in
                 guard let position = viewModel.currentPosition,
                       let metadata = viewModel.metadata else { return }

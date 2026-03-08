@@ -408,10 +408,9 @@ struct PDFReaderViewModelLifecycleTests {
         try? vm.startSession()
         vm.pageDidChange(to: 3)
 
-        vm.onBackground()
+        await vm.onBackground()
 
-        // Give the background task a moment to complete
-        try? await Task.sleep(for: .milliseconds(50))
+        // Save is guaranteed complete after await — no Task.sleep needed
         let saveCount = await positionStore.saveCallCount
         #expect(saveCount >= 1)
     }
@@ -422,7 +421,7 @@ struct PDFReaderViewModelLifecycleTests {
         vm.documentDidLoad(totalPages: 10)
         try? vm.startSession()
 
-        vm.onBackground()
+        await vm.onBackground()
         vm.onForeground()
 
         #expect(vm.errorMessage == nil)

@@ -25,6 +25,13 @@
 import SwiftUI
 import SwiftData
 import os
+import Combine
+
+extension Notification.Name {
+    /// Posted by reader bridges when the user taps the content area.
+    /// Used by ReaderContainerView to toggle toolbar visibility.
+    static let readerContentTapped = Notification.Name("vreader.readerContentTapped")
+}
 
 /// Container view that dispatches to the correct format-specific reader.
 struct ReaderContainerView: View {
@@ -44,6 +51,8 @@ struct ReaderContainerView: View {
     @State private var selectedAnnotationsTab: AnnotationsPanelTab = .bookmarks
     @State private var searchViewModel: SearchViewModel?
     @State private var searchService: SearchService?
+    /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
+    @State private var isChromeVisible = true
 
     var body: some View {
         Group {
@@ -53,7 +62,8 @@ struct ReaderContainerView: View {
                     EPUBReaderHost(
                         fileURL: resolvedFileURL,
                         fingerprint: fingerprint,
-                        modelContainer: modelContext.container
+                        modelContainer: modelContext.container,
+                        settingsStore: settingsStore
                     )
                 case "pdf":
                     PDFReaderHost(
@@ -82,7 +92,20 @@ struct ReaderContainerView: View {
                 fingerprintErrorView
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isChromeVisible.toggle()
+            }
+        }
+        .accessibilityAction(named: isChromeVisible ? "Hide toolbar" : "Show toolbar") {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isChromeVisible.toggle()
+            }
+        }
         .navigationBarBackButtonHidden(true)
+        .toolbar(isChromeVisible ? .visible : .hidden, for: .navigationBar)
+        .statusBarHidden(!isChromeVisible)
+        .ignoresSafeArea(edges: isChromeVisible ? [] : [.top])
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -440,6 +463,7 @@ private struct EPUBReaderHost: View {
     let fileURL: URL
     let fingerprint: DocumentFingerprint
     let modelContainer: ModelContainer
+    let settingsStore: ReaderSettingsStore
 
     @State private var viewModel: EPUBReaderViewModel?
     @State private var parser: EPUBParser?
@@ -450,7 +474,8 @@ private struct EPUBReaderHost: View {
                 EPUBReaderContainerView(
                     fileURL: fileURL,
                     viewModel: viewModel,
-                    parser: parser
+                    parser: parser,
+                    settingsStore: settingsStore
                 )
             } else {
                 ProgressView()
@@ -499,7 +524,8 @@ enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
 }
 
 /// Sheet that hosts the tabbed annotations panel.
-/// Wires real list views for bookmarks, TOC, highlights, and annotations.
+/// Wires real list views for bookmarks, highlights, and annotations.
+/// TOC tab currently shows empty state — requires format-specific metadata wiring.
 private struct AnnotationsPanelSheet: View {
     @Binding var selectedTab: AnnotationsPanelTab
     let bookFingerprintKey: String

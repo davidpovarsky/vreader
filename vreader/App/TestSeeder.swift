@@ -30,6 +30,69 @@ enum TestSeeder {
         }
     }
 
+    /// Seeds a single TXT book with a real file for position persistence testing.
+    /// Creates a 5000-character text file in ImportedBooks/ and a matching Book record.
+    static func seedPositionTest(persistence: PersistenceActor) async {
+        // Clear existing data for clean state
+        await clearAllBooks(persistence: persistence)
+
+        let text = generateTestText()
+        let data = Data(text.utf8)
+        let hash = "0000000000000000000000000000000000000000000000000000000000f1ca5e"
+        let byteCount = Int64(data.count)
+
+        let fingerprint = DocumentFingerprint(
+            contentSHA256: hash,
+            fileByteCount: byteCount,
+            format: .txt
+        )
+
+        // Create the file in ImportedBooks
+        let booksDir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ImportedBooks", isDirectory: true)
+        try? FileManager.default.createDirectory(at: booksDir, withIntermediateDirectories: true)
+
+        let safeName = fingerprint.canonicalKey.replacingOccurrences(of: ":", with: "_")
+        let filePath = booksDir.appendingPathComponent(safeName).appendingPathExtension("txt")
+        try? data.write(to: filePath)
+
+        let provenance = ImportProvenance(
+            source: .localCopy,
+            importedAt: Date(),
+            originalURLBookmarkData: nil
+        )
+
+        let record = BookRecord(
+            fingerprintKey: fingerprint.canonicalKey,
+            title: "Position Test Book",
+            author: nil,
+            coverImagePath: nil,
+            fingerprint: fingerprint,
+            provenance: provenance,
+            detectedEncoding: "utf-8",
+            addedAt: Date()
+        )
+
+        do {
+            _ = try await persistence.insertBook(record)
+        } catch {
+            print("[TestSeeder] Warning: failed to seed position test book: \(error)")
+        }
+    }
+
+    /// Generates ~5000 characters of scrollable test content with numbered paragraphs.
+    private static func generateTestText() -> String {
+        var lines: [String] = []
+        lines.append("Position Persistence Test Document")
+        lines.append("")
+        for i in 1...100 {
+            lines.append("Paragraph \(i): This is test content for verifying reading position persistence. The reader should remember where you stopped reading and restore the scroll position when reopened.")
+            lines.append("")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Deletes all books from the database for a clean test state.
     ///
     /// - Parameter persistence: The persistence actor to clear.

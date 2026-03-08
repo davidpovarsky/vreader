@@ -61,6 +61,8 @@ struct VReaderApp: App {
                 Task.detached {
                     if seedConfig.seedEmpty {
                         await TestSeeder.clearAllBooks(persistence: persistence)
+                    } else if seedConfig.seedPositionTest {
+                        await TestSeeder.seedPositionTest(persistence: persistence)
                     } else if seedConfig.seedBooks {
                         await TestSeeder.seedBooks(persistence: persistence)
                     }
@@ -160,6 +162,7 @@ struct TestLaunchConfig: Sendable {
     let isUITesting: Bool
     let seedEmpty: Bool
     let seedBooks: Bool
+    let seedPositionTest: Bool
     let seedCorruptDB: Bool
     let colorSchemeOverride: ColorScheme?
     let dynamicTypeOverride: DynamicTypeSize?
@@ -196,6 +199,7 @@ struct TestLaunchConfig: Sendable {
             isUITesting: args.contains("--uitesting"),
             seedEmpty: args.contains("--seed-empty"),
             seedBooks: args.contains("--seed-books"),
+            seedPositionTest: args.contains("--seed-position-test"),
             seedCorruptDB: args.contains("--seed-corrupt-db"),
             colorSchemeOverride: colorScheme,
             dynamicTypeOverride: dynamicType,
@@ -210,6 +214,7 @@ struct TestLaunchConfig: Sendable {
         isUITesting: false,
         seedEmpty: false,
         seedBooks: false,
+        seedPositionTest: false,
         seedCorruptDB: false,
         colorSchemeOverride: nil,
         dynamicTypeOverride: nil,

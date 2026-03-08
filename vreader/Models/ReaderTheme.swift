@@ -64,5 +64,27 @@ enum ReaderTheme: String, Codable, CaseIterable, Sendable {
         case .dark: return Self.darkSecondary
         }
     }
+
+    /// Generates a `<style>` tag with CSS overrides for EPUB content rendering.
+    /// Injected into WKWebView to apply the reader theme to XHTML content.
+    func epubOverrideCSS(fontSize: CGFloat) -> String {
+        let bg = cssColor(backgroundColor)
+        let fg = cssColor(textColor)
+        let secondary = cssColor(secondaryTextColor)
+        let size = String(format: "%.1f", fontSize)
+        return """
+        <style id="vreader-theme">\
+        html, body { background-color: \(bg) !important; color: \(fg) !important; font-size: \(size)px !important; }\
+        a { color: \(secondary) !important; }\
+        </style>
+        """
+    }
+
+    /// Converts a UIColor to a CSS rgb() string.
+    private func cssColor(_ color: UIColor) -> String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return "rgb(\(Int(r * 255)),\(Int(g * 255)),\(Int(b * 255)))"
+    }
     #endif
 }

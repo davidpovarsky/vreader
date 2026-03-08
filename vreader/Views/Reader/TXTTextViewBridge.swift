@@ -19,7 +19,7 @@ import SwiftUI
 import UIKit
 
 /// Configuration for TXT text view appearance.
-struct TXTViewConfig: Sendable {
+struct TXTViewConfig: @unchecked Sendable {
     var fontSize: CGFloat = 18
     var fontName: String? = nil // nil = system font
     var lineSpacing: CGFloat = 6
@@ -27,6 +27,16 @@ struct TXTViewConfig: Sendable {
     var backgroundColor: UIColor = .white
     var letterSpacing: CGFloat = 0
     var textInset: UIEdgeInsets = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+
+    /// Returns true if rendering-relevant fields match (excludes textInset).
+    func renderingEquals(_ other: TXTViewConfig) -> Bool {
+        fontSize == other.fontSize
+            && fontName == other.fontName
+            && lineSpacing == other.lineSpacing
+            && textColor == other.textColor
+            && backgroundColor == other.backgroundColor
+            && letterSpacing == other.letterSpacing
+    }
 }
 
 /// Callback events from the text view bridge.
@@ -62,13 +72,44 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // TextKit 1 will only compute layout for the visible region + buffer.
         textView.layoutManager.allowsNonContiguousLayout = true
 
+        // Tap gesture for toolbar toggle — fires alongside UITextView's own gestures
+        let tapRecognizer = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleContentTap)
+        )
+        tapRecognizer.delegate = context.coordinator
+        textView.addGestureRecognizer(tapRecognizer)
+
         applyText(to: textView)
 
-        // Restore scroll position if requested
-        if let offset = restoreOffset {
-            DispatchQueue.main.async {
-                restoreScrollPosition(in: textView, toCharOffset: offset)
+        // Restore scroll position if requested (one-shot — never re-applied).
+        // Suppress scroll callbacks from the moment text is applied until restore
+        // settles, to block TextKit relayout storms (bug #24/#25).
+        // Hide the text view until restore completes to prevent the user seeing
+        // content at offset 0 before the jump (bug #27).
+        if let offset = restoreOffset, offset > 0 {
+            context.coordinator.hasRestoredPosition = true
+            context.coordinator.suppressScrollCallbacks = true
+            textView.alpha = 0
+            let coordinator = context.coordinator
+            // Phase 1 (t+0.15s): Initial restore after SwiftUI sizes the view.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                coordinator.attemptScrollRestore(in: textView, toCharOffset: offset)
             }
+            // Phase 2 (t+0.8s): Re-apply restore AFTER TextKit 1 relayout settles,
+            // then reveal. The TextKit 1 compatibility mode switch triggers a
+            // full relayout that resets contentOffset to 0 — this second restore
+            // overrides that reset.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                coordinator.attemptScrollRestore(in: textView, toCharOffset: offset)
+                coordinator.suppressScrollCallbacks = false
+                UIView.animate(withDuration: 0.15) {
+                    textView.alpha = 1
+                }
+            }
+        } else if let offset = restoreOffset {
+            // offset == 0: no need to hide, just mark as restored
+            context.coordinator.hasRestoredPosition = true
         }
 
         return textView
@@ -78,14 +119,8 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // Keep delegate reference in sync (SwiftUI may recreate the struct)
         context.coordinator.delegate = delegate
 
-        // Detect if config changed by comparing against stored config
-        let lastCfg = context.coordinator.lastConfig
-        let configChanged = lastCfg.fontSize != config.fontSize
-            || lastCfg.fontName != config.fontName
-            || lastCfg.lineSpacing != config.lineSpacing
-            || lastCfg.textColor != config.textColor
-            || lastCfg.backgroundColor != config.backgroundColor
-            || lastCfg.letterSpacing != config.letterSpacing
+        // Detect if config changed by comparing rendering-relevant fields
+        let configChanged = !context.coordinator.lastConfig.renderingEquals(config)
 
         // Update text or re-apply styling if config changed
         let textChanged = textView.attributedText.string != text
@@ -100,11 +135,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
             textView.textContainerInset = config.textInset
         }
 
-        // Handle offset restore — apply only once per value to avoid fighting user scroll
-        if let offset = restoreOffset, context.coordinator.lastRestoredOffset != offset {
-            context.coordinator.lastRestoredOffset = offset
-            restoreScrollPosition(in: textView, toCharOffset: offset)
-        }
+        // Scroll position restore is one-shot only (handled in makeUIView).
+        // Do NOT re-apply restoreOffset here — doing so creates an observation
+        // feedback loop: scroll → viewModel.currentOffsetUTF16 changes →
+        // SwiftUI re-renders → updateUIView → restoreScrollPosition → scroll (bug #15).
     }
 
     func makeCoordinator() -> Coordinator {
@@ -115,63 +149,80 @@ struct TXTTextViewBridge: UIViewRepresentable {
 
     private func applyText(to textView: UITextView) {
         if let attributedText {
-            // Use pre-built attributed string (e.g., from Markdown rendering)
+            // Use pre-built attributed string (from background thread or Markdown rendering)
             textView.attributedText = attributedText
-            textView.adjustsFontForContentSizeCategory = true
         } else {
-            // Build plain-text attributed string from text + config
-            let baseFont: UIFont
-            if let name = config.fontName {
-                baseFont = UIFont(name: name, size: config.fontSize) ?? .systemFont(ofSize: config.fontSize)
-            } else {
-                baseFont = .systemFont(ofSize: config.fontSize)
-            }
-            let font = UIFontMetrics.default.scaledFont(for: baseFont)
-            textView.adjustsFontForContentSizeCategory = true
-
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.lineSpacing = config.lineSpacing
-
-            var attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .paragraphStyle: paragraphStyle,
-                .foregroundColor: config.textColor,
-            ]
-            if config.letterSpacing != 0 {
-                attributes[.kern] = config.letterSpacing
-            }
-
-            textView.backgroundColor = config.backgroundColor
-            textView.attributedText = NSAttributedString(string: text, attributes: attributes)
+            // Fallback: build on main thread (small files or MD reader path)
+            textView.attributedText = TXTAttributedStringBuilder.build(text: text, config: config)
         }
+        textView.adjustsFontForContentSizeCategory = true
+        textView.backgroundColor = config.backgroundColor
     }
 
-    private func restoreScrollPosition(in textView: UITextView, toCharOffset offset: Int) {
-        let layoutManager = textView.layoutManager
-        let textLength = (textView.text as NSString?)?.length ?? 0
-        let clampedOffset = min(max(offset, 0), textLength)
-        let scrollY = TXTOffsetMapper.charOffsetToScrollOffset(
-            charOffset: clampedOffset,
-            layoutManager: layoutManager,
-            textContainer: textView.textContainer
-        )
-        textView.setContentOffset(CGPoint(x: 0, y: scrollY), animated: false)
-    }
+    // Scroll restore logic is in Coordinator.attemptScrollRestore (supports retry).
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         weak var delegate: TXTTextViewBridgeDelegate?
         var lastConfig: TXTViewConfig
-        /// Tracks the last restored offset to avoid re-applying on every updateUIView.
-        var lastRestoredOffset: Int?
+        /// One-shot flag: once true, scroll position restore is never attempted again.
+        /// Prevents the observation feedback loop (bug #15, #17) where:
+        /// scroll → viewModel update → SwiftUI re-render → restoreScrollPosition → scroll
+        var hasRestoredPosition = false
         /// Throttle scroll callbacks to ~10fps to avoid expensive TextKit queries per frame.
         private var lastScrollCallbackTime: CFTimeInterval = 0
         private static let scrollThrottleInterval: CFTimeInterval = 0.1
 
+        /// Retry counter for scroll restore when view has no valid frame yet.
+        private var restoreRetryCount = 0
+        private static let maxRestoreRetries = 5
+
+        /// Suppresses scroll delegate callbacks during position restore.
+        /// TextKit 1 compatibility mode switch causes relayout storms that
+        /// reset contentOffset to 0 — these ghost callbacks must be ignored.
+        var suppressScrollCallbacks = false
+
         init(delegate: TXTTextViewBridgeDelegate?, config: TXTViewConfig = TXTViewConfig()) {
             self.delegate = delegate
             self.lastConfig = config
+        }
+
+        /// Restores scroll position, retrying if the view has no valid frame.
+        /// TextKit returns zero-rect line fragments when the text container has
+        /// zero width, so charOffsetToScrollOffset returns 0 for all offsets.
+        func attemptScrollRestore(in textView: UITextView, toCharOffset offset: Int) {
+            guard textView.bounds.width > 0 else {
+                guard restoreRetryCount < Self.maxRestoreRetries else { return }
+                restoreRetryCount += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.attemptScrollRestore(in: textView, toCharOffset: offset)
+                }
+                return
+            }
+
+            let textLength = (textView.text as NSString?)?.length ?? 0
+            let clampedOffset = min(max(offset, 0), textLength)
+            let scrollY = TXTOffsetMapper.charOffsetToScrollOffset(
+                charOffset: clampedOffset,
+                layoutManager: textView.layoutManager,
+                textContainer: textView.textContainer
+            )
+            textView.setContentOffset(CGPoint(x: 0, y: scrollY), animated: false)
+        }
+
+        // MARK: - Content Tap (Toolbar Toggle)
+
+        @objc func handleContentTap(_ gesture: UITapGestureRecognizer) {
+            NotificationCenter.default.post(name: .readerContentTapped, object: nil)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
 
         // MARK: - Link Interaction Policy
@@ -198,6 +249,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard !suppressScrollCallbacks else { return }
             guard let textView = scrollView as? UITextView else { return }
 
             // Throttle: skip if called within the throttle interval
@@ -223,6 +275,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
         }
 
         private func sendScrollPosition(_ scrollView: UIScrollView) {
+            guard !suppressScrollCallbacks else { return }
             guard let textView = scrollView as? UITextView else { return }
             lastScrollCallbackTime = CACurrentMediaTime()
             let topOffset = TXTOffsetMapper.scrollOffsetToCharOffset(

@@ -217,16 +217,16 @@ final class PDFReaderViewModel {
     }
 
     /// Called when the app moves to background while reader is open.
-    func onBackground() {
+    /// Awaits the position save to guarantee it completes before iOS suspends.
+    /// Callers must use `beginBackgroundTask` to ensure execution time.
+    func onBackground() async {
         if isDocumentLoaded {
             let locator = makeCurrentLocator()
-            Task { [bookFingerprintKey, deviceId, positionStore] in
-                try? await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            }
+            try? await positionStore.savePosition(
+                bookFingerprintKey: bookFingerprintKey,
+                locator: locator,
+                deviceId: deviceId
+            )
         }
 
         if let start = segmentStartDate {

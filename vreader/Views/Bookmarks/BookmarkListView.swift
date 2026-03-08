@@ -10,6 +10,9 @@ struct BookmarkListView: View {
     @Bindable var viewModel: BookmarkListViewModel
     let onNavigate: (Locator) -> Void
 
+    @State private var renamingBookmark: BookmarkRecord?
+    @State private var renameText: String = ""
+
     var body: some View {
         Group {
             if viewModel.isEmpty {
@@ -29,6 +32,26 @@ struct BookmarkListView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+        .alert("Rename Bookmark", isPresented: .init(
+            get: { renamingBookmark != nil },
+            set: { if !$0 { renamingBookmark = nil } }
+        )) {
+            TextField("Bookmark title", text: $renameText)
+            Button("Save") {
+                guard let bookmark = renamingBookmark else { return }
+                let newTitle = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                Task {
+                    await viewModel.updateTitle(
+                        bookmarkId: bookmark.bookmarkId,
+                        title: newTitle.isEmpty ? nil : newTitle
+                    )
+                }
+                renamingBookmark = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingBookmark = nil
+            }
         }
     }
 
@@ -50,6 +73,21 @@ struct BookmarkListView: View {
                     onNavigate(bookmark.locator)
                 } label: {
                     BookmarkRowView(bookmark: bookmark)
+                }
+                .contextMenu {
+                    Button {
+                        renameText = bookmark.title ?? ""
+                        renamingBookmark = bookmark
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        Task {
+                            await viewModel.removeBookmark(bookmarkId: bookmark.bookmarkId)
+                        }
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
                 .accessibilityIdentifier("bookmarkRow-\(bookmark.bookmarkId)")
             }

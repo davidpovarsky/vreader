@@ -81,7 +81,7 @@ final class TXTReaderViewModel {
 
     // MARK: - Dependencies
 
-    private let bookFingerprint: DocumentFingerprint
+    let bookFingerprint: DocumentFingerprint
     let bookFingerprintKey: String
     private let txtService: any TXTServiceProtocol
     private let positionStore: any ReadingPositionPersisting

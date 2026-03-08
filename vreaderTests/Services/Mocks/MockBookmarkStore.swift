@@ -62,6 +62,19 @@ actor MockBookmarkStore: BookmarkPersisting {
         return ids.contains { bookmarks[$0]?.profileKey == profileKey }
     }
 
+    func updateBookmarkTitle(bookmarkId: UUID, title: String?) async throws {
+        guard var record = bookmarks[bookmarkId] else { return }
+        record = BookmarkRecord(
+            bookmarkId: record.bookmarkId,
+            locator: record.locator,
+            profileKey: record.profileKey,
+            title: title,
+            createdAt: record.createdAt,
+            updatedAt: Date()
+        )
+        bookmarks[bookmarkId] = record
+    }
+
     // MARK: - Test Helpers
 
     func seed(_ record: BookmarkRecord, forBookWithKey key: String) {

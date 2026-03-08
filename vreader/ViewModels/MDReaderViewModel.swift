@@ -61,7 +61,7 @@ final class MDReaderViewModel {
 
     // MARK: - Dependencies
 
-    private let bookFingerprint: DocumentFingerprint
+    let bookFingerprint: DocumentFingerprint
     let bookFingerprintKey: String
     private let parser: any MDParserProtocol
     private let positionStore: any ReadingPositionPersisting

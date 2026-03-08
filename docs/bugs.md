@@ -2,28 +2,35 @@
 
 Track bugs here. Tell the agent "fix bug #N" to start a fix.
 
+## Rules
+
+- **Bugs vs features**: If something was implemented but doesn't work correctly, it is a **bug** — track it here. If something was never implemented, it is a **feature** — track it in `docs/features.md`. Never mix them.
+- **Partial implementations**: If something is partially implemented, the broken part is a bug here; the missing capability is a feature in `docs/features.md`. Link them.
+- **Source of truth**: The **Summary table** at the bottom is the single source of truth for bug status. The Description/Cause/Solution/Lesson sections are historical reference.
+
 ## How to use
 
 1. Add bugs as you find them (fill in Summary and File/Area at minimum)
-2. Tell the agent: "fix bug #2" — it will follow the workflow in AGENTS.md
+2. Tell the agent: "fix bug #N" — it will follow the workflow below
+3. Agent updates Status when done
 
 - **Bug fix workflow** (follow this order for every bug):
-  1. **Understand**: Read the file/area, reproduce the symptom, identify root cause (not just location).Run `/codex-toolkit:bug-analyze`
+  1. **Understand**: Read the file/area, reproduce the symptom, identify root cause (not just location). Run `/codex-toolkit:bug-analyze`. If it is not a bug, move it to `docs/features.md`.
   2. **RED**: Write a failing test that proves the bug exists.
   3. **GREEN**: Minimal fix to make the test pass.
   4. **REFACTOR**: Clean up without changing behavior.
-  5. **Verify**: Run tests, confirm the fix, check for regressions. Run `/codex-toolkit:audit-fix` on changed files
-  6. **Track**: Update `docs/bugs.md` status to FIXED.
+  5. **Verify**: Run tests, confirm the fix, check for regressions. Run `/codex-toolkit:audit-fix` on changed files.
+  6. **Track**: Update status in the Summary table to FIXED.
   7. Do NOT commit unless explicitly requested.
   8. Record the cause of the bugs, the solutions, and the lessons learned.
-
-4. Agent updates Status when done
 
 ## Statuses
 
 - `TODO` — not started
 - `IN PROGRESS` — being worked on
-- `FIXED` — fix committed
+- `FIXED` — fix verified in working tree (not necessarily committed)
+- `REOPENED` — previously fixed but regressed; link to original fix
+- `DUPLICATE` — duplicate of another bug; note `DUPLICATE OF #N`
 - `WONT FIX` — intentional behavior or out of scope
 
 ## Bugs
@@ -64,11 +71,17 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 32. ~~Cannot hide the top and bottom bars in PDF files.~~
 33. ~~TXT files do not show the reading time or the remaining time.~~
 34. ~~The sorting feature for books by reading time and last read is unavailable.~~
-35. The bottom bar does not share the same theme as the top bar.
-36. Cannot jump to the searched location when tapped.
-37. It takes time for the changes to take effect after the theme or font size is changed.
-38. It takes time to jump to the saved progress after reopening the file.
-39. The bottom bar cannot be hidden when tapped.
+35. ~~The bottom bar does not share the same theme as the top bar.~~
+36. ~~Cannot jump to the searched location when tapped.~~
+37. ~~It takes time for the changes to take effect after the theme or font size is changed.~~
+38. ~~It takes time to jump to the saved progress after reopening the file.~~
+39. ~~The bottom bar cannot be hidden when tapped.~~
+40. ~~Cannot jump to the searched location when tapped. It jumped, but not to the correct location.~~
+41. ~~It takes time to jump to the saved progress after reopening the file. # 38 I have to wait for a while.~~
+42. ~~Bookmarks cannot be edited and cannot jump to the location when tapped.~~
+43. ~~The search result is not highlighted when jumped to.~~
+44. ~~Cannot manually highlight or add notes.~~
+45. ~~Books sorted by “Last Read” do not take effect.~~
 
 ### Cause
 
@@ -92,6 +105,17 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 - **#32**: Same root cause as #20/#21 — PDFView's internal gesture recognizers consume tap events before they reach SwiftUI's `onTapGesture` modifier. The toolbar toggle notification never fires in PDF mode.
 - **#33**: TXT reader's `ReaderContainerView` had no bottom overlay showing reading progress or session time. The ViewModel already computed `totalProgression` and `sessionTimeDisplay`, but no view displayed them.
 - **#34**: `ReadingStats.recompute(from:)` existed in the data model but was never called. No code path triggered stats recomputation after reading sessions ended, so `totalReadingTime` and `lastReadDate` in `ReadingStats` remained at their initial values. Library sorting by these fields showed all books as equal.
+- **#35**: Bottom overlays used `.ultraThinMaterial` which follows system light/dark mode but NOT the reader's custom theme (sepia, dark). The navigation bar also used system defaults — no `.toolbarColorScheme()` was applied. In sepia theme, the content is warm-toned but bars remain white.
+- **#36**: The `onNavigate` callback in `ReaderContainerView.searchSheet` was a no-op stub — it just closed the sheet without navigating. The comment said "format-specific readers will wire this when they support search navigation" but it was never wired.
+- **#37**: When theme or font settings changed, `attrStringKey` triggered `.task(id:)` which set `isBuildingAttrString = true`, showing a loading spinner and hiding the existing content. The attributed string rebuild on a background thread took noticeable time, causing a visible flash.
+- **#38**: Position restore used a fixed 0.8s Phase 2 delay (`asyncAfter(deadline: .now() + 0.8)`) to wait for TextKit 1 relayout to settle. This delay was conservative — TextKit layout often completes much faster. The UITextView was hidden (`alpha = 0`) for the entire duration, making reopen feel slow.
+- **#39**: `isChromeVisible` was a `@State` in `ReaderContainerView` that controlled only the navigation bar and status bar. The bottom overlays lived in format-specific container views (TXT, EPUB, PDF, MD) which had no access to `isChromeVisible` — they were always visible regardless of tap state.
+- **#40**: Two independent issues: (1) `allowsNonContiguousLayout` causes TextKit to use estimated line heights for unvisited regions — `charOffsetToScrollOffset` returns inaccurate Y positions. (2) `SearchHitToLocatorResolver` didn't populate `charRangeStartUTF16`/`charRangeEndUTF16` on Locators, so match ranges couldn't be carried to the bridge.
+- **#41**: Position restore used a 0.15s Phase 1 + 0.15s Phase 2 delay totaling ~0.3s, with a 0.15s fade-in animation on top. The `ensureLayout` call from bug #38 fix made layout complete faster, but Phase 2 delay was still conservatively 0.15s and the animation added unnecessary perceived wait.
+- **#42**: `AnnotationsPanelSheet` had no-op `onNavigate` closures — all four tabs (bookmarks, TOC, highlights, annotations) ignored tap. Also, `BookmarkPersisting` protocol lacked `updateBookmarkTitle`, so bookmarks couldn't be renamed.
+- **#43**: When navigating to a search result, the bridge scrolled to the offset but applied no visual indicator on the matched text. Without a highlight, users couldn't identify which text was the search match.
+- **#44**: Selection tracking worked in `TXTReaderViewModel` (capturing start/end UTF-16 offsets), but no UI was presented to create highlights or notes from the selection. UITextView's default edit menu only offered Copy/Select All — no "Highlight" or "Add Note" options.
+- **#45**: `LibraryView` loaded books via `.task { await viewModel.loadBooks() }` which only runs once per view lifetime. When navigating back from the reader (where `recomputeStats()` updates `lastReadAt`), the library showed stale cached data. Sorting by "Last Read" used correct logic but operated on outdated values.
 
 ### Solution
 
@@ -113,30 +137,52 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 - **#32**: Added `UITapGestureRecognizer` to `PDFViewBridge.Coordinator` with `shouldRecognizeSimultaneouslyWith` returning `true`. The tap handler posts `.readerContentTapped` notification, matching the pattern used for TXT (#21) and EPUB (#20).
 - **#33**: Added `txtBottomOverlay` to `TXTReaderContainerView` showing reading progress percentage (from `viewModel.totalProgression`) and session time (from `viewModel.sessionTimeDisplay`). Uses `.ultraThinMaterial` background matching EPUB's bottom overlay pattern.
 - **#34**: Created `PersistenceActor+Stats.swift` with `recomputeStats(bookFingerprintKey:bookFingerprint:)` method. Wired it into `close()` of all four ViewModels (TXT, MD, EPUB, PDF) via conditional cast `positionStore as? PersistenceActor`. Stats are now recomputed from `ReadingSession` records each time the reader closes.
+- **#35**: Replaced `.ultraThinMaterial` with theme-matched background (`theme.backgroundColor` at 92% opacity) and theme-matched text colors (`theme.secondaryTextColor`) in all bottom overlays (TXT, EPUB, MD). Added `.toolbarColorScheme(settingsStore.theme.preferredColorScheme, for: .navigationBar)` to `ReaderContainerView` so the nav bar matches the reader theme. PDF uses `.regularMaterial` (no custom theme).
+- **#36**: Replaced the no-op `onNavigate` stub with a `NotificationCenter` post of `.readerNavigateToLocator` carrying the search result's `Locator`. Each container view listens for this notification and navigates accordingly: TXT/MD scroll to `charOffsetUTF16` via `scrollToOffset` state + bridge update; PDF sets `restoredPage` to trigger `PDFViewBridge` navigation; EPUB resolves `href` to spine index and updates `contentURL`.
+- **#37**: Changed `isBuildingAttrString` to `isBuildingInitialAttrString` — only shows the loading spinner when no content exists yet (initial load). Subsequent rebuilds from settings changes keep the old content visible while the new attributed string is built in the background, then swap seamlessly when ready.
+- **#38**: Added `layoutManager.ensureLayout(forCharacterRange:)` call before Phase 1 restore to force TextKit to complete layout synchronously. This triggers the TextKit 1 relayout immediately rather than waiting for it asynchronously. Reduced Phase 2 safety delay from 0.8s to 0.15s since `ensureLayout` already forced layout completion. Total restore time dropped from ~0.8s to ~0.3s.
+- **#39**: Added `@State private var isChromeVisible = true` to all four container views (TXT, EPUB, PDF, MD). Each listens for `.readerContentTapped` notification and toggles `isChromeVisible`. Bottom overlays are gated on this flag — they now hide/show in sync with the navigation bar.
+- **#40**: Two fixes: (1) Added `layoutManager.ensureLayout(forCharacterRange:)` before `attemptScrollRestore` in the search navigation path of `updateUIView`, forcing synchronous layout up to the target offset + 4K buffer. (2) Updated `SearchHitToLocatorResolver.resolveTXT/resolveMD` to populate `charRangeStartUTF16`/`charRangeEndUTF16` on the Locator from the hit's match offsets.
+- **#41**: Reduced Phase 2 safety delay from 0.15s to 0.05s and removed the fade-in animation (alpha set to 1 immediately). Total perceived restore time reduced from ~0.45s to ~0.2s.
+- **#42**: Wired all four `AnnotationsPanelSheet` tabs to post `.readerNavigateToLocator` notifications and dismiss the sheet. Added `updateBookmarkTitle` to `BookmarkPersisting` protocol and `PersistenceActor+Bookmarks`. Added `updateTitle` method to `BookmarkListViewModel`. Added context menu with "Rename" and "Delete" actions to `BookmarkListView`, with a rename alert dialog.
+- **#43**: Added `highlightRange: NSRange?` parameter to `TXTTextViewBridge`. When set, applies a yellow background attribute (`.systemYellow` at 40% opacity) to the text storage at the match range. Auto-clears after 3 seconds. Updated `TXTReaderContainerView` and `MDReaderContainerView` to capture match range from `Locator.charRangeStartUTF16/charRangeEndUTF16` and pass to the bridge.
+- **#44**: Added custom edit menu items to UITextView using `textView(_:editMenuForTextIn:suggestedActions:)` (iOS 16+). "Highlight" and "Add Note" actions appear in the text selection menu. Actions post `.readerHighlightRequested` / `.readerAnnotationRequested` notifications with `TextSelectionInfo` (selected text + UTF-16 range). Container views (TXT/MD) observe these notifications and create highlights/annotations via `PersistenceActor` using `LocatorFactory.txtRange/mdRange` for proper locator creation with quote/context extraction.
+- **#45**: Added `.onAppear { Task { await viewModel.refresh() } }` to `LibraryView`. The `refresh()` method has a built-in 5-second throttle, so the first appear (alongside `.task`) is harmless. Subsequent appears (e.g., navigating back from reader) trigger a re-fetch that picks up updated `lastReadAt` values from `ReadingStats`.
 
 ### Lesson
 
 - TextKit 1 has a fundamental scaling limit: a single UITextView cannot smoothly handle multi-megabyte attributed strings regardless of layout optimization flags. For large documents, virtualized rendering (UITableView/UICollectionView with cell reuse) is the correct pattern — the same principle as "windowing" in web development.
 - Always distinguish "not loaded yet" from "loaded and empty" in ViewModel state. A simple boolean flag prevents confusing UI states during async data fetching.
-- **Never read a rapidly-mutating ********************************`@Observable`******************************** property in a SwiftUI body that gets passed back to the same UIViewRepresentable that updates it.** This creates a feedback loop: UIKit event → Observable mutation → SwiftUI re-render → UIKit state change → UIKit event. Use `@State` to capture one-shot values instead.
+- **Never read a rapidly-mutating ************************************`@Observable`************************************ property in a SwiftUI body that gets passed back to the same UIViewRepresentable that updates it.** This creates a feedback loop: UIKit event → Observable mutation → SwiftUI re-render → UIKit state change → UIKit event. Use `@State` to capture one-shot values instead.
 - **`DispatchQueue.main.async`**\*\* in ****`makeUIView`**** is NOT reliable for layout-dependent operations.\*\* The UIView hasn't been added to the view hierarchy or sized by SwiftUI when `makeUIView` returns. Use `asyncAfter` with a delay (≥100ms) to allow the layout pass to complete before computing positions that depend on the view's frame.
-- **UIKit gesture recognizers in ****************************`UIViewRepresentable`**************************** views intercept touches before SwiftUI gesture modifiers.** `WKWebView` and `UITextView` with `isSelectable = true` both consume single-tap events. To handle taps inside these views, install your own `UITapGestureRecognizer` (with `shouldRecognizeSimultaneously = true`) or use JavaScript event handlers (for WKWebView). Using `NotificationCenter` to communicate back to the SwiftUI parent avoids callback threading through the view hierarchy.
+- **UIKit gesture recognizers in ********************************`UIViewRepresentable`******************************** views intercept touches before SwiftUI gesture modifiers.** `WKWebView` and `UITextView` with `isSelectable = true` both consume single-tap events. To handle taps inside these views, install your own `UITapGestureRecognizer` (with `shouldRecognizeSimultaneously = true`) or use JavaScript event handlers (for WKWebView). Using `NotificationCenter` to communicate back to the SwiftUI parent avoids callback threading through the view hierarchy.
 - \*\*Conditional ****`.ignoresSafeArea(edges:)`**** with ****`Edge.Set`**** as an \*\***`OptionSet`** supports passing `[]` for no-op. This enables safe area behavior that changes with state (e.g., extend content when toolbar is hidden).
-- **If a ViewModel has ************************`onBackground()`************************/********`onForeground()`********\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\* methods, the View MUST wire them to ************************`@Environment(\.scenePhase)`************************.** Otherwise the immediate-save and session-pause logic is dead code. Debounced saves alone are insufficient — the app can be killed before the debounce fires.
+- **If a ViewModel has ****************************`onBackground()`****************************/********`onForeground()`********\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\* methods, the View MUST wire them to ****************************`@Environment(\.scenePhase)`****************************.** Otherwise the immediate-save and session-pause logic is dead code. Debounced saves alone are insufficient — the app can be killed before the debounce fires.
 - **`@MainActor`**\*\* async methods can interleave at ****`await`**** suspension points.\*\* Two `@MainActor` methods (like `open()` and `close()`) can race when both are called from different Tasks. Use generation counters and completion flags (e.g., `isOpenComplete`) to guard against saving stale intermediate state.
 - **`asyncAfter`**\*\* with a fixed delay is fragile for layout-dependent operations.\*\* Instead of trusting that 150ms is enough, check `bounds.width > 0` and retry with a bounded retry count. This handles slow devices and complex view hierarchies where SwiftUI's layout pass takes longer than expected.
-- **Never use fire-and-forget ********************`Task { }`******************** for critical saves in ********************`onBackground()`******************** or ********************`.onDisappear`********************.** The Task requires an async actor hop that may not complete before iOS suspends the process. Make `onBackground()` async and `await` the save. Wrap the caller's Task with `UIApplication.shared.beginBackgroundTask` to request execution time from iOS before suspension.
-- **Every reader container view must wire ********************`@Environment(\.scenePhase)`********************.** Without it, `onBackground()`/`onForeground()` are dead code. The debounced save alone is insufficient — the app can be killed at any time between debounce intervals.
+- **Never use fire-and-forget ************************`Task { }`************************ for critical saves in ************************`onBackground()`************************ or ************************`.onDisappear`************************.** The Task requires an async actor hop that may not complete before iOS suspends the process. Make `onBackground()` async and `await` the save. Wrap the caller's Task with `UIApplication.shared.beginBackgroundTask` to request execution time from iOS before suspension.
+- **Every reader container view must wire ************************`@Environment(\.scenePhase)`************************.** Without it, `onBackground()`/`onForeground()` are dead code. The debounced save alone is insufficient — the app can be killed at any time between debounce intervals.
 - **TextKit 1 compatibility mode switch destroys scroll position.** Accessing `UITextView.layoutManager` triggers a full relayout that resets `contentOffset`. Suppress all `scrollViewDidScroll` callbacks from the moment text is loaded until after the scroll restore settles. Use a flag on the Coordinator (not just ViewModel-level guards) because the ghost callbacks originate in UIKit before reaching SwiftUI.
 - **Distance-based scroll guards are insufficient for layout storms.** TextKit relayout can jump `contentOffset` to zero, which exceeds any reasonable tolerance. Use time-based suppression (suppress for N seconds after restore) or flag-based suppression (suppress until explicitly cleared) instead.
 - **Suppressing callbacks is not enough — the visual position must also be re-applied.** When TextKit relayout destroys a restored `contentOffset`, the user sees the wrong position even if no bad data is saved. The fix requires re-applying `setContentOffset` *after* the relayout settles (Phase 2 restore), not just suppressing the resulting scroll callbacks.
 - **Hide content during async position restore.** When scroll position restore requires delayed phases (for TextKit layout settling), set `alpha = 0` on the view until the final restore completes. Showing content at the wrong position and then jumping is worse UX than showing a loading state for 0.8s longer.
-- **FTS5 ****`snippet()`**** is per-row, not per-occurrence.** When expanding FTS5 results to multiple match offsets within one row, each occurrence needs its own context window. Store the original source text during indexing so you can generate per-occurrence snippets at query time.
-- **Composite keys for ****`@Observable`****-driven rebuilds must include ALL mutable properties.** If a `.task(id:)` key omits a property, changes to that property won't trigger a rebuild. Audit all properties that affect the output and include them in the key.
-- **Sheet ****`.presentationDetents`**** should match the use case.** Settings/preview sheets should constrain to `.medium` so the underlying content remains visible for real-time preview. Only use `.large` when the sheet needs full screen space.
-- **`NotificationCenter`**** is the right cross-view communication pattern in SwiftUI when views don't share a direct data path.** Format-specific container views can't easily share a common ViewModel protocol for diverse operations like bookmark creation. A notification + `modelContainer` passthrough is simpler than threading callbacks or generic protocols through the view hierarchy.
-- **UIKit views with internal gesture recognizers (PDFView, UITextView, WKWebView) need ****`shouldRecognizeSimultaneouslyWith`**** for tap coexistence.** This is a recurring pattern — any UIViewRepresentable wrapping an interactive UIKit view will consume taps before SwiftUI sees them.
+- **FTS5 ********`snippet()`******** is per-row, not per-occurrence.** When expanding FTS5 results to multiple match offsets within one row, each occurrence needs its own context window. Store the original source text during indexing so you can generate per-occurrence snippets at query time.
+- **Composite keys for ********`@Observable`********-driven rebuilds must include ALL mutable properties.** If a `.task(id:)` key omits a property, changes to that property won't trigger a rebuild. Audit all properties that affect the output and include them in the key.
+- **Sheet ********`.presentationDetents`******** should match the use case.** Settings/preview sheets should constrain to `.medium` so the underlying content remains visible for real-time preview. Only use `.large` when the sheet needs full screen space.
+- **`NotificationCenter`**\*\* is the right cross-view communication pattern in SwiftUI when views don't share a direct data path.\*\* Format-specific container views can't easily share a common ViewModel protocol for diverse operations like bookmark creation. A notification + `modelContainer` passthrough is simpler than threading callbacks or generic protocols through the view hierarchy.
+- **UIKit views with internal gesture recognizers (PDFView, UITextView, WKWebView) need ********`shouldRecognizeSimultaneouslyWith`******** for tap coexistence.** This is a recurring pattern — any UIViewRepresentable wrapping an interactive UIKit view will consume taps before SwiftUI sees them.
 - **Wire computed stats to lifecycle events, not just data mutations.** Having a `recompute(from:)` method is useless if nothing calls it. Stats aggregation should be triggered at reader close — the natural lifecycle event where session data is finalized.
+- **Reader chrome (bars, overlays) must use the reader's theme, not system theme.** `.ultraThinMaterial` follows system light/dark mode but ignores custom reader themes like sepia. Use the theme's actual colors with slight transparency for overlays, and `.toolbarColorScheme()` for the navigation bar.
+- **Never leave stub callbacks in shipping code.** A no-op `onNavigate: { _ in }` is indistinguishable from a bug. If a feature isn't ready, show a "coming soon" toast or disable the trigger — don't silently swallow the user's action.
+- **Show old content during settings-driven rebuilds.** When a settings change triggers an expensive rebuild (e.g., NSAttributedString), keep the previous content visible and swap when the new content is ready. Only show a loading spinner for the initial load when no content exists.
+- **Use ****`layoutManager.ensureLayout(forCharacterRange:)`**** instead of fixed delays for TextKit layout.** Forcing synchronous layout is faster and more reliable than waiting a fixed time. Fall back to a short safety delay as a belt-and-suspenders approach.
+- **Decouple chrome visibility from the view hierarchy.** When parent and child views need to share toggle state but don't have a direct binding path, `NotificationCenter` is the right pattern. Each view listens for the same notification and maintains its own `@State` — simple and reliable.
+- **`ensureLayout(forCharacterRange:)` is essential before any programmatic scroll in non-contiguous layout mode.** Without it, TextKit uses estimated line heights for unvisited regions, giving incorrect Y positions. The range should cover at least the target offset for accurate results.
+- **Search result match ranges must travel end-to-end through the pipeline.** From tokenizer offset → FTS5 hit → Locator → bridge. If any stage drops the range, highlights and precise navigation break. Always propagate `charRangeStartUTF16/charRangeEndUTF16` alongside `charOffsetUTF16`.
+- **Temporary visual highlights should auto-clear.** A search highlight that persists indefinitely confuses users. Use a Timer to remove background attributes after a few seconds. Always clamp ranges to text storage length to avoid crashes.
+- **`textView(_:editMenuForTextIn:suggestedActions:)` (iOS 16+) is the cleanest way to add custom actions to UITextView's selection menu.** It replaces the deprecated `UIMenuController.shared.menuItems` approach and integrates naturally with the system edit menu.
+- **`.task` in SwiftUI only runs once per view lifetime.** If data changes while the view is off-screen (e.g., stats updated in reader), the library won't refresh automatically. Use `.onAppear` with a throttled `refresh()` to pick up changes when the user navigates back.
+- **`NotificationCenter` scales well for cross-view communication in UIViewRepresentable.** Bridge-level actions (highlight, note from edit menu) can't easily call SwiftUI callbacks. Posting notifications with lightweight info structs and observing via `.onReceive` decouples the bridge from SwiftUI state management.
 
 ### Summary
 
@@ -176,4 +222,16 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 32 | Cannot hide top and bottom bars in PDF files                                                          | PDF/\*     | Medium   | FIXED  | PDFView internal gestures consumed taps; added UITapGestureRecognizer with shouldRecognizeSimultaneously + .readerContentTapped notification       |
 | 33 | TXT files do not show reading time or remaining time                                                  | TXT/\*     | Low      | FIXED  | No bottom overlay in TXT reader; added txtBottomOverlay showing progress % and session time                                                        |
 | 34 | Sorting by reading time and last read is unavailable                                                  | Library/\* | Medium   | FIXED  | ReadingStats.recompute(from:) never called; wired into all 4 ViewModel close() methods via PersistenceActor+Stats extension                        |
+| 35 | Bottom bar does not share theme with top bar                                                          | Reader/\*  | Low      | FIXED  | Overlays used .ultraThinMaterial (system theme); replaced with theme-matched colors + .toolbarColorScheme for nav bar                              |
+| 36 | Cannot jump to searched location when tapped                                                          | Reader/\*  | High     | FIXED  | onNavigate was a no-op stub; wired via .readerNavigateToLocator notification to all 4 format container views                                       |
+| 37 | Theme/font changes take time to apply                                                                 | TXT/\*     | Medium   | FIXED  | Loading spinner shown during settings-driven rebuild; changed to keep old content visible, only show spinner for initial load                      |
+| 38 | Slow position restore on file reopen                                                                  | TXT/\*     | Low      | FIXED  | Fixed 0.8s Phase 2 delay; added ensureLayout() for synchronous TextKit layout, reduced total to \~0.3s                                             |
+| 39 | Bottom bar cannot be hidden when tapped                                                               | Reader/\*  | Medium   | FIXED  | isChromeVisible only controlled nav bar; added local isChromeVisible to all container views, gated bottom overlays on it                           |
+| 40 | Search navigation jumps to wrong location                                                             | Reader/\*  | High     | FIXED  | Missing ensureLayout in search scroll path + missing match range in Locator; added ensureLayout + populated charRangeStart/End in resolver         |
+| 41 | Slow position restore after reopening file (regression of #38)                                        | TXT/\*     | Low      | FIXED  | Phase 2 delay 0.15s + fade-in 0.15s; reduced Phase 2 to 0.05s, removed animation                                                                  |
+| 42 | Bookmarks cannot be edited or navigated                                                               | Reader/\*  | High     | FIXED  | No-op onNavigate in annotations panel; wired all tabs + added bookmark rename via context menu + alert                                              |
+| 43 | Search result not highlighted when navigated                                                          | Reader/\*  | Medium   | FIXED  | No visual indicator at match; added highlightRange to bridge with yellow background attribute, auto-clears after 3s                                 |
+| 44 | Cannot manually highlight or add notes                                                                | Reader/\*  | High     | FIXED  | No edit menu for text selection; added Highlight/Add Note to UITextView edit menu via editMenuForTextIn + NotificationCenter to container views     |
+| 45 | Books sorted by "Last Read" shows stale order                                                         | Library/\* | Medium   | FIXED  | .task only runs once; added .onAppear with throttled refresh() to reload stats when returning from reader                                          |
+| 46 | Manual highlight saves record but content not highlighted                                              | Reader/\*  | Medium   | TODO   | Highlight action (bug #44) creates a record, but the text is not visually highlighted in the reader                                                |
 

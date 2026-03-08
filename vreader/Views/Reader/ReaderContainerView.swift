@@ -37,6 +37,23 @@ extension Notification.Name {
     /// Posted by ReaderContainerView when the user taps the bookmark button.
     /// Format-specific container views observe this and save a bookmark at the current position.
     static let readerBookmarkRequested = Notification.Name("vreader.readerBookmarkRequested")
+    /// Posted by ReaderContainerView when the user taps a search result.
+    /// The notification's `object` is the `Locator` to navigate to.
+    /// Format-specific container views observe this and scroll/navigate accordingly.
+    static let readerNavigateToLocator = Notification.Name("vreader.readerNavigateToLocator")
+    /// Posted by text view bridges when the user selects "Highlight" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerHighlightRequested = Notification.Name("vreader.readerHighlightRequested")
+    /// Posted by text view bridges when the user selects "Add Note" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerAnnotationRequested = Notification.Name("vreader.readerAnnotationRequested")
+}
+
+/// Carries text selection info from bridges to container views via NotificationCenter.
+struct TextSelectionInfo {
+    let selectedText: String
+    let startUTF16: Int
+    let endUTF16: Int
 }
 
 /// Container view that dispatches to the correct format-specific reader.
@@ -112,6 +129,7 @@ struct ReaderContainerView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(isChromeVisible ? .visible : .hidden, for: .navigationBar)
+        .toolbarColorScheme(settingsStore.theme.preferredColorScheme, for: .navigationBar)
         .statusBarHidden(!isChromeVisible)
         .ignoresSafeArea(edges: isChromeVisible ? [] : [.top])
         .toolbar {
@@ -168,6 +186,7 @@ struct ReaderContainerView: View {
         .sheet(isPresented: $showAnnotationsPanel) {
             AnnotationsPanelSheet(
                 selectedTab: $selectedAnnotationsTab,
+                isPresented: $showAnnotationsPanel,
                 bookFingerprintKey: book.fingerprintKey,
                 modelContainer: modelContext.container,
                 tocEntries: tocEntries
@@ -392,9 +411,11 @@ struct ReaderContainerView: View {
         if let searchViewModel {
             SearchView(
                 viewModel: searchViewModel,
-                onNavigate: { _ in
-                    // Navigation to search result location — format-specific
-                    // readers will wire this when they support search navigation.
+                onNavigate: { locator in
+                    NotificationCenter.default.post(
+                        name: .readerNavigateToLocator,
+                        object: locator
+                    )
                     showSearch = false
                 },
                 onDismiss: {
@@ -623,6 +644,7 @@ enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
 /// TOC entries are passed in from the parent (computed per book format).
 private struct AnnotationsPanelSheet: View {
     @Binding var selectedTab: AnnotationsPanelTab
+    @Binding var isPresented: Bool
     let bookFingerprintKey: String
     let modelContainer: ModelContainer
     let tocEntries: [TOCEntry]
@@ -651,24 +673,29 @@ private struct AnnotationsPanelSheet: View {
                     switch selectedTab {
                     case .bookmarks:
                         if let vm = bookmarkVM {
-                            BookmarkListView(viewModel: vm, onNavigate: { _ in })
+                            BookmarkListView(viewModel: vm, onNavigate: { locator in
+                                navigateToLocator(locator)
+                            })
                         } else {
                             ProgressView()
                         }
                     case .toc:
-                        TOCListView(entries: tocEntries, onNavigate: { _ in
-                            // TOC navigation — format-specific readers will wire
-                            // programmatic scroll when they support it.
+                        TOCListView(entries: tocEntries, onNavigate: { locator in
+                            navigateToLocator(locator)
                         })
                     case .highlights:
                         if let vm = highlightVM {
-                            HighlightListView(viewModel: vm, onNavigate: { _ in })
+                            HighlightListView(viewModel: vm, onNavigate: { locator in
+                                navigateToLocator(locator)
+                            })
                         } else {
                             ProgressView()
                         }
                     case .annotations:
                         if let vm = annotationVM {
-                            AnnotationListView(viewModel: vm, onNavigate: { _ in })
+                            AnnotationListView(viewModel: vm, onNavigate: { locator in
+                                navigateToLocator(locator)
+                            })
                         } else {
                             ProgressView()
                         }
@@ -697,5 +724,13 @@ private struct AnnotationsPanelSheet: View {
             )
         }
         .accessibilityIdentifier("annotationsPanelSheet")
+    }
+
+    private func navigateToLocator(_ locator: Locator) {
+        NotificationCenter.default.post(
+            name: .readerNavigateToLocator,
+            object: locator
+        )
+        isPresented = false
     }
 }

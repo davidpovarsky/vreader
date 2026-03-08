@@ -28,14 +28,17 @@ struct TXTReaderContainerView: View {
     var modelContainer: ModelContainer?
 
     @Environment(\.scenePhase) private var scenePhase
+    /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
+    @State private var isChromeVisible = true
 
     /// Files with more UTF-16 code units than this use chunked rendering.
     static let largeFileThreshold = 500_000
 
     /// Pre-built attributed string for small files, constructed off the main thread.
     @State private var preparedAttrString: NSAttributedString?
-    /// True while the attributed string is being built in the background.
-    @State private var isBuildingAttrString = false
+    /// True while the attributed string is being built for the first time.
+    /// Subsequent rebuilds (e.g., settings changes) keep old content visible.
+    @State private var isBuildingInitialAttrString = false
     /// Pre-split chunks for large files.
     @State private var textChunks: [String]?
     /// Cumulative UTF-16 start offsets per chunk.
@@ -44,6 +47,14 @@ struct TXTReaderContainerView: View {
     /// Using @State breaks the observation cycle that caused bug #15/#17:
     /// reading viewModel.currentOffsetUTF16 in body created a feedback loop.
     @State private var initialRestoreOffset: Int?
+    /// Navigation target from search results. Updated via notification.
+    @State private var scrollToOffset: Int?
+    /// Match highlight range for search navigation (bug #43).
+    @State private var highlightRange: NSRange?
+    /// Pending annotation info for the "Add Note" flow (bug #44).
+    @State private var pendingAnnotationInfo: TextSelectionInfo?
+    /// Text input for the annotation note.
+    @State private var annotationNoteText: String = ""
 
     /// Whether the loaded text exceeds the large file threshold.
     private var isLargeFile: Bool {
@@ -65,7 +76,7 @@ struct TXTReaderContainerView: View {
 
     var body: some View {
         ZStack {
-            if viewModel.isLoading || isBuildingAttrString {
+            if viewModel.isLoading || isBuildingInitialAttrString {
                 loadingView
             } else if let errorMessage = viewModel.errorMessage, viewModel.textContent == nil {
                 errorView(message: errorMessage)
@@ -86,7 +97,7 @@ struct TXTReaderContainerView: View {
             }
 
             // Bottom overlay for session time and progress (bug #33)
-            if viewModel.textContent != nil && !viewModel.isLoading {
+            if viewModel.textContent != nil && !viewModel.isLoading && isChromeVisible {
                 VStack {
                     Spacer()
                     txtBottomOverlay
@@ -105,8 +116,9 @@ struct TXTReaderContainerView: View {
 
             if text.utf16.count > Self.largeFileThreshold {
                 // Large file: split into chunks (fast, no attributed string needed here)
-                isBuildingAttrString = true
-                defer { isBuildingAttrString = false }
+                let isInitial = textChunks == nil
+                if isInitial { isBuildingInitialAttrString = true }
+                defer { if isInitial { isBuildingInitialAttrString = false } }
 
                 let splitResult = await Task.detached(priority: .userInitiated) {
                     let chunks = TXTTextChunker.split(text: text, targetChunkSize: 16384)
@@ -124,8 +136,9 @@ struct TXTReaderContainerView: View {
                 chunkStartOffsets = splitResult.1
             } else {
                 // Small file: build full attributed string
-                isBuildingAttrString = true
-                defer { isBuildingAttrString = false }
+                let isInitial = preparedAttrString == nil
+                if isInitial { isBuildingInitialAttrString = true }
+                defer { if isInitial { isBuildingInitialAttrString = false } }
 
                 let wrapped = await Task.detached(priority: .userInitiated) {
                     TXTAttributedStringBuilder.buildSendable(text: text, config: config)
@@ -171,11 +184,103 @@ struct TXTReaderContainerView: View {
                 )
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
+            isChromeVisible.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
+            guard let locator = notification.object as? Locator,
+                  let offset = locator.charOffsetUTF16 else { return }
+            scrollToOffset = offset
+            // Set highlight range for search match visualization (bug #43)
+            if let start = locator.charRangeStartUTF16,
+               let end = locator.charRangeEndUTF16, end > start {
+                highlightRange = NSRange(location: start, length: end - start)
+            } else {
+                highlightRange = nil
+            }
+            viewModel.updateScrollPosition(charOffsetUTF16: offset)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRequested)) { notification in
+            guard let info = notification.object as? TextSelectionInfo,
+                  let container = modelContainer else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            guard let locator = LocatorFactory.txtRange(
+                fingerprint: viewModel.bookFingerprint,
+                charRangeStartUTF16: info.startUTF16,
+                charRangeEndUTF16: info.endUTF16,
+                sourceText: viewModel.textContent
+            ) else { return }
+            Task {
+                try? await persistence.addHighlight(
+                    locator: locator,
+                    selectedText: info.selectedText,
+                    color: "yellow",
+                    note: nil,
+                    toBookWithKey: viewModel.bookFingerprintKey
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerAnnotationRequested)) { notification in
+            guard let info = notification.object as? TextSelectionInfo else { return }
+            pendingAnnotationInfo = info
+            annotationNoteText = ""
+        }
+        .alert("Add Note", isPresented: .init(
+            get: { pendingAnnotationInfo != nil },
+            set: { if !$0 { pendingAnnotationInfo = nil } }
+        )) {
+            TextField("Note", text: $annotationNoteText)
+            Button("Save") {
+                guard let info = pendingAnnotationInfo,
+                      let container = modelContainer else {
+                    pendingAnnotationInfo = nil
+                    return
+                }
+                let trimmed = annotationNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    pendingAnnotationInfo = nil
+                    return
+                }
+                let persistence = PersistenceActor(modelContainer: container)
+                guard let locator = LocatorFactory.txtRange(
+                    fingerprint: viewModel.bookFingerprint,
+                    charRangeStartUTF16: info.startUTF16,
+                    charRangeEndUTF16: info.endUTF16,
+                    sourceText: viewModel.textContent
+                ) else {
+                    pendingAnnotationInfo = nil
+                    return
+                }
+                Task {
+                    try? await persistence.addAnnotation(
+                        locator: locator,
+                        content: trimmed,
+                        toBookWithKey: viewModel.bookFingerprintKey
+                    )
+                }
+                pendingAnnotationInfo = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingAnnotationInfo = nil
+            }
+        } message: {
+            if let info = pendingAnnotationInfo {
+                Text("\"\(info.selectedText.prefix(50))\"")
+            }
+        }
         .accessibilityIdentifier("txtReaderContainer")
         .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
     }
 
     // MARK: - Bottom Overlay
+
+    private var overlaySecondaryColor: Color {
+        Color(settingsStore?.theme.secondaryTextColor ?? ReaderTheme.default.secondaryTextColor)
+    }
+
+    private var overlayBackground: Color {
+        Color(settingsStore?.theme.backgroundColor ?? ReaderTheme.default.backgroundColor).opacity(0.92)
+    }
 
     @ViewBuilder
     private var txtBottomOverlay: some View {
@@ -184,7 +289,7 @@ struct TXTReaderContainerView: View {
                 Text("\(Int(progress * 100))%")
                     .font(.caption)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(overlaySecondaryColor)
                     .accessibilityLabel("Reading progress \(Int(progress * 100)) percent")
                     .accessibilityIdentifier("txtProgressIndicator")
             }
@@ -194,13 +299,13 @@ struct TXTReaderContainerView: View {
             if let sessionTime = viewModel.sessionTimeDisplay {
                 Text(sessionTime)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(overlaySecondaryColor)
                     .accessibilityIdentifier("txtSessionTime")
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .background(overlayBackground)
         .accessibilityIdentifier("txtBottomOverlay")
     }
 
@@ -239,6 +344,8 @@ struct TXTReaderContainerView: View {
             attributedText: attributedText,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
             restoreOffset: initialRestoreOffset,
+            scrollToOffset: scrollToOffset,
+            highlightRange: highlightRange,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)

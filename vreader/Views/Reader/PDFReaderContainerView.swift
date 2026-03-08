@@ -28,6 +28,8 @@ struct PDFReaderContainerView: View {
     @State private var restoredPage: Int?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
+    @State private var isChromeVisible = true
 
     var body: some View {
         ZStack {
@@ -56,7 +58,7 @@ struct PDFReaderContainerView: View {
             }
 
             // Bottom overlay for page indicator and session time
-            if viewModel.isDocumentLoaded {
+            if viewModel.isDocumentLoaded && isChromeVisible {
                 VStack {
                     Spacer()
                     bottomOverlay
@@ -109,6 +111,15 @@ struct PDFReaderContainerView: View {
                     toBookWithKey: viewModel.bookFingerprintKey
                 )
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
+            isChromeVisible.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
+            guard let locator = notification.object as? Locator,
+                  let page = locator.page else { return }
+            restoredPage = page
+            viewModel.pageDidChange(to: page)
         }
         .accessibilityIdentifier("pdfReaderContainer")
     }
@@ -191,7 +202,7 @@ struct PDFReaderContainerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .background(.regularMaterial)
         .accessibilityIdentifier("pdfBottomOverlay")
     }
 }

@@ -52,6 +52,13 @@ struct LibraryView: View {
             .task {
                 await viewModel.loadBooks()
             }
+            .onAppear {
+                // Refresh when returning from reader so updated stats
+                // (lastReadAt, totalReadingTime) are reflected in sort order (bug #45).
+                // The refresh() method has a 5s throttle, so this is cheap on first appear
+                // when .task already loads books.
+                Task { await viewModel.refresh() }
+            }
             .alert("Error", isPresented: hasError) {
                 Button("OK") { viewModel.clearError() }
             } message: {

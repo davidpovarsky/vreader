@@ -56,6 +56,12 @@ struct TXTTextViewBridge: UIViewRepresentable {
     var attributedText: NSAttributedString?
     let config: TXTViewConfig
     var restoreOffset: Int?
+    /// Programmatic scroll target (e.g., from search result navigation).
+    /// When this changes in updateUIView, the bridge scrolls to the offset.
+    var scrollToOffset: Int?
+    /// Temporary highlight range for search result visualization (bug #43).
+    /// Applied as a yellow background attribute on the text storage.
+    var highlightRange: NSRange?
     weak var delegate: TXTTextViewBridgeDelegate?
 
     func makeUIView(context: Context) -> UITextView {
@@ -94,16 +100,21 @@ struct TXTTextViewBridge: UIViewRepresentable {
             let coordinator = context.coordinator
             // Phase 1 (t+0.15s): Initial restore after SwiftUI sizes the view.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                // Force TextKit to complete layout before restoring position.
+                // This triggers the TextKit 1 relayout synchronously rather than
+                // waiting for it to happen asynchronously and destroy our position.
+                let textLength = (textView.text as NSString?)?.length ?? 0
+                if textLength > 0 {
+                    let fullRange = NSRange(location: 0, length: min(textLength, offset + 4096))
+                    textView.layoutManager.ensureLayout(forCharacterRange: fullRange)
+                }
                 coordinator.attemptScrollRestore(in: textView, toCharOffset: offset)
-            }
-            // Phase 2 (t+0.8s): Re-apply restore AFTER TextKit 1 relayout settles,
-            // then reveal. The TextKit 1 compatibility mode switch triggers a
-            // full relayout that resets contentOffset to 0 — this second restore
-            // overrides that reset.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                coordinator.attemptScrollRestore(in: textView, toCharOffset: offset)
-                coordinator.suppressScrollCallbacks = false
-                UIView.animate(withDuration: 0.15) {
+                // Phase 2 (t+0.2s): Brief safety net — re-apply if TextKit
+                // relayout happened after ensureLayout. Short delay since
+                // ensureLayout already forced layout completion.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    coordinator.attemptScrollRestore(in: textView, toCharOffset: offset)
+                    coordinator.suppressScrollCallbacks = false
                     textView.alpha = 1
                 }
             }
@@ -134,6 +145,24 @@ struct TXTTextViewBridge: UIViewRepresentable {
         if textView.textContainerInset != config.textInset {
             textView.textContainerInset = config.textInset
         }
+
+        // Programmatic scroll from search navigation
+        if let target = scrollToOffset,
+           target != context.coordinator.lastScrollToTarget {
+            context.coordinator.lastScrollToTarget = target
+            // Force synchronous layout so charOffsetToScrollOffset returns
+            // accurate Y positions (bug #40). Without this, allowsNonContiguousLayout
+            // uses estimated line heights for unvisited regions.
+            let textLength = (textView.text as NSString?)?.length ?? 0
+            if textLength > 0 {
+                let rangeEnd = min(textLength, target + 4096)
+                textView.layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: rangeEnd))
+            }
+            context.coordinator.attemptScrollRestore(in: textView, toCharOffset: target)
+        }
+
+        // Apply or clear search result highlight (bug #43)
+        context.coordinator.applyHighlight(highlightRange, in: textView)
 
         // Scroll position restore is one-shot only (handled in makeUIView).
         // Do NOT re-apply restoreOffset here — doing so creates an observation
@@ -182,6 +211,12 @@ struct TXTTextViewBridge: UIViewRepresentable {
         /// TextKit 1 compatibility mode switch causes relayout storms that
         /// reset contentOffset to 0 — these ghost callbacks must be ignored.
         var suppressScrollCallbacks = false
+        /// Last programmatic scroll target (search navigation) to avoid re-applying same offset.
+        var lastScrollToTarget: Int?
+        /// Currently applied highlight range. Used to avoid re-applying the same highlight.
+        private var currentHighlightRange: NSRange?
+        /// Timer to auto-clear highlight after a delay.
+        private var highlightClearTimer: Timer?
 
         init(delegate: TXTTextViewBridgeDelegate?, config: TXTViewConfig = TXTViewConfig()) {
             self.delegate = delegate
@@ -212,6 +247,52 @@ struct TXTTextViewBridge: UIViewRepresentable {
             textView.setContentOffset(CGPoint(x: 0, y: scrollY), animated: false)
         }
 
+        // MARK: - Search Highlight (Bug #43)
+
+        /// Applies or clears a temporary yellow highlight on the text storage.
+        func applyHighlight(_ range: NSRange?, in textView: UITextView) {
+            // Clear previous highlight if it exists
+            if let prev = currentHighlightRange {
+                let textLength = textView.textStorage.length
+                if prev.location + prev.length <= textLength {
+                    textView.textStorage.removeAttribute(.backgroundColor, range: prev)
+                }
+                currentHighlightRange = nil
+                highlightClearTimer?.invalidate()
+                highlightClearTimer = nil
+            }
+
+            guard let range, range.length > 0 else { return }
+
+            let textLength = textView.textStorage.length
+            let clampedLength = min(range.length, textLength - range.location)
+            guard range.location < textLength, clampedLength > 0 else { return }
+            let safeRange = NSRange(location: range.location, length: clampedLength)
+
+            // Skip if same range already applied
+            if currentHighlightRange == safeRange { return }
+
+            textView.textStorage.addAttribute(
+                .backgroundColor,
+                value: UIColor.systemYellow.withAlphaComponent(0.4),
+                range: safeRange
+            )
+            currentHighlightRange = safeRange
+
+            // Auto-clear after 3 seconds
+            highlightClearTimer?.invalidate()
+            highlightClearTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self, weak textView] _ in
+                guard let self, let textView else { return }
+                DispatchQueue.main.async {
+                    if let current = self.currentHighlightRange,
+                       current.location + current.length <= textView.textStorage.length {
+                        textView.textStorage.removeAttribute(.backgroundColor, range: current)
+                    }
+                    self.currentHighlightRange = nil
+                }
+            }
+        }
+
         // MARK: - Content Tap (Toolbar Toggle)
 
         @objc func handleContentTap(_ gesture: UITapGestureRecognizer) {
@@ -236,6 +317,52 @@ struct TXTTextViewBridge: UIViewRepresentable {
             // Only allow http and https links
             let scheme = URL.scheme?.lowercased()
             return scheme == "http" || scheme == "https"
+        }
+
+        // MARK: - Edit Menu (Bug #44: Highlight & Note)
+
+        func textView(
+            _ textView: UITextView,
+            editMenuForTextIn range: NSRange,
+            suggestedActions: [UIMenuElement]
+        ) -> UIMenu? {
+            guard range.length > 0 else { return UIMenu(children: suggestedActions) }
+
+            let highlightAction = UIAction(
+                title: "Highlight",
+                image: UIImage(systemName: "highlighter")
+            ) { [weak textView] _ in
+                guard let textView else { return }
+                Self.postSelectionNotification(.readerHighlightRequested, from: textView, range: range)
+            }
+
+            let noteAction = UIAction(
+                title: "Add Note",
+                image: UIImage(systemName: "note.text.badge.plus")
+            ) { [weak textView] _ in
+                guard let textView else { return }
+                Self.postSelectionNotification(.readerAnnotationRequested, from: textView, range: range)
+            }
+
+            let customMenu = UIMenu(title: "", options: .displayInline, children: [highlightAction, noteAction])
+            return UIMenu(children: [customMenu] + suggestedActions)
+        }
+
+        private static func postSelectionNotification(
+            _ name: Notification.Name,
+            from textView: UITextView,
+            range: NSRange
+        ) {
+            let text = textView.text ?? ""
+            let nsText = text as NSString
+            guard range.location + range.length <= nsText.length else { return }
+            let selectedText = nsText.substring(with: range)
+            let info = TextSelectionInfo(
+                selectedText: selectedText,
+                startUTF16: range.location,
+                endUTF16: range.location + range.length
+            )
+            NotificationCenter.default.post(name: name, object: info)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

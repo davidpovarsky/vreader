@@ -34,6 +34,8 @@ struct EPUBReaderContainerView: View {
     @State private var openTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
+    @State private var isChromeVisible = true
 
     var body: some View {
         ZStack {
@@ -53,7 +55,7 @@ struct EPUBReaderContainerView: View {
             }
 
             // Bottom navigation overlay
-            if viewModel.metadata != nil, !viewModel.isLoading {
+            if viewModel.metadata != nil, !viewModel.isLoading, isChromeVisible {
                 VStack {
                     Spacer()
                     bottomOverlay
@@ -120,6 +122,20 @@ struct EPUBReaderContainerView: View {
                     title: nil,
                     toBookWithKey: viewModel.bookFingerprintKey
                 )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
+            isChromeVisible.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
+            guard let locator = notification.object as? Locator,
+                  let href = locator.href,
+                  let meta = viewModel.metadata,
+                  let base = resourceBase else { return }
+            if let spineIndex = meta.spineItems.firstIndex(where: { $0.href == href }) {
+                viewModel.navigateToSpine(index: spineIndex)
+                webViewError = nil
+                contentURL = base.appendingPathComponent(href)
             }
         }
         .accessibilityIdentifier("epubReaderContainer")
@@ -241,9 +257,10 @@ struct EPUBReaderContainerView: View {
             .accessibilityLabel("Next chapter")
             .accessibilityIdentifier("epubNextChapter")
         }
+        .foregroundColor(Color(settingsStore?.theme.secondaryTextColor ?? ReaderTheme.default.secondaryTextColor))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .background(Color(settingsStore?.theme.backgroundColor ?? ReaderTheme.default.backgroundColor).opacity(0.92))
         .accessibilityIdentifier("epubBottomOverlay")
     }
 

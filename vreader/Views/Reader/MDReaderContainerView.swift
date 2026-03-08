@@ -12,6 +12,7 @@
 
 #if canImport(UIKit)
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Container view for the Markdown reader screen.
@@ -19,6 +20,7 @@ struct MDReaderContainerView: View {
     let fileURL: URL
     let viewModel: MDReaderViewModel
     var settingsStore: ReaderSettingsStore?
+    var modelContainer: ModelContainer?
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -65,6 +67,18 @@ struct MDReaderContainerView: View {
                 viewModel.onForeground()
             @unknown default:
                 break
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
+            guard let container = modelContainer else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            let locator = viewModel.makeLocator()
+            Task {
+                try? await persistence.addBookmark(
+                    locator: locator,
+                    title: nil,
+                    toBookWithKey: viewModel.bookFingerprintKey
+                )
             }
         }
         .accessibilityIdentifier("mdReaderContainer")

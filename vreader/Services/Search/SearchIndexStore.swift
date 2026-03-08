@@ -84,6 +84,16 @@ final class SearchIndexStore: @unchecked Sendable {
             CREATE INDEX IF NOT EXISTS idx_spans_lookup
             ON token_spans(fingerprint_key, source_unit_id, normalized_token)
         """)
+
+        // Store original texts for per-occurrence snippet generation (bug #28).
+        try exec("""
+            CREATE TABLE IF NOT EXISTS source_texts (
+                fingerprint_key TEXT NOT NULL,
+                source_unit_id TEXT NOT NULL,
+                original_text TEXT NOT NULL,
+                PRIMARY KEY (fingerprint_key, source_unit_id)
+            )
+        """)
     }
 
     // MARK: - Indexing
@@ -97,6 +107,7 @@ final class SearchIndexStore: @unchecked Sendable {
         do {
             try execBind("DELETE FROM search_index WHERE fingerprint_key = ?", params: [fingerprintKey])
             try execBind("DELETE FROM token_spans WHERE fingerprint_key = ?", params: [fingerprintKey])
+            try execBind("DELETE FROM source_texts WHERE fingerprint_key = ?", params: [fingerprintKey])
             try exec("COMMIT")
         } catch {
             try? exec("ROLLBACK")
@@ -123,13 +134,19 @@ final class SearchIndexStore: @unchecked Sendable {
                 "DELETE FROM token_spans WHERE fingerprint_key = ?",
                 params: [fingerprintKey]
             )
+            try execBind(
+                "DELETE FROM source_texts WHERE fingerprint_key = ?",
+                params: [fingerprintKey]
+            )
 
             let ftsSQL = "INSERT INTO search_index(fingerprint_key, source_unit_id, content) VALUES (?, ?, ?)"
+            let srcSQL = "INSERT INTO source_texts(fingerprint_key, source_unit_id, original_text) VALUES (?, ?, ?)"
             for unit in textUnits {
                 // Normalize + segment CJK so both index and query use the same pipeline
                 let normalized = SearchTextNormalizer.normalize(unit.text)
                 let segmented = SearchTextNormalizer.segmentCJK(normalized)
                 try execBind(ftsSQL, params: [fingerprintKey, unit.sourceUnitId, segmented])
+                try execBind(srcSQL, params: [fingerprintKey, unit.sourceUnitId, unit.text])
             }
             for unit in textUnits {
                 try indexSpans(fingerprintKey: fingerprintKey, sourceUnitId: unit.sourceUnitId, text: unit.text)
@@ -195,10 +212,18 @@ final class SearchIndexStore: @unchecked Sendable {
         while sqlite3_step(stmt) == SQLITE_ROW {
             let fpKey = colText(stmt, 0)
             let unitId = colText(stmt, 1)
-            let snippet = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
             let allOffsets = try findAllMatchOffsets(fingerprintKey: fpKey, sourceUnitId: unitId, normalizedQuery: normalizedQuery)
 
+            // Generate per-occurrence snippets from original text (bug #28)
+            let originalText = try fetchSourceTextUnlocked(fingerprintKey: fpKey, sourceUnitId: unitId)
+
             for offsets in allOffsets {
+                let snippet = Self.extractSnippet(
+                    from: originalText,
+                    matchStart: offsets.start,
+                    matchEnd: offsets.end,
+                    contextChars: 40
+                )
                 results.append(SearchHit(
                     fingerprintKey: fpKey, sourceUnitId: unitId, snippet: snippet,
                     matchStartOffsetUTF16: offsets.start, matchEndOffsetUTF16: offsets.end
@@ -302,6 +327,51 @@ final class SearchIndexStore: @unchecked Sendable {
         }
 
         return results
+    }
+
+    /// Fetches the original text for a source unit. Must be called within lock.
+    private func fetchSourceTextUnlocked(fingerprintKey: String, sourceUnitId: String) throws -> String? {
+        let sql = "SELECT original_text FROM source_texts WHERE fingerprint_key = ? AND source_unit_id = ?"
+        var stmt: OpaquePointer?
+        let rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard rc == SQLITE_OK, let stmt else { throw SearchIndexError.queryFailed(errMsg()) }
+        defer { sqlite3_finalize(stmt) }
+
+        bindText(stmt, 1, fingerprintKey)
+        bindText(stmt, 2, sourceUnitId)
+
+        if sqlite3_step(stmt) == SQLITE_ROW {
+            return colText(stmt, 0)
+        }
+        return nil
+    }
+
+    /// Extracts a context snippet around match offsets in the original text.
+    /// Returns `...prefix<b>match</b>suffix...` with ~contextChars on each side.
+    static func extractSnippet(from text: String?, matchStart: Int, matchEnd: Int, contextChars: Int) -> String {
+        guard let text, !text.isEmpty else { return "" }
+        let utf16 = text.utf16
+        let totalLen = utf16.count
+        guard matchStart >= 0, matchStart < totalLen else { return "" }
+        let safeEnd = min(matchEnd, totalLen)
+
+        // Compute window bounds in UTF-16
+        let windowStart = max(0, matchStart - contextChars)
+        let windowEnd = min(totalLen, safeEnd + contextChars)
+
+        // Convert UTF-16 offsets to String.Index
+        let startIdx = String.Index(utf16Offset: windowStart, in: text)
+        let matchStartIdx = String.Index(utf16Offset: matchStart, in: text)
+        let matchEndIdx = String.Index(utf16Offset: safeEnd, in: text)
+        let endIdx = String.Index(utf16Offset: windowEnd, in: text)
+
+        let prefix = windowStart > 0 ? "..." : ""
+        let suffix = windowEnd < totalLen ? "..." : ""
+        let before = String(text[startIdx..<matchStartIdx])
+        let match = String(text[matchStartIdx..<matchEndIdx])
+        let after = String(text[matchEndIdx..<endIdx])
+
+        return "\(prefix)\(before)<b>\(match)</b>\(after)\(suffix)"
     }
 
     private func errMsg() -> String {

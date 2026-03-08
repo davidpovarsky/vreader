@@ -17,6 +17,7 @@
 
 #if canImport(UIKit)
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Container view for the TXT reader screen.
@@ -24,6 +25,7 @@ struct TXTReaderContainerView: View {
     let fileURL: URL
     let viewModel: TXTReaderViewModel
     var settingsStore: ReaderSettingsStore?
+    var modelContainer: ModelContainer?
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -50,12 +52,15 @@ struct TXTReaderContainerView: View {
 
     /// Composite key that triggers attributed string rebuild when text or config changes.
     /// Uses totalTextLengthUTF16 + totalWordCount (O(1)) instead of text.hashValue (O(n)).
+    /// Includes theme colors so theme changes trigger rebuild (bug #29).
     private var attrStringKey: String {
         let hasText = viewModel.textContent != nil
         let len = viewModel.totalTextLengthUTF16
         let words = viewModel.totalWordCount
         let cfg = settingsStore?.txtViewConfig ?? TXTViewConfig()
-        return "\(hasText)-\(len)-\(words)-\(cfg.fontSize)-\(cfg.fontName ?? "sys")-\(cfg.lineSpacing)-\(cfg.letterSpacing)"
+        let textColorHash = cfg.textColor.hash
+        let bgColorHash = cfg.backgroundColor.hash
+        return "\(hasText)-\(len)-\(words)-\(cfg.fontSize)-\(cfg.fontName ?? "sys")-\(cfg.lineSpacing)-\(cfg.letterSpacing)-\(textColorHash)-\(bgColorHash)"
     }
 
     var body: some View {
@@ -78,6 +83,14 @@ struct TXTReaderContainerView: View {
                 loadingView
             } else {
                 Color.clear
+            }
+
+            // Bottom overlay for session time and progress (bug #33)
+            if viewModel.textContent != nil && !viewModel.isLoading {
+                VStack {
+                    Spacer()
+                    txtBottomOverlay
+                }
             }
         }
         .task {
@@ -146,8 +159,49 @@ struct TXTReaderContainerView: View {
                 break
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
+            guard let container = modelContainer else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            let locator = viewModel.makeLocator()
+            Task {
+                try? await persistence.addBookmark(
+                    locator: locator,
+                    title: nil,
+                    toBookWithKey: viewModel.bookFingerprintKey
+                )
+            }
+        }
         .accessibilityIdentifier("txtReaderContainer")
         .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
+    }
+
+    // MARK: - Bottom Overlay
+
+    @ViewBuilder
+    private var txtBottomOverlay: some View {
+        HStack {
+            if let progress = viewModel.totalProgression {
+                Text("\(Int(progress * 100))%")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Reading progress \(Int(progress * 100)) percent")
+                    .accessibilityIdentifier("txtProgressIndicator")
+            }
+
+            Spacer()
+
+            if let sessionTime = viewModel.sessionTimeDisplay {
+                Text(sessionTime)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("txtSessionTime")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .accessibilityIdentifier("txtBottomOverlay")
     }
 
     // MARK: - Subviews

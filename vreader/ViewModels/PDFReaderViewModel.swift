@@ -85,7 +85,7 @@ final class PDFReaderViewModel {
     // MARK: - Dependencies
 
     private let bookFingerprint: DocumentFingerprint
-    private let bookFingerprintKey: String
+    let bookFingerprintKey: String
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
     private let deviceId: String
@@ -214,6 +214,14 @@ final class PDFReaderViewModel {
         }
 
         sessionTracker.endSessionIfNeeded()
+
+        // Recompute reading stats so library sorting by time/last-read works (bug #34)
+        if let persistence = positionStore as? PersistenceActor {
+            try? await persistence.recomputeStats(
+                bookFingerprintKey: bookFingerprintKey,
+                bookFingerprint: bookFingerprint
+            )
+        }
     }
 
     /// Called when the app moves to background while reader is open.

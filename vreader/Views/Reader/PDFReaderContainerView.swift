@@ -13,12 +13,14 @@
 
 #if canImport(UIKit)
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Container view for the PDF reader screen.
 struct PDFReaderContainerView: View {
     let fileURL: URL
     let viewModel: PDFReaderViewModel
+    var modelContainer: ModelContainer?
 
     @State private var password: String = ""
     @State private var submittedPassword: String?
@@ -94,6 +96,18 @@ struct PDFReaderContainerView: View {
                 try? viewModel.startSession()
                 restoredPage = await viewModel.restorePosition()
                 await viewModel.updateLastOpened()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
+            guard let container = modelContainer, viewModel.isDocumentLoaded else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            let locator = viewModel.makeCurrentLocator()
+            Task {
+                try? await persistence.addBookmark(
+                    locator: locator,
+                    title: nil,
+                    toBookWithKey: viewModel.bookFingerprintKey
+                )
             }
         }
         .accessibilityIdentifier("pdfReaderContainer")

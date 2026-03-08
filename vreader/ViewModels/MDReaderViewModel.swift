@@ -62,7 +62,7 @@ final class MDReaderViewModel {
     // MARK: - Dependencies
 
     private let bookFingerprint: DocumentFingerprint
-    private let bookFingerprintKey: String
+    let bookFingerprintKey: String
     private let parser: any MDParserProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
@@ -203,6 +203,15 @@ final class MDReaderViewModel {
         }
 
         sessionTracker.endSessionIfNeeded()
+
+        // Recompute reading stats so library sorting by time/last-read works (bug #34)
+        if let persistence = positionStore as? PersistenceActor {
+            try? await persistence.recomputeStats(
+                bookFingerprintKey: bookFingerprintKey,
+                bookFingerprint: bookFingerprint
+            )
+        }
+
         resetState()
     }
 
@@ -299,7 +308,7 @@ final class MDReaderViewModel {
         )
     }
 
-    private func makeLocator() -> Locator {
+    func makeLocator() -> Locator {
         let progression: Double? = renderedTextLengthUTF16 > 0
             ? Double(currentOffsetUTF16) / Double(renderedTextLengthUTF16)
             : nil

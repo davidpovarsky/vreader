@@ -14,6 +14,7 @@
 
 #if canImport(UIKit)
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Container view for the EPUB reader screen.
@@ -22,6 +23,7 @@ struct EPUBReaderContainerView: View {
     let viewModel: EPUBReaderViewModel
     let parser: any EPUBParserProtocol
     var settingsStore: ReaderSettingsStore?
+    var modelContainer: ModelContainer?
 
     /// OPF directory — spine hrefs are resolved relative to this.
     @State private var resourceBase: URL?
@@ -106,6 +108,18 @@ struct EPUBReaderContainerView: View {
                 viewModel.onForeground()
             @unknown default:
                 break
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
+            guard let container = modelContainer,
+                  let locator = viewModel.makeCurrentLocator() else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            Task {
+                try? await persistence.addBookmark(
+                    locator: locator,
+                    title: nil,
+                    toBookWithKey: viewModel.bookFingerprintKey
+                )
             }
         }
         .accessibilityIdentifier("epubReaderContainer")

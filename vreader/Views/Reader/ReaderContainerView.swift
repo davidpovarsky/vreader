@@ -34,6 +34,9 @@ extension Notification.Name {
     /// Posted by reader bridges when the user taps the content area.
     /// Used by ReaderContainerView to toggle toolbar visibility.
     static let readerContentTapped = Notification.Name("vreader.readerContentTapped")
+    /// Posted by ReaderContainerView when the user taps the bookmark button.
+    /// Format-specific container views observe this and save a bookmark at the current position.
+    static let readerBookmarkRequested = Notification.Name("vreader.readerBookmarkRequested")
 }
 
 /// Container view that dispatches to the correct format-specific reader.
@@ -131,6 +134,16 @@ struct ReaderContainerView: View {
                 .accessibilityIdentifier("readerSearchButton")
 
                 Button {
+                    NotificationCenter.default.post(
+                        name: .readerBookmarkRequested, object: nil
+                    )
+                } label: {
+                    Image(systemName: "bookmark")
+                }
+                .accessibilityLabel("Add bookmark")
+                .accessibilityIdentifier("readerBookmarkButton")
+
+                Button {
                     showAnnotationsPanel = true
                 } label: {
                     Image(systemName: "list.bullet.rectangle")
@@ -149,7 +162,7 @@ struct ReaderContainerView: View {
         }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel(store: settingsStore)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAnnotationsPanel) {
@@ -445,7 +458,7 @@ private struct TXTReaderHost: View {
     var body: some View {
         Group {
             if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore)
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
             } else {
                 ProgressView()
             }
@@ -480,7 +493,7 @@ private struct PDFReaderHost: View {
     var body: some View {
         Group {
             if let viewModel {
-                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel)
+                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer)
             } else {
                 ProgressView()
             }
@@ -515,7 +528,7 @@ private struct MDReaderHost: View {
     var body: some View {
         Group {
             if let viewModel {
-                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore)
+                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
             } else {
                 ProgressView()
             }
@@ -556,7 +569,8 @@ private struct EPUBReaderHost: View {
                     fileURL: fileURL,
                     viewModel: viewModel,
                     parser: parser,
-                    settingsStore: settingsStore
+                    settingsStore: settingsStore,
+                    modelContainer: modelContainer
                 )
             } else {
                 ProgressView()

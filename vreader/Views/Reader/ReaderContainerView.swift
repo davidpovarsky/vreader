@@ -11,8 +11,10 @@
 // - Provides navigation bar with back button, search button, settings button, and annotations menu.
 // - Settings panel presented as a sheet for theme/typography controls.
 // - Annotations sheet provides access to bookmarks, TOC, highlights, annotations.
+// - TOC entries computed per format: EPUB from spine items, PDF from outline tree.
 // - Search sheet wired with SearchService, SearchViewModel, and SearchView.
 // - Book content is indexed for search on first open using format-specific extractors.
+// - Session persistence uses SwiftDataSessionStore (real SwiftData, not NoOp).
 //
 // @coordinates-with: EPUBReaderViewModel.swift, TXTReaderViewModel.swift,
 //   MDReaderViewModel.swift, PDFReaderViewModel.swift, LibraryView.swift,
@@ -24,6 +26,7 @@
 
 import SwiftUI
 import SwiftData
+import PDFKit
 import os
 import Combine
 
@@ -53,6 +56,8 @@ struct ReaderContainerView: View {
     @State private var searchService: SearchService?
     /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
     @State private var isChromeVisible = true
+    /// Computed TOC entries for the current book (format-specific).
+    @State private var tocEntries: [TOCEntry] = []
 
     var body: some View {
         Group {
@@ -151,7 +156,8 @@ struct ReaderContainerView: View {
             AnnotationsPanelSheet(
                 selectedTab: $selectedAnnotationsTab,
                 bookFingerprintKey: book.fingerprintKey,
-                modelContainer: modelContext.container
+                modelContainer: modelContext.container,
+                tocEntries: tocEntries
             )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -193,6 +199,17 @@ struct ReaderContainerView: View {
             } catch {
                 Self.logger.error("Search setup failed: \(error.localizedDescription)")
             }
+        }
+        .task {
+            guard tocEntries.isEmpty,
+                  let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
+                return
+            }
+            tocEntries = await Self.buildTOC(
+                format: book.format.lowercased(),
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint
+            )
         }
     }
 
@@ -290,6 +307,70 @@ struct ReaderContainerView: View {
         }
     }
 
+    // MARK: - TOC Building
+
+    /// Builds table of contents entries for the given book format.
+    private static func buildTOC(
+        format: String,
+        fileURL: URL,
+        fingerprint: DocumentFingerprint
+    ) async -> [TOCEntry] {
+        switch format {
+        case "epub":
+            let parser = EPUBParser()
+            do {
+                let metadata = try await parser.open(url: fileURL)
+                await parser.close()
+                return TOCBuilder.fromSpineItems(metadata.spineItems, fingerprint: fingerprint)
+            } catch {
+                await parser.close()
+                return []
+            }
+
+        case "pdf":
+            return await Task.detached {
+                Self.extractPDFOutline(from: fileURL, fingerprint: fingerprint)
+            }.value
+
+        case "txt", "md":
+            return []
+
+        default:
+            return []
+        }
+    }
+
+    /// Extracts outline entries from a PDF document.
+    /// Nonisolated so it can run off-main-actor in Task.detached.
+    nonisolated private static func extractPDFOutline(
+        from url: URL,
+        fingerprint: DocumentFingerprint
+    ) -> [TOCEntry] {
+        guard let document = PDFDocument(url: url),
+              let outline = document.outlineRoot else { return [] }
+        var entries: [(title: String, level: Int, page: Int)] = []
+        walkOutline(outline, document: document, level: 0, into: &entries)
+        return TOCBuilder.fromPDFOutline(entries: entries, fingerprint: fingerprint)
+    }
+
+    nonisolated private static func walkOutline(
+        _ node: PDFOutline,
+        document: PDFDocument,
+        level: Int,
+        into entries: inout [(title: String, level: Int, page: Int)]
+    ) {
+        for i in 0..<node.numberOfChildren {
+            guard let child = node.child(at: i) else { continue }
+            if let label = child.label,
+               let dest = child.destination,
+               let page = dest.page {
+                let pageIndex = document.index(for: page)
+                entries.append((title: label, level: level, page: pageIndex))
+            }
+            walkOutline(child, document: document, level: level + 1, into: &entries)
+        }
+    }
+
     // MARK: - Sheets & Placeholders
 
     /// Search sheet — uses SearchView when search pipeline is ready.
@@ -374,7 +455,7 @@ private struct TXTReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             viewModel = TXTReaderViewModel(
@@ -409,7 +490,7 @@ private struct PDFReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             viewModel = PDFReaderViewModel(
@@ -444,7 +525,7 @@ private struct MDReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             viewModel = MDReaderViewModel(
@@ -486,7 +567,7 @@ private struct EPUBReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             let epubParser = EPUBParser()
@@ -525,11 +606,12 @@ enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
 
 /// Sheet that hosts the tabbed annotations panel.
 /// Wires real list views for bookmarks, highlights, and annotations.
-/// TOC tab currently shows empty state — requires format-specific metadata wiring.
+/// TOC entries are passed in from the parent (computed per book format).
 private struct AnnotationsPanelSheet: View {
     @Binding var selectedTab: AnnotationsPanelTab
     let bookFingerprintKey: String
     let modelContainer: ModelContainer
+    let tocEntries: [TOCEntry]
 
     @State private var bookmarkVM: BookmarkListViewModel?
     @State private var highlightVM: HighlightListViewModel?
@@ -560,7 +642,10 @@ private struct AnnotationsPanelSheet: View {
                             ProgressView()
                         }
                     case .toc:
-                        TOCListView(entries: [], onNavigate: { _ in })
+                        TOCListView(entries: tocEntries, onNavigate: { _ in
+                            // TOC navigation — format-specific readers will wire
+                            // programmatic scroll when they support it.
+                        })
                     case .highlights:
                         if let vm = highlightVM {
                             HighlightListView(viewModel: vm, onNavigate: { _ in })

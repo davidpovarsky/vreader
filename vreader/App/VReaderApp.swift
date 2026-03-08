@@ -7,6 +7,10 @@ struct VReaderApp: App {
     private let initError: String?
     /// Cached content view to avoid recreating the ViewModel on every `body` evaluation.
     private let contentView: ContentView?
+    /// App configuration resolved from build settings.
+    private let appConfig: AppConfiguration
+    /// Runtime feature flags based on environment.
+    private let featureFlags: FeatureFlags
 
     #if DEBUG
     /// Parsed launch argument overrides for UI testing.
@@ -14,6 +18,10 @@ struct VReaderApp: App {
     #endif
 
     init() {
+        let resolvedConfig = AppConfiguration()
+        self.appConfig = resolvedConfig
+        self.featureFlags = FeatureFlags(environment: resolvedConfig.environment)
+
         #if DEBUG
         let config = TestLaunchConfig.parse(ProcessInfo.processInfo.arguments)
         self.testConfig = config

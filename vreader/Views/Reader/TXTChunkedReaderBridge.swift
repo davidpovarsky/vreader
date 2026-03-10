@@ -298,6 +298,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
 
         /// Tracks selection changes for feature parity with TXTTextViewBridge (bug #54).
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // Suppress during text replacement to prevent crash (bug #47 v11)
+            if let htv = textView as? HighlightableTextView, htv.isReplacingText { return }
             let nsRange = textView.selectedRange
             guard nsRange.length > 0 else { return }
             let chunkIndex = textView.tag

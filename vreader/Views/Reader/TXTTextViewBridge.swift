@@ -18,26 +18,40 @@
 import SwiftUI
 import UIKit
 
-/// UITextView subclass for highlight-safe text setting (bug #47 v10).
+/// UITextView subclass for highlight-safe text setting (bug #47 v11).
 ///
-/// Problem chain: textStorage.addAttribute → accessibility recursion → crash.
-/// Overriding attributedText → dispatch queue assert. Reading self.attributedText
-/// then writing → os_unfair_lock recursive abort.
+/// Problem chain through v5–v10:
+/// - textStorage.addAttribute → accessibility recursion → EXC_BAD_ACCESS
+/// - Overriding attributedText → Swift 6 @MainActor dispatch queue assert
+/// - Reading then writing self.attributedText → os_unfair_lock recursive abort
+/// - attributedText setter → UIKit accessibility traversal crash with active selection
 ///
-/// Solution: NEVER modify the text view post-creation. Build the full
-/// attributed string (source + all highlights) externally, then set once.
-/// This subclass preserves scroll position and selection across replacements.
+/// Solution: Build the full attributed string externally, clear selection, then
+/// set via textStorage.setAttributedString() which bypasses the attributedText
+/// setter's heavy accessibility processing.
 final class HighlightableTextView: UITextView {
 
-    /// Sets attributed text while preserving contentOffset and selectedRange.
-    /// The caller builds the full string (source + highlights) externally —
-    /// this method NEVER reads self.attributedText (that causes lock abort).
+    /// Guard flag to suppress delegate callbacks during text replacement.
+    var isReplacingText = false
+
+    /// Replaces content safely, preserving scroll position (bug #47 v11).
+    ///
+    /// Key: uses textStorage.setAttributedString() instead of the attributedText
+    /// setter, which triggers UIKit accessibility traversal that crashes when
+    /// the text view has an active selection (edit menu highlight flow).
     func setHighlightedText(_ attrText: NSAttributedString) {
+        isReplacingText = true
         let savedOffset = contentOffset
-        let savedSelection = selectedRange
-        attributedText = attrText
-        selectedRange = savedSelection
+        // Clear active selection before replacement — UIKit's accessibility
+        // system crashes processing stale selection handles/magnifier state
+        // during text replacement (bug #47 v11, frame #45 in setter).
+        selectedTextRange = nil
+        // Use textStorage directly — bypasses the attributedText setter's
+        // heavy processing (typing attrs reset, accessibility traversal)
+        // that crashes when called during edit menu / selection callbacks.
+        textStorage.setAttributedString(attrText)
         contentOffset = savedOffset
+        isReplacingText = false
     }
 }
 
@@ -440,6 +454,8 @@ struct TXTTextViewBridge: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // Suppress during text replacement to prevent crash (bug #47 v11)
+            if let htv = textView as? HighlightableTextView, htv.isReplacingText { return }
             let nsRange = textView.selectedRange
             if let utf16Range = TXTOffsetMapper.selectionToUTF16Range(
                 nsRange: nsRange,
@@ -451,6 +467,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard !suppressScrollCallbacks else { return }
+            if let htv = scrollView as? HighlightableTextView, htv.isReplacingText { return }
             guard let textView = scrollView as? UITextView else { return }
 
             // Throttle: skip if called within the throttle interval
@@ -477,6 +494,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
 
         private func sendScrollPosition(_ scrollView: UIScrollView) {
             guard !suppressScrollCallbacks else { return }
+            if let htv = scrollView as? HighlightableTextView, htv.isReplacingText { return }
             guard let textView = scrollView as? UITextView else { return }
             lastScrollCallbackTime = CACurrentMediaTime()
             let topOffset = TXTOffsetMapper.scrollOffsetToCharOffset(

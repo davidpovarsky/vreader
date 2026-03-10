@@ -81,8 +81,8 @@ final class TXTReaderViewModel {
 
     // MARK: - Dependencies
 
-    private let bookFingerprint: DocumentFingerprint
-    private let bookFingerprintKey: String
+    let bookFingerprint: DocumentFingerprint
+    let bookFingerprintKey: String
     private let txtService: any TXTServiceProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
@@ -239,6 +239,20 @@ final class TXTReaderViewModel {
         }
 
         sessionTracker.endSessionIfNeeded()
+
+        // Recompute reading stats so library sorting by time/last-read works (bug #34)
+        if let persistence = positionStore as? PersistenceActor {
+            try? await persistence.recomputeStats(
+                bookFingerprintKey: bookFingerprintKey,
+                bookFingerprint: bookFingerprint
+            )
+        }
+
+        // Signal library to refresh with up-to-date stats (bug #45)
+        // Pass bookFingerprintKey so library can update in-memory lastReadAt
+        // immediately, bypassing SwiftData ModelContext isolation issues.
+        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+
         await txtService.close()
         resetState()
     }
@@ -377,7 +391,8 @@ final class TXTReaderViewModel {
     }
 
     /// Full locator with quote/context extraction (for persistence).
-    private func makeLocator() -> Locator {
+    /// Internal access for bookmark creation from container views.
+    func makeLocator() -> Locator {
         let progression = totalTextLengthUTF16 > 0
             ? Double(currentOffsetUTF16) / Double(totalTextLengthUTF16)
             : 0.0

@@ -22,7 +22,7 @@ struct LibraryBookItem: Sendable, Identifiable, Equatable, Hashable {
     let lastOpenedAt: Date?
     let isFavorite: Bool
     let totalReadingSeconds: Int
-    let lastReadAt: Date?
+    var lastReadAt: Date?
     let averagePagesPerHour: Double?
     let averageWordsPerMinute: Double?
 

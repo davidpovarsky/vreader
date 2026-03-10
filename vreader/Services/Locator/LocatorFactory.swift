@@ -122,6 +122,7 @@ enum LocatorFactory {
                 return Locator.validated(
                     bookFingerprint: fingerprint,
                     totalProgression: totalProgression,
+                    charOffsetUTF16: charRangeStartUTF16,
                     charRangeStartUTF16: charRangeStartUTF16,
                     charRangeEndUTF16: charRangeEndUTF16
                 )
@@ -139,6 +140,7 @@ enum LocatorFactory {
         return Locator.validated(
             bookFingerprint: fingerprint,
             totalProgression: totalProgression,
+            charOffsetUTF16: charRangeStartUTF16,
             charRangeStartUTF16: charRangeStartUTF16,
             charRangeEndUTF16: charRangeEndUTF16,
             textQuote: nonEmpty(textQuote),

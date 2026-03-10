@@ -82,6 +82,22 @@ extension PersistenceActor: BookmarkPersisting {
         return book.bookmarks.contains { $0.profileKey == profileKey }
     }
 
+    func updateBookmarkTitle(bookmarkId: UUID, title: String?) async throws {
+        let context = ModelContext(modelContainer)
+        let id = bookmarkId
+        let predicate = #Predicate<Bookmark> { $0.bookmarkId == id }
+        var descriptor = FetchDescriptor<Bookmark>(predicate: predicate)
+        descriptor.fetchLimit = 1
+
+        guard let bookmark = try context.fetch(descriptor).first else {
+            throw PersistenceError.recordNotFound("Bookmark not found")
+        }
+
+        bookmark.title = title
+        bookmark.updatedAt = Date()
+        try context.save()
+    }
+
     // MARK: - Private
 
     private func bookmarkToRecord(_ bookmark: Bookmark) -> BookmarkRecord {

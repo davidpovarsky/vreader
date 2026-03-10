@@ -13,12 +13,14 @@
 
 #if canImport(UIKit)
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Container view for the PDF reader screen.
 struct PDFReaderContainerView: View {
     let fileURL: URL
     let viewModel: PDFReaderViewModel
+    var modelContainer: ModelContainer?
 
     @State private var password: String = ""
     @State private var submittedPassword: String?
@@ -26,6 +28,8 @@ struct PDFReaderContainerView: View {
     @State private var restoredPage: Int?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
+    @State private var isChromeVisible = true
 
     var body: some View {
         ZStack {
@@ -54,7 +58,7 @@ struct PDFReaderContainerView: View {
             }
 
             // Bottom overlay for page indicator and session time
-            if viewModel.isDocumentLoaded {
+            if viewModel.isDocumentLoaded && isChromeVisible {
                 VStack {
                     Spacer()
                     bottomOverlay
@@ -95,6 +99,27 @@ struct PDFReaderContainerView: View {
                 restoredPage = await viewModel.restorePosition()
                 await viewModel.updateLastOpened()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
+            guard let container = modelContainer, viewModel.isDocumentLoaded else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            let locator = viewModel.makeCurrentLocator()
+            Task {
+                try? await persistence.addBookmark(
+                    locator: locator,
+                    title: nil,
+                    toBookWithKey: viewModel.bookFingerprintKey
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
+            isChromeVisible.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
+            guard let locator = notification.object as? Locator,
+                  let page = locator.page else { return }
+            restoredPage = page
+            viewModel.pageDidChange(to: page)
         }
         .accessibilityIdentifier("pdfReaderContainer")
     }
@@ -177,7 +202,7 @@ struct PDFReaderContainerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .background(.regularMaterial)
         .accessibilityIdentifier("pdfBottomOverlay")
     }
 }

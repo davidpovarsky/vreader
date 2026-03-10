@@ -103,12 +103,13 @@ final class LibraryViewModel {
 
     /// Refreshes the book list, throttled to prevent rapid consecutive calls.
     /// Re-entrant calls (while already refreshing) are dropped.
-    func refresh() async {
+    /// - Parameter force: If true, bypasses the throttle (e.g., after navigation back from reader).
+    func refresh(force: Bool = false) async {
         // Re-entrancy guard: if already refreshing, skip.
         guard !isRefreshing else { return }
 
-        // Throttle check
-        if let last = lastRefreshTime,
+        // Throttle check (skip when force is true)
+        if !force, let last = lastRefreshTime,
            Date().timeIntervalSince(last) < throttleInterval {
             return
         }
@@ -171,6 +172,20 @@ final class LibraryViewModel {
     /// Toggles between grid and list view modes.
     func toggleViewMode() {
         viewMode = viewMode == .grid ? .list : .grid
+    }
+
+    /// Updates the in-memory lastReadAt for a book that was just closed,
+    /// bypassing SwiftData ModelContext isolation (bug #45 v4).
+    /// Does NOT call loadBooks() — that re-fetches from DB and overwrites
+    /// the in-memory fix with stale data before recomputeStats() commits.
+    func markBookAsJustRead(fingerprintKey: String) {
+        let now = Date()
+        // Update in-memory backing store directly
+        if let idx = unsortedBooks.firstIndex(where: { $0.fingerprintKey == fingerprintKey }) {
+            unsortedBooks[idx].lastReadAt = now
+        }
+        // Re-sort immediately with updated data
+        books = Self.sorted(unsortedBooks, by: sortOrder)
     }
 
     /// Clears the current error message.

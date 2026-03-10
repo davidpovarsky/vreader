@@ -12,6 +12,7 @@
 // @coordinates-with: LibraryViewModel.swift, BookCardView.swift, BookRowView.swift, ReaderContainerView.swift
 
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 /// Main library view for the book collection.
@@ -51,6 +52,16 @@ struct LibraryView: View {
             }
             .task {
                 await viewModel.loadBooks()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .readerDidClose)) { notification in
+                // Bug #45 v4: Update in-memory lastReadAt and re-sort immediately.
+                // Do NOT call loadBooks() — it re-fetches from DB before
+                // recomputeStats() commits, overwriting the in-memory fix.
+                if let key = notification.object as? String {
+                    viewModel.markBookAsJustRead(fingerprintKey: key)
+                } else {
+                    Task { await viewModel.refresh(force: true) }
+                }
             }
             .alert("Error", isPresented: hasError) {
                 Button("OK") { viewModel.clearError() }

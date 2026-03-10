@@ -18,4 +18,7 @@ protocol BookmarkPersisting: Sendable {
 
     /// Checks whether a bookmark exists at the given locator for a book.
     func isBookmarked(locator: Locator, forBookWithKey key: String) async throws -> Bool
+
+    /// Updates a bookmark's title.
+    func updateBookmarkTitle(bookmarkId: UUID, title: String?) async throws
 }

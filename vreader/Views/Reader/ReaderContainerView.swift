@@ -11,8 +11,10 @@
 // - Provides navigation bar with back button, search button, settings button, and annotations menu.
 // - Settings panel presented as a sheet for theme/typography controls.
 // - Annotations sheet provides access to bookmarks, TOC, highlights, annotations.
+// - TOC entries computed per format: EPUB from spine items, PDF from outline tree.
 // - Search sheet wired with SearchService, SearchViewModel, and SearchView.
 // - Book content is indexed for search on first open using format-specific extractors.
+// - Session persistence uses SwiftDataSessionStore (real SwiftData, not NoOp).
 //
 // @coordinates-with: EPUBReaderViewModel.swift, TXTReaderViewModel.swift,
 //   MDReaderViewModel.swift, PDFReaderViewModel.swift, LibraryView.swift,
@@ -24,6 +26,7 @@
 
 import SwiftUI
 import SwiftData
+import PDFKit
 import os
 import Combine
 
@@ -31,6 +34,29 @@ extension Notification.Name {
     /// Posted by reader bridges when the user taps the content area.
     /// Used by ReaderContainerView to toggle toolbar visibility.
     static let readerContentTapped = Notification.Name("vreader.readerContentTapped")
+    /// Posted by ReaderContainerView when the user taps the bookmark button.
+    /// Format-specific container views observe this and save a bookmark at the current position.
+    static let readerBookmarkRequested = Notification.Name("vreader.readerBookmarkRequested")
+    /// Posted by ReaderContainerView when the user taps a search result.
+    /// The notification's `object` is the `Locator` to navigate to.
+    /// Format-specific container views observe this and scroll/navigate accordingly.
+    static let readerNavigateToLocator = Notification.Name("vreader.readerNavigateToLocator")
+    /// Posted by text view bridges when the user selects "Highlight" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerHighlightRequested = Notification.Name("vreader.readerHighlightRequested")
+    /// Posted by text view bridges when the user selects "Add Note" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerAnnotationRequested = Notification.Name("vreader.readerAnnotationRequested")
+    /// Posted by reader ViewModels at the end of close(), after recomputeStats completes.
+    /// LibraryView observes this to refresh with guaranteed up-to-date stats (bug #45).
+    static let readerDidClose = Notification.Name("vreader.readerDidClose")
+}
+
+/// Carries text selection info from bridges to container views via NotificationCenter.
+struct TextSelectionInfo {
+    let selectedText: String
+    let startUTF16: Int
+    let endUTF16: Int
 }
 
 /// Container view that dispatches to the correct format-specific reader.
@@ -53,6 +79,8 @@ struct ReaderContainerView: View {
     @State private var searchService: SearchService?
     /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
     @State private var isChromeVisible = true
+    /// Computed TOC entries for the current book (format-specific).
+    @State private var tocEntries: [TOCEntry] = []
 
     var body: some View {
         Group {
@@ -104,6 +132,7 @@ struct ReaderContainerView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(isChromeVisible ? .visible : .hidden, for: .navigationBar)
+        .toolbarColorScheme(settingsStore.theme.preferredColorScheme, for: .navigationBar)
         .statusBarHidden(!isChromeVisible)
         .ignoresSafeArea(edges: isChromeVisible ? [] : [.top])
         .toolbar {
@@ -126,6 +155,16 @@ struct ReaderContainerView: View {
                 .accessibilityIdentifier("readerSearchButton")
 
                 Button {
+                    NotificationCenter.default.post(
+                        name: .readerBookmarkRequested, object: nil
+                    )
+                } label: {
+                    Image(systemName: "bookmark")
+                }
+                .accessibilityLabel("Add bookmark")
+                .accessibilityIdentifier("readerBookmarkButton")
+
+                Button {
                     showAnnotationsPanel = true
                 } label: {
                     Image(systemName: "list.bullet.rectangle")
@@ -144,14 +183,16 @@ struct ReaderContainerView: View {
         }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel(store: settingsStore)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAnnotationsPanel) {
             AnnotationsPanelSheet(
                 selectedTab: $selectedAnnotationsTab,
+                isPresented: $showAnnotationsPanel,
                 bookFingerprintKey: book.fingerprintKey,
-                modelContainer: modelContext.container
+                modelContainer: modelContext.container,
+                tocEntries: tocEntries
             )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -193,6 +234,17 @@ struct ReaderContainerView: View {
             } catch {
                 Self.logger.error("Search setup failed: \(error.localizedDescription)")
             }
+        }
+        .task {
+            guard tocEntries.isEmpty,
+                  let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
+                return
+            }
+            tocEntries = await Self.buildTOC(
+                format: book.format.lowercased(),
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint
+            )
         }
     }
 
@@ -290,6 +342,70 @@ struct ReaderContainerView: View {
         }
     }
 
+    // MARK: - TOC Building
+
+    /// Builds table of contents entries for the given book format.
+    private static func buildTOC(
+        format: String,
+        fileURL: URL,
+        fingerprint: DocumentFingerprint
+    ) async -> [TOCEntry] {
+        switch format {
+        case "epub":
+            let parser = EPUBParser()
+            do {
+                let metadata = try await parser.open(url: fileURL)
+                await parser.close()
+                return TOCBuilder.fromSpineItems(metadata.spineItems, fingerprint: fingerprint)
+            } catch {
+                await parser.close()
+                return []
+            }
+
+        case "pdf":
+            return await Task.detached {
+                Self.extractPDFOutline(from: fileURL, fingerprint: fingerprint)
+            }.value
+
+        case "txt", "md":
+            return []
+
+        default:
+            return []
+        }
+    }
+
+    /// Extracts outline entries from a PDF document.
+    /// Nonisolated so it can run off-main-actor in Task.detached.
+    nonisolated private static func extractPDFOutline(
+        from url: URL,
+        fingerprint: DocumentFingerprint
+    ) -> [TOCEntry] {
+        guard let document = PDFDocument(url: url),
+              let outline = document.outlineRoot else { return [] }
+        var entries: [(title: String, level: Int, page: Int)] = []
+        walkOutline(outline, document: document, level: 0, into: &entries)
+        return TOCBuilder.fromPDFOutline(entries: entries, fingerprint: fingerprint)
+    }
+
+    nonisolated private static func walkOutline(
+        _ node: PDFOutline,
+        document: PDFDocument,
+        level: Int,
+        into entries: inout [(title: String, level: Int, page: Int)]
+    ) {
+        for i in 0..<node.numberOfChildren {
+            guard let child = node.child(at: i) else { continue }
+            if let label = child.label,
+               let dest = child.destination,
+               let page = dest.page {
+                let pageIndex = document.index(for: page)
+                entries.append((title: label, level: level, page: pageIndex))
+            }
+            walkOutline(child, document: document, level: level + 1, into: &entries)
+        }
+    }
+
     // MARK: - Sheets & Placeholders
 
     /// Search sheet — uses SearchView when search pipeline is ready.
@@ -298,9 +414,11 @@ struct ReaderContainerView: View {
         if let searchViewModel {
             SearchView(
                 viewModel: searchViewModel,
-                onNavigate: { _ in
-                    // Navigation to search result location — format-specific
-                    // readers will wire this when they support search navigation.
+                onNavigate: { locator in
+                    NotificationCenter.default.post(
+                        name: .readerNavigateToLocator,
+                        object: locator
+                    )
                     showSearch = false
                 },
                 onDismiss: {
@@ -364,7 +482,7 @@ private struct TXTReaderHost: View {
     var body: some View {
         Group {
             if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore)
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
             } else {
                 ProgressView()
             }
@@ -374,7 +492,7 @@ private struct TXTReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             viewModel = TXTReaderViewModel(
@@ -399,7 +517,7 @@ private struct PDFReaderHost: View {
     var body: some View {
         Group {
             if let viewModel {
-                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel)
+                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer)
             } else {
                 ProgressView()
             }
@@ -409,7 +527,7 @@ private struct PDFReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             viewModel = PDFReaderViewModel(
@@ -434,7 +552,7 @@ private struct MDReaderHost: View {
     var body: some View {
         Group {
             if let viewModel {
-                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore)
+                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
             } else {
                 ProgressView()
             }
@@ -444,7 +562,7 @@ private struct MDReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             viewModel = MDReaderViewModel(
@@ -475,7 +593,8 @@ private struct EPUBReaderHost: View {
                     fileURL: fileURL,
                     viewModel: viewModel,
                     parser: parser,
-                    settingsStore: settingsStore
+                    settingsStore: settingsStore,
+                    modelContainer: modelContainer
                 )
             } else {
                 ProgressView()
@@ -486,7 +605,7 @@ private struct EPUBReaderHost: View {
             let persistence = PersistenceActor(modelContainer: modelContainer)
             let tracker = ReadingSessionTracker(
                 clock: SystemClock(),
-                store: NoOpSessionStore(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
             let epubParser = EPUBParser()
@@ -525,11 +644,13 @@ enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
 
 /// Sheet that hosts the tabbed annotations panel.
 /// Wires real list views for bookmarks, highlights, and annotations.
-/// TOC tab currently shows empty state — requires format-specific metadata wiring.
+/// TOC entries are passed in from the parent (computed per book format).
 private struct AnnotationsPanelSheet: View {
     @Binding var selectedTab: AnnotationsPanelTab
+    @Binding var isPresented: Bool
     let bookFingerprintKey: String
     let modelContainer: ModelContainer
+    let tocEntries: [TOCEntry]
 
     @State private var bookmarkVM: BookmarkListViewModel?
     @State private var highlightVM: HighlightListViewModel?
@@ -555,21 +676,29 @@ private struct AnnotationsPanelSheet: View {
                     switch selectedTab {
                     case .bookmarks:
                         if let vm = bookmarkVM {
-                            BookmarkListView(viewModel: vm, onNavigate: { _ in })
+                            BookmarkListView(viewModel: vm, onNavigate: { locator in
+                                navigateToLocator(locator)
+                            })
                         } else {
                             ProgressView()
                         }
                     case .toc:
-                        TOCListView(entries: [], onNavigate: { _ in })
+                        TOCListView(entries: tocEntries, onNavigate: { locator in
+                            navigateToLocator(locator)
+                        })
                     case .highlights:
                         if let vm = highlightVM {
-                            HighlightListView(viewModel: vm, onNavigate: { _ in })
+                            HighlightListView(viewModel: vm, onNavigate: { locator in
+                                navigateToLocator(locator)
+                            })
                         } else {
                             ProgressView()
                         }
                     case .annotations:
                         if let vm = annotationVM {
-                            AnnotationListView(viewModel: vm, onNavigate: { _ in })
+                            AnnotationListView(viewModel: vm, onNavigate: { locator in
+                                navigateToLocator(locator)
+                            })
                         } else {
                             ProgressView()
                         }
@@ -598,5 +727,13 @@ private struct AnnotationsPanelSheet: View {
             )
         }
         .accessibilityIdentifier("annotationsPanelSheet")
+    }
+
+    private func navigateToLocator(_ locator: Locator) {
+        NotificationCenter.default.post(
+            name: .readerNavigateToLocator,
+            object: locator
+        )
+        isPresented = false
     }
 }

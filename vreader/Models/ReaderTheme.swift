@@ -10,6 +10,7 @@
 // @coordinates-with: TypographySettings.swift, ReaderSettingsStore.swift
 
 import Foundation
+import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -85,6 +86,14 @@ enum ReaderTheme: String, Codable, CaseIterable, Sendable {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
         return "rgb(\(Int(r * 255)),\(Int(g * 255)),\(Int(b * 255)))"
+    }
+
+    /// Preferred color scheme for toolbars and system chrome.
+    var preferredColorScheme: ColorScheme {
+        switch self {
+        case .light, .sepia: return .light
+        case .dark: return .dark
+        }
     }
     #endif
 }

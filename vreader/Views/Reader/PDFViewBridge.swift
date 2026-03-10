@@ -37,6 +37,14 @@ struct PDFViewBridge: UIViewRepresentable {
         context.coordinator.pdfView = pdfView
         context.coordinator.viewModel = viewModel
 
+        // Tap gesture for toolbar toggle (bug #32 — same pattern as TXT #21)
+        let tapGesture = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleTap(_:))
+        )
+        tapGesture.delegate = context.coordinator
+        pdfView.addGestureRecognizer(tapGesture)
+
         // Observe page changes
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -129,7 +137,7 @@ struct PDFViewBridge: UIViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var viewModel: PDFReaderViewModel?
         weak var pdfView: PDFView?
         /// Tracks the last restored page to avoid re-applying on every updateUIView.
@@ -145,6 +153,18 @@ struct PDFViewBridge: UIViewRepresentable {
             }
             let pageIndex = document.index(for: currentPage)
             viewModel?.pageDidChange(to: pageIndex)
+        }
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            NotificationCenter.default.post(name: .readerContentTapped, object: nil)
+        }
+
+        // Allow tap gesture to fire alongside PDFView's internal gestures
+        nonisolated func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
 
         deinit {

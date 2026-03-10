@@ -56,7 +56,7 @@ final class EPUBReaderViewModel {
     // MARK: - Dependencies
 
     private let bookFingerprint: DocumentFingerprint
-    private let bookFingerprintKey: String
+    let bookFingerprintKey: String
     private let parser: any EPUBParserProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
@@ -197,6 +197,17 @@ final class EPUBReaderViewModel {
         // End reading session
         sessionTracker.endSessionIfNeeded()
 
+        // Recompute reading stats so library sorting by time/last-read works (bug #34)
+        if let persistence = positionStore as? PersistenceActor {
+            try? await persistence.recomputeStats(
+                bookFingerprintKey: bookFingerprintKey,
+                bookFingerprint: bookFingerprint
+            )
+        }
+
+        // Signal library to refresh with up-to-date stats (bug #45)
+        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+
         // Close parser
         await parser.close()
 
@@ -305,7 +316,13 @@ final class EPUBReaderViewModel {
         }
     }
 
-    // MARK: - Private: Locator Construction
+    // MARK: - Locator Construction
+
+    /// Returns the locator for the current reading position.
+    func makeCurrentLocator() -> Locator? {
+        guard let position = currentPosition else { return nil }
+        return makeLocator(from: position)
+    }
 
     private func makeLocator(from position: EPUBPosition) -> Locator {
         LocatorFactory.epub(

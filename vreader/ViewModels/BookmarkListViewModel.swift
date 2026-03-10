@@ -97,6 +97,28 @@ final class BookmarkListViewModel {
         }
     }
 
+    // MARK: - Update
+
+    /// Renames a bookmark.
+    func updateTitle(bookmarkId: UUID, title: String?) async {
+        errorMessage = nil
+        do {
+            try await store.updateBookmarkTitle(bookmarkId: bookmarkId, title: title)
+            if let idx = bookmarks.firstIndex(where: { $0.bookmarkId == bookmarkId }) {
+                bookmarks[idx] = BookmarkRecord(
+                    bookmarkId: bookmarks[idx].bookmarkId,
+                    locator: bookmarks[idx].locator,
+                    profileKey: bookmarks[idx].profileKey,
+                    title: title,
+                    createdAt: bookmarks[idx].createdAt,
+                    updatedAt: Date()
+                )
+            }
+        } catch {
+            errorMessage = "Failed to rename bookmark."
+        }
+    }
+
     // MARK: - Query
 
     /// Checks whether a bookmark exists at the given locator.

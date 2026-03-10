@@ -100,13 +100,22 @@ private struct AnnotationRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Show the annotated source text if available (bug #51)
+            if let quote = annotation.locator.textQuote, !quote.isEmpty {
+                Text(quote)
+                    .font(.subheadline)
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
             Text(annotation.content)
                 .font(.body)
                 .lineLimit(3)
 
             Text(formattedDate(annotation.createdAt))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
@@ -114,9 +123,13 @@ private struct AnnotationRowView: View {
     }
 
     private var accessibilityLabel: String {
-        let preview = String(annotation.content.prefix(100))
-        let date = formattedDate(annotation.createdAt)
-        return "Annotation: \(preview), created \(date)"
+        var label = ""
+        if let quote = annotation.locator.textQuote, !quote.isEmpty {
+            label += "On: \(String(quote.prefix(50))), "
+        }
+        label += "Note: \(String(annotation.content.prefix(100)))"
+        label += ", created \(formattedDate(annotation.createdAt))"
+        return label
     }
 
     private func formattedDate(_ date: Date) -> String {

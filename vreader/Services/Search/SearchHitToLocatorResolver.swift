@@ -106,11 +106,14 @@ enum SearchHitToLocatorResolver {
             return nil
         }
 
-        let globalOffset = segBase + hit.matchStartOffsetUTF16
+        let globalStart = segBase + hit.matchStartOffsetUTF16
+        let globalEnd = segBase + hit.matchEndOffsetUTF16
 
-        return LocatorFactory.txtPosition(
-            fingerprint: fingerprint,
-            charOffsetUTF16: globalOffset
+        return Locator.validated(
+            bookFingerprint: fingerprint,
+            charOffsetUTF16: globalStart,
+            charRangeStartUTF16: globalStart,
+            charRangeEndUTF16: globalEnd
         )
     }
 
@@ -128,11 +131,14 @@ enum SearchHitToLocatorResolver {
             return nil
         }
 
-        let globalOffset = segBase + hit.matchStartOffsetUTF16
+        let globalStart = segBase + hit.matchStartOffsetUTF16
+        let globalEnd = segBase + hit.matchEndOffsetUTF16
 
-        return LocatorFactory.mdPosition(
-            fingerprint: fingerprint,
-            charOffsetUTF16: globalOffset
+        return Locator.validated(
+            bookFingerprint: fingerprint,
+            charOffsetUTF16: globalStart,
+            charRangeStartUTF16: globalStart,
+            charRangeEndUTF16: globalEnd
         )
     }
 }

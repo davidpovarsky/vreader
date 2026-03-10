@@ -38,6 +38,16 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-03-10 | feature #17 + DUPLICATE OF features #11, #13, #14 | EPUB/PDF text-like display — EPUB: highlighting/notes = feature #11 (TODO), theme/font = already works (bug #9), search = works, AI = features #13/#14 (TODO). PDF: highlighting/notes/theming = NEW feature #17 (PDFKit is read-only). Search = works
+2026-03-10 | feature #18 | AI-powered contextual translation with bilingual view — never implemented. AIService.translate() exists but not wired. Needs translation UI, bilingual layout, toggle switch, API integration (claude -p or DeepL)
+2026-03-10 | DUPLICATE OF feature #6 (expanded) | Library view persistence — sort order + display mode (grid/list) both covered by feature #6 (updated to include both)
+2026-03-10 | feature #20 | Sort order reset/revert — never implemented. No reset option in sort picker menu
+
+2026-03-10 | feature #12 | Auto-generate TOC for TXT/MD — TOCBuilder exists but forTXT()/forMD() return empty. Need heading extraction (MD) and heuristic chapter detection (TXT)
+2026-03-10 | feature #13 | AI book/chapter summarization — full AIService pipeline exists and is functional but not wired to reader UI. Feature flag OFF
+2026-03-10 | feature #14 | AI chat — talk to the book — single-question askQuestion() works. Missing multi-turn chat UI (message list, input field, history)
+2026-03-10 | feature #15 | AI chat interface — general AI chat beyond book context. Overlaps with #14 but broader scope
+2026-03-10 | feature #16 | Remote server integration (claude CLI) — no remote server code exists. Needs protocol design, networking, auth, UI
 2026-03-10 | REOPENED bug #47 → FIXED v12 | Crash at frame #6 in setHighlightedText (textStorage.setAttributedString still crashes with active selection). Fixed: HighlightingLayoutManager.drawBackground() — zero text storage mutation for highlights. Applied to both TXTTextViewBridge and TXTChunkedReaderBridge.
 2026-03-10 | REOPENED bug #47 → FIXED v11 | Crash at frame #45 in setHighlightedText (attributedText setter UIKit accessibility traversal with active selection). Fixed: textStorage.setAttributedString() + clear selection + isReplacingText guard. Audit applied: content-based persisted highlight comparison, removed unsafe attributedText fallback branches.
 2026-03-10 | REOPENED bug #45 | "Last Read" sort resets on refresh/restart, only tracks last-opened book — v4 in-memory fix doesn't survive loadBooks(). Details updated in Open Bug Details in bugs.md

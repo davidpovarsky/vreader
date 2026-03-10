@@ -117,11 +117,15 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             context.coordinator.scrollToGlobalOffset(offset, in: tableView)
         }
 
-        // Sync persisted highlights (bug #55)
+        // Sync persisted highlights via layout manager on visible cells (bug #55, bug #47 v12)
         if context.coordinator.persistedHighlights != persistedHighlights {
             context.coordinator.persistedHighlights = persistedHighlights
-            // Reload visible cells to apply new persisted highlights
-            tableView.reloadData()
+            for cell in tableView.visibleCells {
+                guard let chunkedCell = cell as? TXTChunkedReaderBridge.ChunkedTextCell else { continue }
+                let chunkIndex = chunkedCell.textContentView.tag
+                let (persisted, active) = context.coordinator.chunkLocalHighlightRanges(forChunk: chunkIndex)
+                chunkedCell.textContentView.setHighlightRanges(persisted: persisted, active: active)
+            }
         }
 
         // Highlight range for visual feedback (bug #53)
@@ -253,11 +257,13 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             }
 
             let index = indexPath.row
-            // Build chunk attributed string with all highlights baked in (bug #47 v10).
-            // NEVER modify textView.attributedText post-creation — that triggers
-            // accessibility recursion / os_unfair_lock abort.
-            let attrStr = buildChunkWithHighlights(forChunk: index)
-            cell.textContentView.setHighlightedText(attrStr)
+            // Set source text and highlight ranges separately (bug #47 v12).
+            // Source text via setSourceText, highlights via layout manager drawing.
+            // NEVER modify text storage for highlights — that crashes with active selection.
+            let baseAttr = attributedString(forChunk: index)
+            cell.textContentView.setSourceText(baseAttr)
+            let (persisted, active) = chunkLocalHighlightRanges(forChunk: index)
+            cell.textContentView.setHighlightRanges(persisted: persisted, active: active)
             cell.textContentView.backgroundColor = config.backgroundColor
             cell.textContentView.delegate = self
             cell.textContentView.tag = index  // Store chunk index for offset calculation
@@ -472,37 +478,36 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             }
         }
 
-        /// Clears active highlight and rebuilds visible cells (bug #47 v10).
-        /// NEVER modifies textView attributes post-creation — rebuilds full string instead.
+        /// Clears active highlight on visible cells via layout manager (bug #47 v12).
+        /// NEVER modifies text storage — only updates highlight ranges for drawing.
         func clearHighlight(in tableView: UITableView) {
             highlightClearTimer?.invalidate()
             highlightClearTimer = nil
             for cell in tableView.visibleCells {
                 guard let chunkedCell = cell as? ChunkedTextCell else { continue }
                 let chunkIndex = chunkedCell.textContentView.tag
-                let attrStr = buildChunkWithHighlights(forChunk: chunkIndex)
-                chunkedCell.textContentView.setHighlightedText(attrStr)
+                let (persisted, _) = chunkLocalHighlightRanges(forChunk: chunkIndex)
+                // Active highlight cleared — only pass persisted ranges
+                chunkedCell.textContentView.setHighlightRanges(persisted: persisted, active: nil)
             }
         }
 
-        /// Rebuilds the affected cell's attributed string with highlight baked in (bug #47 v10).
+        /// Updates highlight ranges on the affected cell via layout manager (bug #47 v12).
         private func rebuildHighlightCell(_ cell: ChunkedTextCell, chunkIndex: Int) {
-            let attrStr = buildChunkWithHighlights(forChunk: chunkIndex)
-            cell.textContentView.setHighlightedText(attrStr)
+            let (persisted, active) = chunkLocalHighlightRanges(forChunk: chunkIndex)
+            cell.textContentView.setHighlightRanges(persisted: persisted, active: active)
         }
 
-        /// Builds the attributed string for a chunk with all highlights baked in (bug #47 v10).
-        /// Combines base text + persisted highlights + active highlight into one string,
-        /// set once on the text view — no post-creation attribute mutation.
-        private func buildChunkWithHighlights(forChunk index: Int) -> NSAttributedString {
-            let base = attributedString(forChunk: index)
-            guard index < chunkStartOffsets.count, index < chunks.count else { return base }
+        /// Computes chunk-local highlight ranges for the layout manager (bug #47 v12).
+        /// Returns persisted ranges + active range, all in chunk-local coordinates.
+        func chunkLocalHighlightRanges(forChunk index: Int) -> (persisted: [NSRange], active: NSRange?) {
+            guard index < chunkStartOffsets.count, index < chunks.count else { return ([], nil) }
 
             let chunkStart = chunkStartOffsets[index]
             let chunkEnd = index + 1 < chunkStartOffsets.count
                 ? chunkStartOffsets[index + 1]
                 : chunkStart + chunks[index].utf16.count
-            let textLength = base.length
+            let chunkTextLen = chunkEnd - chunkStart
 
             // Collect chunk-local persisted highlight ranges
             var localPersistedRanges: [NSRange] = []
@@ -513,8 +518,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 let localStart = max(0, globalStart - chunkStart)
                 let localEnd = min(chunkEnd - chunkStart, globalEnd - chunkStart)
                 let localLength = localEnd - localStart
-                guard localLength > 0, localStart < textLength else { continue }
-                let clampedLength = min(localLength, textLength - localStart)
+                guard localLength > 0, localStart < chunkTextLen else { continue }
+                let clampedLength = min(localLength, chunkTextLen - localStart)
                 guard clampedLength > 0 else { continue }
                 localPersistedRanges.append(NSRange(location: localStart, length: clampedLength))
             }
@@ -522,19 +527,15 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             // Active highlight (chunk-local)
             var activeLocal: NSRange? = nil
             if index == activeHighlightChunkIndex, let localRange = activeHighlightLocalRange {
-                if localRange.location < textLength {
-                    let clampedLen = min(localRange.length, textLength - localRange.location)
+                if localRange.location < chunkTextLen {
+                    let clampedLen = min(localRange.length, chunkTextLen - localRange.location)
                     if clampedLen > 0 {
                         activeLocal = NSRange(location: localRange.location, length: clampedLen)
                     }
                 }
             }
 
-            return TXTTextViewBridge.buildHighlightedString(
-                base: base,
-                persistedHighlights: localPersistedRanges,
-                activeHighlight: activeLocal
-            )
+            return (localPersistedRanges, activeLocal)
         }
 
         // MARK: - Private

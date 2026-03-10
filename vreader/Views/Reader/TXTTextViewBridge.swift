@@ -18,40 +18,98 @@
 import SwiftUI
 import UIKit
 
-/// UITextView subclass for highlight-safe text setting (bug #47 v11).
+/// Custom layout manager that draws highlight backgrounds without modifying text storage.
+/// This completely avoids the UITextView crash chain (bug #47 v5-v11) where ANY
+/// text storage modification on a visible text view with active selection crashes:
+/// - textStorage.addAttribute → accessibility recursion (v5)
+/// - attributedText setter → accessibility traversal crash (v10)
+/// - textStorage.setAttributedString → same crash, shorter stack (v11)
 ///
-/// Problem chain through v5–v10:
-/// - textStorage.addAttribute → accessibility recursion → EXC_BAD_ACCESS
-/// - Overriding attributedText → Swift 6 @MainActor dispatch queue assert
-/// - Reading then writing self.attributedText → os_unfair_lock recursive abort
-/// - attributedText setter → UIKit accessibility traversal crash with active selection
+/// drawBackground() is called by UIKit's normal display pipeline for the visible
+/// glyph range only — efficient, synchronized with scrolling, zero text storage mutation.
+final class HighlightingLayoutManager: NSLayoutManager {
+
+    /// Character ranges to draw as highlight backgrounds.
+    var highlightRanges: [NSRange] = []
+    private let highlightColor = UIColor.systemYellow.withAlphaComponent(0.4).cgColor
+
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        guard !highlightRanges.isEmpty,
+              let ctx = UIGraphicsGetCurrentContext(),
+              let tc = textContainers.first else { return }
+
+        let visibleCharRange = characterRange(
+            forGlyphRange: glyphsToShow, actualGlyphRange: nil
+        )
+
+        for charRange in highlightRanges {
+            guard NSIntersectionRange(charRange, visibleCharRange).length > 0 else { continue }
+            let glyphRange = self.glyphRange(
+                forCharacterRange: charRange, actualCharacterRange: nil
+            )
+            let visible = NSIntersectionRange(glyphRange, glyphsToShow)
+            guard visible.length > 0 else { continue }
+
+            ctx.setFillColor(highlightColor)
+            enumerateEnclosingRects(
+                forGlyphRange: visible,
+                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                in: tc
+            ) { rect, _ in
+                ctx.fill(rect.offsetBy(dx: origin.x, dy: origin.y))
+            }
+        }
+    }
+}
+
+/// UITextView subclass with safe highlight rendering (bug #47 v12).
 ///
-/// Solution: Build the full attributed string externally, clear selection, then
-/// set via textStorage.setAttributedString() which bypasses the attributedText
-/// setter's heavy accessibility processing.
+/// v5-v11 tried every approach to modify text storage for highlights — all crashed.
+/// v12 uses a custom HighlightingLayoutManager that draws highlight backgrounds
+/// in drawBackground() — NEVER modifying text storage for highlights.
+///
+/// Text storage is only modified for source text changes (initial load, config
+/// change) via setSourceText(), never during active selection.
 final class HighlightableTextView: UITextView {
 
-    /// Guard flag to suppress delegate callbacks during text replacement.
+    /// Guard flag to suppress delegate callbacks during source text replacement.
     var isReplacingText = false
 
-    /// Replaces content safely, preserving scroll position (bug #47 v11).
-    ///
-    /// Key: uses textStorage.setAttributedString() instead of the attributedText
-    /// setter, which triggers UIKit accessibility traversal that crashes when
-    /// the text view has an active selection (edit menu highlight flow).
-    func setHighlightedText(_ attrText: NSAttributedString) {
+    /// Creates a text view with HighlightingLayoutManager for safe highlight drawing.
+    convenience init() {
+        let storage = NSTextStorage()
+        let lm = HighlightingLayoutManager()
+        let container = NSTextContainer()
+        lm.addTextContainer(container)
+        storage.addLayoutManager(lm)
+        self.init(frame: .zero, textContainer: container)
+    }
+
+    /// Sets source text (for initial load and config changes only).
+    /// Do NOT call for highlight-only changes — use setHighlightRanges instead.
+    func setSourceText(_ attrText: NSAttributedString) {
         isReplacingText = true
         let savedOffset = contentOffset
-        // Clear active selection before replacement — UIKit's accessibility
-        // system crashes processing stale selection handles/magnifier state
-        // during text replacement (bug #47 v11, frame #45 in setter).
         selectedTextRange = nil
-        // Use textStorage directly — bypasses the attributedText setter's
-        // heavy processing (typing attrs reset, accessibility traversal)
-        // that crashes when called during edit menu / selection callbacks.
         textStorage.setAttributedString(attrText)
         contentOffset = savedOffset
         isReplacingText = false
+    }
+
+    /// Updates highlight visualization via the layout manager's drawing layer.
+    /// NEVER modifies text storage — completely avoids the crash chain (bug #47 v12).
+    func setHighlightRanges(persisted: [NSRange], active: NSRange?) {
+        guard let lm = layoutManager as? HighlightingLayoutManager else { return }
+        var ranges = persisted
+        if let active, active.length > 0 {
+            ranges.append(active)
+        }
+        lm.highlightRanges = ranges
+        let glyphCount = lm.numberOfGlyphs
+        if glyphCount > 0 {
+            lm.invalidateDisplay(forGlyphRange: NSRange(location: 0, length: glyphCount))
+        }
     }
 }
 
@@ -129,12 +187,14 @@ struct TXTTextViewBridge: UIViewRepresentable {
         tapRecognizer.delegate = context.coordinator
         textView.addGestureRecognizer(tapRecognizer)
 
-        // Store base text + highlights in coordinator, then build & apply in one shot.
+        // Store base text in coordinator, set source text + highlight ranges separately.
         context.coordinator.baseAttributedText = buildBaseAttributedText()
         context.coordinator.persistedHighlights = persistedHighlights
         context.coordinator.lastAppliedText = text
         context.coordinator.lastAppliedAttrText = attributedText
-        applyTextWithHighlights(to: textView, coordinator: context.coordinator)
+        // Set highlights first so drawBackground has correct ranges during initial layout.
+        Self.applyHighlights(to: textView, coordinator: context.coordinator)
+        applySourceText(to: textView, coordinator: context.coordinator)
 
         // Restore scroll position if requested (one-shot — never re-applied).
         // Suppress scroll callbacks from the moment text is applied until restore
@@ -214,9 +274,16 @@ struct TXTTextViewBridge: UIViewRepresentable {
             }
         }
 
-        // Rebuild text + highlights if anything changed (bug #47 v10)
-        if sourceChanged || persistedChanged || highlightChanged {
-            applyTextWithHighlights(to: textView, coordinator: context.coordinator)
+        let htv = textView as! HighlightableTextView
+
+        // Update highlight ranges via layout manager — no text storage mutation (bug #47 v12)
+        if persistedChanged || highlightChanged {
+            Self.applyHighlights(to: htv, coordinator: context.coordinator)
+        }
+
+        // Update source text only when text/config changes (safe — no active selection during config change)
+        if sourceChanged {
+            applySourceText(to: htv, coordinator: context.coordinator)
         }
 
         // Re-apply inset changes
@@ -257,56 +324,21 @@ struct TXTTextViewBridge: UIViewRepresentable {
         return TXTAttributedStringBuilder.build(text: text, config: config)
     }
 
-    /// Builds the full attributed string with all highlights baked in, then sets it
-    /// on the text view. NEVER reads textView.attributedText (bug #47 v10).
-    ///
-    /// Uses the coordinator's stored highlight state so the timer can also call this.
-    private func applyTextWithHighlights(to textView: UITextView, coordinator: Coordinator) {
+    /// Sets source text on the text view (no highlights — those are in the layout manager).
+    private func applySourceText(to textView: HighlightableTextView, coordinator: Coordinator) {
         let base = coordinator.baseAttributedText ?? buildBaseAttributedText()
-        let highlighted = Self.buildHighlightedString(
-            base: base,
-            persistedHighlights: coordinator.persistedHighlights,
-            activeHighlight: coordinator.currentHighlightRange
-        )
-
-        // textView is always HighlightableTextView (created in makeUIView).
-        // Using textStorage.setAttributedString via setHighlightedText — NEVER
-        // the attributedText setter which crashes with active selection (bug #47).
-        (textView as! HighlightableTextView).setHighlightedText(highlighted)
+        textView.setSourceText(base)
         textView.adjustsFontForContentSizeCategory = true
         textView.backgroundColor = config.backgroundColor
     }
 
-    /// Pure function: builds attributed string with highlight ranges baked in.
-    static func buildHighlightedString(
-        base: NSAttributedString,
-        persistedHighlights: [NSRange],
-        activeHighlight: NSRange?
-    ) -> NSAttributedString {
-        let needsHighlights = !persistedHighlights.isEmpty || activeHighlight != nil
-        guard needsHighlights else { return base }
-
-        let mutable = NSMutableAttributedString(attributedString: base)
-        let textLength = mutable.length
-        let color = UIColor.systemYellow.withAlphaComponent(0.4)
-
-        for range in persistedHighlights {
-            guard range.location < textLength else { continue }
-            let len = min(range.length, textLength - range.location)
-            guard len > 0 else { continue }
-            mutable.addAttribute(.backgroundColor, value: color,
-                                 range: NSRange(location: range.location, length: len))
-        }
-
-        if let range = activeHighlight, range.length > 0, range.location < textLength {
-            let len = min(range.length, textLength - range.location)
-            if len > 0 {
-                mutable.addAttribute(.backgroundColor, value: color,
-                                     range: NSRange(location: range.location, length: len))
-            }
-        }
-
-        return mutable
+    /// Updates highlight visualization via the layout manager (bug #47 v12).
+    /// NEVER modifies text storage — completely safe during active selection.
+    private static func applyHighlights(to textView: HighlightableTextView, coordinator: Coordinator) {
+        textView.setHighlightRanges(
+            persisted: coordinator.persistedHighlights,
+            active: coordinator.currentHighlightRange
+        )
     }
 
     // Scroll restore logic is in Coordinator.attemptScrollRestore (supports retry).
@@ -341,15 +373,11 @@ struct TXTTextViewBridge: UIViewRepresentable {
             self.lastConfig = config
         }
 
-        /// Rebuilds text + highlights from coordinator state (for timer callback).
+        /// Rebuilds highlight visualization from coordinator state (for timer callback).
+        /// Uses layout manager drawing — NEVER modifies text storage (bug #47 v12).
         func rebuildHighlights(in textView: UITextView) {
-            guard let base = baseAttributedText else { return }
-            let highlighted = TXTTextViewBridge.buildHighlightedString(
-                base: base,
-                persistedHighlights: persistedHighlights,
-                activeHighlight: currentHighlightRange
-            )
-            (textView as! HighlightableTextView).setHighlightedText(highlighted)
+            guard let htv = textView as? HighlightableTextView else { return }
+            htv.setHighlightRanges(persisted: persistedHighlights, active: currentHighlightRange)
         }
 
         /// Restores scroll position, retrying if the view has no valid frame.

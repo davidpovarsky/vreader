@@ -38,6 +38,8 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-03-10 | REOPENED bug #47 → FIXED v12 | Crash at frame #6 in setHighlightedText (textStorage.setAttributedString still crashes with active selection). Fixed: HighlightingLayoutManager.drawBackground() — zero text storage mutation for highlights. Applied to both TXTTextViewBridge and TXTChunkedReaderBridge.
+2026-03-10 | REOPENED bug #47 → FIXED v11 | Crash at frame #45 in setHighlightedText (attributedText setter UIKit accessibility traversal with active selection). Fixed: textStorage.setAttributedString() + clear selection + isReplacingText guard. Audit applied: content-based persisted highlight comparison, removed unsafe attributedText fallback branches.
 2026-03-10 | REOPENED bug #45 | "Last Read" sort resets on refresh/restart, only tracks last-opened book — v4 in-memory fix doesn't survive loadBooks(). Details updated in Open Bug Details in bugs.md
 2026-03-10 | REOPENED bug #47 | Crash on highlight in test魔头.txt persists after v3 DispatchQueue.main.async fix. Details updated in Open Bug Details in bugs.md
 2026-03-10 | bug #55 | Highlights not visible when file is reopened — no code to load persisted AnnotationRecords on file open. Details added to Open Bug Details in bugs.md

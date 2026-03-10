@@ -248,6 +248,11 @@ final class TXTReaderViewModel {
             )
         }
 
+        // Signal library to refresh with up-to-date stats (bug #45)
+        // Pass bookFingerprintKey so library can update in-memory lastReadAt
+        // immediately, bypassing SwiftData ModelContext isolation issues.
+        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+
         await txtService.close()
         resetState()
     }

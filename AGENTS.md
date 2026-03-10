@@ -30,6 +30,17 @@ Shared instructions for all AI agents (Claude, Codex, etc.).
     - Bugs vs features: broken implementation → `docs/bugs.md`; never implemented → `docs/features.md`. Never mix.
     - Triage is classification only — do not fix bugs or implement features during triage.
     - Features must reach `PLANNED` status before `IN PROGRESS`. Exception: features resolved incidentally by a bug fix.
+  - **GitHub Issues** (selective mirror, not full sync):
+    - **When to create**: High-severity bugs, release blockers, and major features (`Priority: High`). Do not mirror every tracker row.
+    - **On create**: Add `GH: #123` to the Notes column in bugs.md/features.md. Use labels: `bug`/`feature`, `severity:high`/`severity:medium`.
+    - **PRs use `Refs #N`**, not `Fixes #N` — prevents premature auto-close.
+    - **On resolve** (post-merge finalizer, do not close before merge):
+      1. Verify markdown status is updated (FIXED/DONE).
+      2. Verify fix is on `main`.
+      3. Post closure comment: commit SHA, test evidence, cause summary (bugs) or acceptance result (features).
+      4. Run `gh issue close #N`.
+    - **Exception**: Small single-issue fixes may use `Fixes #N` in PR body for auto-close.
+    - **Partial delivery**: Keep issue open. Use task checklist in issue body or split into follow-up issues.
 - AI coding tool auth:
   - **Prefer subscription auth over API keys** for all AI coding tools (Claude Code, Codex CLI, Gemini CLI). Subscription plans are dramatically cheaper for sustained coding sessions — API billing can cost 10–30x more.
   - Claude Code: log in with Claude Max subscription. Codex CLI: `codex login` with ChatGPT Plus/Pro. Gemini CLI: Google account login.

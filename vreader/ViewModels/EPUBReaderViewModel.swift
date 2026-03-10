@@ -205,6 +205,9 @@ final class EPUBReaderViewModel {
             )
         }
 
+        // Signal library to refresh with up-to-date stats (bug #45)
+        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+
         // Close parser
         await parser.close()
 

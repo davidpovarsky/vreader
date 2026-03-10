@@ -222,6 +222,9 @@ final class PDFReaderViewModel {
                 bookFingerprint: bookFingerprint
             )
         }
+
+        // Signal library to refresh with up-to-date stats (bug #45)
+        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
     }
 
     /// Called when the app moves to background while reader is open.

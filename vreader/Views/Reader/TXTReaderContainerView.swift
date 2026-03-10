@@ -51,6 +51,9 @@ struct TXTReaderContainerView: View {
     @State private var scrollToOffset: Int?
     /// Match highlight range for search navigation (bug #43).
     @State private var highlightRange: NSRange?
+    /// Whether the current highlight is temporary (search nav) or persistent (user-created).
+    /// Temporary highlights auto-clear after 3s; persistent ones survive cell reuse (bug #54).
+    @State private var highlightIsTemporary: Bool = true
     /// Pending annotation info for the "Add Note" flow (bug #44).
     @State private var pendingAnnotationInfo: TextSelectionInfo?
     /// Text input for the annotation note.
@@ -188,10 +191,13 @@ struct TXTReaderContainerView: View {
             isChromeVisible.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-            guard let locator = notification.object as? Locator,
-                  let offset = locator.charOffsetUTF16 else { return }
+            guard let locator = notification.object as? Locator else { return }
+            // Derive scroll offset: prefer charOffsetUTF16, fall back to charRangeStartUTF16 (bug #50)
+            guard let offset = locator.charOffsetUTF16 ?? locator.charRangeStartUTF16 else { return }
             scrollToOffset = offset
             // Set highlight range for search match visualization (bug #43)
+            // Search highlights are temporary — auto-clear after 3s
+            highlightIsTemporary = true
             if let start = locator.charRangeStartUTF16,
                let end = locator.charRangeEndUTF16, end > start {
                 highlightRange = NSRange(location: start, length: end - start)
@@ -210,6 +216,10 @@ struct TXTReaderContainerView: View {
                 charRangeEndUTF16: info.endUTF16,
                 sourceText: viewModel.textContent
             ) else { return }
+            // Apply persistent visual highlight feedback (bug #46, #54)
+            // User-created highlights don't auto-clear — they persist until replaced
+            highlightIsTemporary = false
+            highlightRange = NSRange(location: info.startUTF16, length: info.endUTF16 - info.startUTF16)
             Task {
                 try? await persistence.addHighlight(
                     locator: locator,
@@ -225,48 +235,48 @@ struct TXTReaderContainerView: View {
             pendingAnnotationInfo = info
             annotationNoteText = ""
         }
-        .alert("Add Note", isPresented: .init(
+        .sheet(isPresented: .init(
             get: { pendingAnnotationInfo != nil },
             set: { if !$0 { pendingAnnotationInfo = nil } }
         )) {
-            TextField("Note", text: $annotationNoteText)
-            Button("Save") {
-                guard let info = pendingAnnotationInfo,
-                      let container = modelContainer else {
+            AddNoteSheet(
+                selectedText: pendingAnnotationInfo?.selectedText ?? "",
+                noteText: $annotationNoteText,
+                onSave: {
+                    guard let info = pendingAnnotationInfo,
+                          let container = modelContainer else {
+                        pendingAnnotationInfo = nil
+                        return
+                    }
+                    let trimmed = annotationNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        pendingAnnotationInfo = nil
+                        return
+                    }
+                    let persistence = PersistenceActor(modelContainer: container)
+                    guard let locator = LocatorFactory.txtRange(
+                        fingerprint: viewModel.bookFingerprint,
+                        charRangeStartUTF16: info.startUTF16,
+                        charRangeEndUTF16: info.endUTF16,
+                        sourceText: viewModel.textContent
+                    ) else {
+                        pendingAnnotationInfo = nil
+                        return
+                    }
+                    Task {
+                        try? await persistence.addAnnotation(
+                            locator: locator,
+                            content: trimmed,
+                            toBookWithKey: viewModel.bookFingerprintKey
+                        )
+                    }
                     pendingAnnotationInfo = nil
-                    return
-                }
-                let trimmed = annotationNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else {
+                },
+                onCancel: {
                     pendingAnnotationInfo = nil
-                    return
                 }
-                let persistence = PersistenceActor(modelContainer: container)
-                guard let locator = LocatorFactory.txtRange(
-                    fingerprint: viewModel.bookFingerprint,
-                    charRangeStartUTF16: info.startUTF16,
-                    charRangeEndUTF16: info.endUTF16,
-                    sourceText: viewModel.textContent
-                ) else {
-                    pendingAnnotationInfo = nil
-                    return
-                }
-                Task {
-                    try? await persistence.addAnnotation(
-                        locator: locator,
-                        content: trimmed,
-                        toBookWithKey: viewModel.bookFingerprintKey
-                    )
-                }
-                pendingAnnotationInfo = nil
-            }
-            Button("Cancel", role: .cancel) {
-                pendingAnnotationInfo = nil
-            }
-        } message: {
-            if let info = pendingAnnotationInfo {
-                Text("\"\(info.selectedText.prefix(50))\"")
-            }
+            )
+            .presentationDetents([.medium])
         }
         .accessibilityIdentifier("txtReaderContainer")
         .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
@@ -346,6 +356,7 @@ struct TXTReaderContainerView: View {
             restoreOffset: initialRestoreOffset,
             scrollToOffset: scrollToOffset,
             highlightRange: highlightRange,
+            highlightIsTemporary: highlightIsTemporary,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)
@@ -370,7 +381,10 @@ struct TXTReaderContainerView: View {
             restoreChunkIndex: chunkIdx,
             restoreIntraChunkOffset: intraFraction,
             delegate: viewModel,
-            chunkStartOffsets: offsets
+            chunkStartOffsets: offsets,
+            scrollToOffset: scrollToOffset,
+            highlightRange: highlightRange,
+            highlightIsTemporary: highlightIsTemporary
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("txtReaderChunkedContent")

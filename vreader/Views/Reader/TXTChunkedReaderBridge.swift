@@ -28,6 +28,16 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
     /// Character offsets at the start of each chunk (cumulative UTF-16 lengths).
     let chunkStartOffsets: [Int]
 
+    /// Dynamic navigation target (document-global UTF-16 offset). Set by container
+    /// view when navigating from annotation panel, search results, etc. (bug #52)
+    var scrollToOffset: Int?
+
+    /// Highlight range (document-global UTF-16) for visual feedback. (bug #53)
+    var highlightRange: NSRange?
+    /// Whether the current highlight is temporary (search navigation) vs persistent
+    /// (user-created). Temporary highlights auto-clear after 3s. (bug #54)
+    var highlightIsTemporary: Bool = true
+
     func makeCoordinator() -> Coordinator {
         Coordinator(delegate: delegate)
     }
@@ -96,6 +106,23 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             tableView.backgroundColor = config.backgroundColor
             tableView.reloadData()
         }
+
+        // Dynamic navigation from annotation panel, search, etc. (bug #52)
+        if let offset = scrollToOffset,
+           offset != context.coordinator.lastScrollToOffset {
+            context.coordinator.lastScrollToOffset = offset
+            context.coordinator.scrollToGlobalOffset(offset, in: tableView)
+        }
+
+        // Highlight range for visual feedback (bug #53)
+        if highlightRange != context.coordinator.lastHighlightRange {
+            // Clear previous highlight
+            context.coordinator.clearHighlight(in: tableView)
+            context.coordinator.lastHighlightRange = highlightRange
+            if let range = highlightRange {
+                context.coordinator.applyHighlight(range, in: tableView, isTemporary: highlightIsTemporary)
+            }
+        }
     }
 
     // MARK: - Cell
@@ -133,7 +160,7 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate, UITextViewDelegate {
         var chunks: [String] = []
         var config = TXTViewConfig()
         var chunkStartOffsets: [Int] = []
@@ -150,6 +177,15 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         /// Retry counter for scroll restore when view has no valid frame yet.
         private var restoreRetryCount = 0
         private static let maxRestoreRetries = 5
+
+        /// Tracks last processed scrollToOffset to avoid redundant scrolls (bug #52).
+        var lastScrollToOffset: Int?
+
+        /// Tracks last processed highlightRange to avoid redundant applications (bug #53).
+        var lastHighlightRange: NSRange?
+
+        /// Timer to auto-clear highlight after a delay.
+        private var highlightClearTimer: Timer?
 
         init(delegate: TXTTextViewBridgeDelegate?) {
             self.delegate = delegate
@@ -207,6 +243,13 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             let attrStr = attributedString(forChunk: index)
             cell.textContentView.attributedText = attrStr
             cell.textContentView.backgroundColor = config.backgroundColor
+            cell.textContentView.delegate = self
+            cell.textContentView.tag = index  // Store chunk index for offset calculation
+
+            // Re-apply active highlight if this cell matches (bug #54)
+            if index == activeHighlightChunkIndex, let localRange = activeHighlightLocalRange {
+                applyHighlightToCell(cell, range: localRange)
+            }
 
             return cell
         }
@@ -239,6 +282,206 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             true
+        }
+
+        // MARK: - UITextViewDelegate
+
+        /// Tracks selection changes for feature parity with TXTTextViewBridge (bug #54).
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            let nsRange = textView.selectedRange
+            guard nsRange.length > 0 else { return }
+            let chunkIndex = textView.tag
+            let chunkOffset = chunkIndex < chunkStartOffsets.count ? chunkStartOffsets[chunkIndex] : 0
+            // Convert chunk-local range to document-global UTF16Range
+            let globalStart = chunkOffset + nsRange.location
+            let globalEnd = globalStart + nsRange.length
+            delegate?.selectionDidChange(utf16Range: UTF16Range(startUTF16: globalStart, endUTF16: globalEnd))
+        }
+
+        // Edit Menu (Bug #48)
+
+        func textView(
+            _ textView: UITextView,
+            editMenuForTextIn range: NSRange,
+            suggestedActions: [UIMenuElement]
+        ) -> UIMenu? {
+            guard range.length > 0 else { return UIMenu(children: suggestedActions) }
+
+            let chunkIndex = textView.tag
+            let chunkOffset = chunkIndex < chunkStartOffsets.count ? chunkStartOffsets[chunkIndex] : 0
+
+            let highlightAction = UIAction(
+                title: "Highlight",
+                image: UIImage(systemName: "highlighter")
+            ) { [weak textView] _ in
+                guard let textView else { return }
+                Self.postChunkedSelectionNotification(
+                    .readerHighlightRequested,
+                    from: textView,
+                    range: range,
+                    chunkOffset: chunkOffset
+                )
+            }
+
+            let noteAction = UIAction(
+                title: "Add Note",
+                image: UIImage(systemName: "note.text.badge.plus")
+            ) { [weak textView] _ in
+                guard let textView else { return }
+                Self.postChunkedSelectionNotification(
+                    .readerAnnotationRequested,
+                    from: textView,
+                    range: range,
+                    chunkOffset: chunkOffset
+                )
+            }
+
+            let customMenu = UIMenu(title: "", options: .displayInline, children: [highlightAction, noteAction])
+            return UIMenu(children: [customMenu] + suggestedActions)
+        }
+
+        private static func postChunkedSelectionNotification(
+            _ name: Notification.Name,
+            from textView: UITextView,
+            range: NSRange,
+            chunkOffset: Int
+        ) {
+            let text = textView.text ?? ""
+            let nsText = text as NSString
+            guard range.location + range.length <= nsText.length else { return }
+            let selectedText = nsText.substring(with: range)
+            // Convert chunk-local range to document-global range
+            let info = TextSelectionInfo(
+                selectedText: selectedText,
+                startUTF16: chunkOffset + range.location,
+                endUTF16: chunkOffset + range.location + range.length
+            )
+            NotificationCenter.default.post(name: name, object: info)
+        }
+
+        // MARK: - Dynamic Navigation (Bug #52)
+
+        /// Scrolls the table view to the chunk containing the given document-global
+        /// UTF-16 offset, with intra-chunk positioning.
+        func scrollToGlobalOffset(_ globalOffset: Int, in tableView: UITableView) {
+            guard !chunkStartOffsets.isEmpty else { return }
+
+            // Binary search for the chunk containing globalOffset
+            var lo = 0, hi = chunkStartOffsets.count - 1
+            while lo < hi {
+                let mid = (lo + hi + 1) / 2
+                if chunkStartOffsets[mid] <= globalOffset {
+                    lo = mid
+                } else {
+                    hi = mid - 1
+                }
+            }
+            let chunkIndex = lo
+            guard chunkIndex < chunks.count else { return }
+
+            // Compute intra-chunk fraction for sub-cell positioning
+            let chunkStart = chunkStartOffsets[chunkIndex]
+            let nextStart = chunkIndex + 1 < chunkStartOffsets.count
+                ? chunkStartOffsets[chunkIndex + 1]
+                : chunkStart + chunks[chunkIndex].utf16.count
+            let chunkLen = nextStart - chunkStart
+            let fraction: CGFloat = chunkLen > 0
+                ? CGFloat(globalOffset - chunkStart) / CGFloat(chunkLen)
+                : 0
+
+            attemptChunkRestore(in: tableView, toChunkIndex: chunkIndex, intraFraction: fraction)
+        }
+
+        // MARK: - Highlight (Bug #53)
+
+        /// Applies a temporary yellow highlight to the given document-global range.
+        /// Handles ranges within a single chunk. Ranges spanning chunk boundaries
+        /// highlight from the start offset to the end of that chunk.
+        /// Active highlight state for re-application on cell reuse (bug #54).
+        private(set) var activeHighlightChunkIndex: Int?
+        private(set) var activeHighlightLocalRange: NSRange?
+
+        func applyHighlight(_ globalRange: NSRange, in tableView: UITableView, isTemporary: Bool = true) {
+            guard !chunkStartOffsets.isEmpty else { return }
+            let globalStart = globalRange.location
+            let globalEnd = globalRange.location + globalRange.length
+            // Bug #47: Guard against invalid range values
+            guard globalStart >= 0, globalEnd > globalStart else { return }
+
+            // Find the chunk containing the highlight start
+            var lo = 0, hi = chunkStartOffsets.count - 1
+            while lo < hi {
+                let mid = (lo + hi + 1) / 2
+                if chunkStartOffsets[mid] <= globalStart {
+                    lo = mid
+                } else {
+                    hi = mid - 1
+                }
+            }
+            let chunkIndex = lo
+            guard chunkIndex < chunks.count else { return }
+            let chunkStart = chunkStartOffsets[chunkIndex]
+
+            // Convert to chunk-local range
+            let localStart = globalStart - chunkStart
+            guard localStart >= 0 else { return }
+            let nextChunkStart = chunkIndex + 1 < chunkStartOffsets.count
+                ? chunkStartOffsets[chunkIndex + 1]
+                : chunkStart + chunks[chunkIndex].utf16.count
+            let localEnd = min(globalEnd - chunkStart, nextChunkStart - chunkStart)
+            let localLength = max(0, localEnd - localStart)
+            guard localLength > 0 else { return }
+            let localRange = NSRange(location: localStart, length: localLength)
+
+            // Store active highlight for re-application on cell reuse (bug #54)
+            activeHighlightChunkIndex = chunkIndex
+            activeHighlightLocalRange = localRange
+
+            // Apply to the cell if visible
+            if let cell = tableView.cellForRow(at: IndexPath(row: chunkIndex, section: 0)) as? ChunkedTextCell {
+                applyHighlightToCell(cell, range: localRange)
+            }
+
+            // Only auto-clear temporary highlights (search navigation).
+            // User-created highlights persist until replaced or navigated away (bug #54).
+            highlightClearTimer?.invalidate()
+            highlightClearTimer = nil
+            if isTemporary {
+                highlightClearTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self, weak tableView] _ in
+                    DispatchQueue.main.async {
+                        guard let self, let tableView else { return }
+                        self.activeHighlightChunkIndex = nil
+                        self.activeHighlightLocalRange = nil
+                        self.clearHighlight(in: tableView)
+                        self.lastHighlightRange = nil
+                    }
+                }
+            }
+        }
+
+        /// Clears any highlight from all visible cells.
+        func clearHighlight(in tableView: UITableView) {
+            highlightClearTimer?.invalidate()
+            highlightClearTimer = nil
+            for cell in tableView.visibleCells {
+                guard let chunkedCell = cell as? ChunkedTextCell else { continue }
+                let storage = chunkedCell.textContentView.textStorage
+                let fullRange = NSRange(location: 0, length: storage.length)
+                storage.removeAttribute(.backgroundColor, range: fullRange)
+            }
+        }
+
+        private func applyHighlightToCell(_ cell: ChunkedTextCell, range: NSRange) {
+            let storage = cell.textContentView.textStorage
+            guard range.location < storage.length else { return }
+            let clampedLength = min(range.length, storage.length - range.location)
+            guard clampedLength > 0 else { return }
+            let clampedRange = NSRange(location: range.location, length: clampedLength)
+            storage.addAttribute(
+                .backgroundColor,
+                value: UIColor.systemYellow.withAlphaComponent(0.4),
+                range: clampedRange
+            )
         }
 
         // MARK: - Private

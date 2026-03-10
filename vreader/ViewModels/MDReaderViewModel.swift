@@ -212,6 +212,9 @@ final class MDReaderViewModel {
             )
         }
 
+        // Signal library to refresh with up-to-date stats (bug #45)
+        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+
         resetState()
     }
 

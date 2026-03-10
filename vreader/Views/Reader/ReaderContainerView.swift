@@ -47,6 +47,9 @@ extension Notification.Name {
     /// Posted by text view bridges when the user selects "Add Note" from the edit menu.
     /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
     static let readerAnnotationRequested = Notification.Name("vreader.readerAnnotationRequested")
+    /// Posted by reader ViewModels at the end of close(), after recomputeStats completes.
+    /// LibraryView observes this to refresh with guaranteed up-to-date stats (bug #45).
+    static let readerDidClose = Notification.Name("vreader.readerDidClose")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

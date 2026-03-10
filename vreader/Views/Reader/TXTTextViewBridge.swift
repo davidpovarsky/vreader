@@ -62,6 +62,9 @@ struct TXTTextViewBridge: UIViewRepresentable {
     /// Temporary highlight range for search result visualization (bug #43).
     /// Applied as a yellow background attribute on the text storage.
     var highlightRange: NSRange?
+    /// Whether the current highlight is temporary (search navigation) vs persistent
+    /// (user-created). Temporary highlights auto-clear after 3s. (bug #54)
+    var highlightIsTemporary: Bool = true
     weak var delegate: TXTTextViewBridgeDelegate?
 
     func makeUIView(context: Context) -> UITextView {
@@ -162,7 +165,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
         }
 
         // Apply or clear search result highlight (bug #43)
-        context.coordinator.applyHighlight(highlightRange, in: textView)
+        context.coordinator.applyHighlight(highlightRange, in: textView, isTemporary: highlightIsTemporary)
 
         // Scroll position restore is one-shot only (handled in makeUIView).
         // Do NOT re-apply restoreOffset here — doing so creates an observation
@@ -249,8 +252,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
 
         // MARK: - Search Highlight (Bug #43)
 
-        /// Applies or clears a temporary yellow highlight on the text storage.
-        func applyHighlight(_ range: NSRange?, in textView: UITextView) {
+        /// Applies or clears a yellow highlight on the text storage.
+        /// Temporary highlights (search navigation) auto-clear after 3s.
+        /// Persistent highlights (user-created) stay until replaced (bug #54).
+        func applyHighlight(_ range: NSRange?, in textView: UITextView, isTemporary: Bool = true) {
             // Clear previous highlight if it exists
             if let prev = currentHighlightRange {
                 let textLength = textView.textStorage.length
@@ -265,8 +270,11 @@ struct TXTTextViewBridge: UIViewRepresentable {
             guard let range, range.length > 0 else { return }
 
             let textLength = textView.textStorage.length
+            // Guard BEFORE arithmetic to prevent integer underflow (bug #47):
+            // textLength - range.location is negative when range.location > textLength.
+            guard range.location < textLength else { return }
             let clampedLength = min(range.length, textLength - range.location)
-            guard range.location < textLength, clampedLength > 0 else { return }
+            guard clampedLength > 0 else { return }
             let safeRange = NSRange(location: range.location, length: clampedLength)
 
             // Skip if same range already applied
@@ -279,16 +287,20 @@ struct TXTTextViewBridge: UIViewRepresentable {
             )
             currentHighlightRange = safeRange
 
-            // Auto-clear after 3 seconds
+            // Only auto-clear temporary highlights (search navigation).
+            // User-created highlights persist until replaced or navigated away (bug #54).
             highlightClearTimer?.invalidate()
-            highlightClearTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self, weak textView] _ in
-                guard let self, let textView else { return }
-                DispatchQueue.main.async {
-                    if let current = self.currentHighlightRange,
-                       current.location + current.length <= textView.textStorage.length {
-                        textView.textStorage.removeAttribute(.backgroundColor, range: current)
+            highlightClearTimer = nil
+            if isTemporary {
+                highlightClearTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self, weak textView] _ in
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let self, let textView else { return }
+                        if let current = self.currentHighlightRange,
+                           current.location + current.length <= textView.textStorage.length {
+                            textView.textStorage.removeAttribute(.backgroundColor, range: current)
+                        }
+                        self.currentHighlightRange = nil
                     }
-                    self.currentHighlightRange = nil
                 }
             }
         }

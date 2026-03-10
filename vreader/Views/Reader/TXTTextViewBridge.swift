@@ -18,42 +18,24 @@
 import SwiftUI
 import UIKit
 
-/// UITextView subclass with safe highlight attribute methods (bug #47 v8).
+/// UITextView subclass for highlight-safe text setting (bug #47 v10).
 ///
-/// Problem: textStorage.addAttribute triggers UITextViewAccessibility's
-/// setAttributedText: callback → infinite recursion → EXC_BAD_ACCESS.
-/// Overriding attributedText setter to guard against this causes
-/// _dispatch_assert_queue_fail (Swift 6 @MainActor enforcement on
-/// property override; UIKit accessibility reads from internal queue).
+/// Problem chain: textStorage.addAttribute → accessibility recursion → crash.
+/// Overriding attributedText → dispatch queue assert. Reading self.attributedText
+/// then writing → os_unfair_lock recursive abort.
 ///
-/// Solution: Don't modify textStorage directly. Instead, rebuild the full
-/// attributed string with highlights and set via attributedText in one shot.
-/// This avoids the incremental-change notification that triggers the
-/// accessibility recursion, and avoids any property override.
+/// Solution: NEVER modify the text view post-creation. Build the full
+/// attributed string (source + all highlights) externally, then set once.
+/// This subclass preserves scroll position and selection across replacements.
 final class HighlightableTextView: UITextView {
 
-    /// Adds a background color attribute at the given range safely.
-    /// Replaces the full attributedText to avoid textStorage notifications
-    /// that trigger the UITextViewAccessibility infinite recursion.
-    func addHighlightAttribute(color: UIColor, range: NSRange) {
-        guard let current = attributedText else { return }
-        let mutable = NSMutableAttributedString(attributedString: current)
-        mutable.addAttribute(.backgroundColor, value: color, range: range)
+    /// Sets attributed text while preserving contentOffset and selectedRange.
+    /// The caller builds the full string (source + highlights) externally —
+    /// this method NEVER reads self.attributedText (that causes lock abort).
+    func setHighlightedText(_ attrText: NSAttributedString) {
         let savedOffset = contentOffset
         let savedSelection = selectedRange
-        attributedText = mutable
-        selectedRange = savedSelection
-        contentOffset = savedOffset
-    }
-
-    /// Removes the background color attribute at the given range safely.
-    func removeHighlightAttribute(range: NSRange) {
-        guard let current = attributedText else { return }
-        let mutable = NSMutableAttributedString(attributedString: current)
-        mutable.removeAttribute(.backgroundColor, range: range)
-        let savedOffset = contentOffset
-        let savedSelection = selectedRange
-        attributedText = mutable
+        attributedText = attrText
         selectedRange = savedSelection
         contentOffset = savedOffset
     }
@@ -133,13 +115,12 @@ struct TXTTextViewBridge: UIViewRepresentable {
         tapRecognizer.delegate = context.coordinator
         textView.addGestureRecognizer(tapRecognizer)
 
-        applyText(to: textView)
+        // Store base text + highlights in coordinator, then build & apply in one shot.
+        context.coordinator.baseAttributedText = buildBaseAttributedText()
+        context.coordinator.persistedHighlights = persistedHighlights
         context.coordinator.lastAppliedText = text
         context.coordinator.lastAppliedAttrText = attributedText
-
-        // Apply persisted highlights from DB (bug #55).
-        // Must happen after applyText sets the attributedText.
-        applyPersistedHighlights(to: textView)
+        applyTextWithHighlights(to: textView, coordinator: context.coordinator)
 
         // Restore scroll position if requested (one-shot — never re-applied).
         // Suppress scroll callbacks from the moment text is applied until restore
@@ -183,21 +164,45 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // Keep delegate reference in sync (SwiftUI may recreate the struct)
         context.coordinator.delegate = delegate
 
-        // Detect if config changed by comparing rendering-relevant fields
+        // Detect changes to source text, config, or highlights
         let configChanged = !context.coordinator.lastConfig.renderingEquals(config)
-
-        // Check if the SOURCE text changed (not the textView's content, which includes
-        // highlight attributes). Identity/value comparison against coordinator state
-        // prevents the infinite loop: addHighlightAttribute modifies textView.attributedText
-        // but doesn't change the source → no re-apply → no loop (bug #47 v9).
         let textChanged = text != context.coordinator.lastAppliedText
         let attrChanged = attributedText !== context.coordinator.lastAppliedAttrText
-        if textChanged || attrChanged || configChanged {
-            applyText(to: textView)
-            applyPersistedHighlights(to: textView) // Re-apply after text rebuild (bug #55)
+        let persistedChanged = persistedHighlights.count != context.coordinator.persistedHighlights.count
+        let highlightChanged = highlightRange != context.coordinator.currentHighlightRange
+
+        // Update coordinator state
+        let sourceChanged = textChanged || attrChanged || configChanged
+        if sourceChanged {
+            context.coordinator.baseAttributedText = buildBaseAttributedText()
             context.coordinator.lastConfig = config
             context.coordinator.lastAppliedText = text
             context.coordinator.lastAppliedAttrText = attributedText
+        }
+        if persistedChanged {
+            context.coordinator.persistedHighlights = persistedHighlights
+        }
+        if highlightChanged {
+            context.coordinator.currentHighlightRange = highlightRange
+            // Manage auto-clear timer for temporary highlights
+            context.coordinator.highlightClearTimer?.invalidate()
+            context.coordinator.highlightClearTimer = nil
+            if let range = highlightRange, range.length > 0, highlightIsTemporary {
+                context.coordinator.highlightClearTimer = Timer.scheduledTimer(
+                    withTimeInterval: 3.0, repeats: false
+                ) { [weak coordinator = context.coordinator, weak textView] _ in
+                    DispatchQueue.main.async {
+                        guard let coordinator, let textView else { return }
+                        coordinator.currentHighlightRange = nil
+                        coordinator.rebuildHighlights(in: textView)
+                    }
+                }
+            }
+        }
+
+        // Rebuild text + highlights if anything changed (bug #47 v10)
+        if sourceChanged || persistedChanged || highlightChanged {
+            applyTextWithHighlights(to: textView, coordinator: context.coordinator)
         }
 
         // Re-apply inset changes
@@ -209,9 +214,6 @@ struct TXTTextViewBridge: UIViewRepresentable {
         if let target = scrollToOffset,
            target != context.coordinator.lastScrollToTarget {
             context.coordinator.lastScrollToTarget = target
-            // Force synchronous layout so charOffsetToScrollOffset returns
-            // accurate Y positions (bug #40). Without this, allowsNonContiguousLayout
-            // uses estimated line heights for unvisited regions.
             let textLength = (textView.text as NSString?)?.length ?? 0
             if textLength > 0 {
                 let rangeEnd = min(textLength, target + 4096)
@@ -219,9 +221,6 @@ struct TXTTextViewBridge: UIViewRepresentable {
             }
             context.coordinator.attemptScrollRestore(in: textView, toCharOffset: target)
         }
-
-        // Apply or clear search result highlight (bug #43)
-        context.coordinator.applyHighlight(highlightRange, in: textView, isTemporary: highlightIsTemporary)
 
         // Scroll position restore is one-shot only (handled in makeUIView).
         // Do NOT re-apply restoreOffset here — doing so creates an observation
@@ -235,36 +234,66 @@ struct TXTTextViewBridge: UIViewRepresentable {
 
     // MARK: - Private
 
-    /// Applies all persisted highlight ranges as yellow background (bug #55).
-    /// Uses layoutManager.addTemporaryAttribute to avoid triggering
-    /// UITextViewAccessibility setAttributedText: infinite recursion (bug #47 v5).
-    private func applyPersistedHighlights(to textView: UITextView) {
-        guard let htv = textView as? HighlightableTextView else { return }
-        guard !persistedHighlights.isEmpty else { return }
-        let textLength = htv.textStorage.length
-        guard textLength > 0 else { return }
-        for range in persistedHighlights {
-            guard range.location < textLength else { continue }
-            let clampedLength = min(range.length, textLength - range.location)
-            guard clampedLength > 0 else { continue }
-            let safeRange = NSRange(location: range.location, length: clampedLength)
-            htv.addHighlightAttribute(
-                color: UIColor.systemYellow.withAlphaComponent(0.4),
-                range: safeRange
-            )
+    /// Builds the base attributed string from source data (struct properties).
+    /// NEVER reads from the textView — always uses struct's text/attributedText/config.
+    private func buildBaseAttributedText() -> NSAttributedString {
+        if let attributedText {
+            return attributedText
         }
+        return TXTAttributedStringBuilder.build(text: text, config: config)
     }
 
-    private func applyText(to textView: UITextView) {
-        if let attributedText {
-            // Use pre-built attributed string (from background thread or Markdown rendering)
-            textView.attributedText = attributedText
+    /// Builds the full attributed string with all highlights baked in, then sets it
+    /// on the text view. NEVER reads textView.attributedText (bug #47 v10).
+    ///
+    /// Uses the coordinator's stored highlight state so the timer can also call this.
+    private func applyTextWithHighlights(to textView: UITextView, coordinator: Coordinator) {
+        let base = coordinator.baseAttributedText ?? buildBaseAttributedText()
+        let highlighted = Self.buildHighlightedString(
+            base: base,
+            persistedHighlights: coordinator.persistedHighlights,
+            activeHighlight: coordinator.currentHighlightRange
+        )
+
+        if let htv = textView as? HighlightableTextView {
+            htv.setHighlightedText(highlighted)
         } else {
-            // Fallback: build on main thread (small files or MD reader path)
-            textView.attributedText = TXTAttributedStringBuilder.build(text: text, config: config)
+            textView.attributedText = highlighted
         }
         textView.adjustsFontForContentSizeCategory = true
         textView.backgroundColor = config.backgroundColor
+    }
+
+    /// Pure function: builds attributed string with highlight ranges baked in.
+    static func buildHighlightedString(
+        base: NSAttributedString,
+        persistedHighlights: [NSRange],
+        activeHighlight: NSRange?
+    ) -> NSAttributedString {
+        let needsHighlights = !persistedHighlights.isEmpty || activeHighlight != nil
+        guard needsHighlights else { return base }
+
+        let mutable = NSMutableAttributedString(attributedString: base)
+        let textLength = mutable.length
+        let color = UIColor.systemYellow.withAlphaComponent(0.4)
+
+        for range in persistedHighlights {
+            guard range.location < textLength else { continue }
+            let len = min(range.length, textLength - range.location)
+            guard len > 0 else { continue }
+            mutable.addAttribute(.backgroundColor, value: color,
+                                 range: NSRange(location: range.location, length: len))
+        }
+
+        if let range = activeHighlight, range.length > 0, range.location < textLength {
+            let len = min(range.length, textLength - range.location)
+            if len > 0 {
+                mutable.addAttribute(.backgroundColor, value: color,
+                                     range: NSRange(location: range.location, length: len))
+            }
+        }
+
+        return mutable
     }
 
     // Scroll restore logic is in Coordinator.attemptScrollRestore (supports retry).
@@ -274,39 +303,44 @@ struct TXTTextViewBridge: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         weak var delegate: TXTTextViewBridgeDelegate?
         var lastConfig: TXTViewConfig
-        /// Reference to the last source attributedText applied via applyText().
-        /// Used to detect when the SOURCE text changes (vs. highlight modifications).
-        /// Identity comparison (===) prevents the infinite loop where addHighlightAttribute
-        /// triggers updateUIView → applyText → applyPersistedHighlights → loop (bug #47 v8).
         var lastAppliedAttrText: NSAttributedString?
-        /// Last source text string applied via applyText().
         var lastAppliedText: String?
-        /// One-shot flag: once true, scroll position restore is never attempted again.
-        /// Prevents the observation feedback loop (bug #15, #17) where:
-        /// scroll → viewModel update → SwiftUI re-render → restoreScrollPosition → scroll
+
+        /// Base attributed string (source without highlights). Used by timer to rebuild.
+        var baseAttributedText: NSAttributedString?
+        /// Persisted highlight ranges from DB (bug #55). Stored for timer rebuild.
+        var persistedHighlights: [NSRange] = []
+        /// Active search/navigation highlight range (bug #43).
+        var currentHighlightRange: NSRange?
+        /// Timer to auto-clear temporary highlight after 3s (bug #54).
+        var highlightClearTimer: Timer?
+
         var hasRestoredPosition = false
-        /// Throttle scroll callbacks to ~10fps to avoid expensive TextKit queries per frame.
         private var lastScrollCallbackTime: CFTimeInterval = 0
         private static let scrollThrottleInterval: CFTimeInterval = 0.1
-
-        /// Retry counter for scroll restore when view has no valid frame yet.
         private var restoreRetryCount = 0
         private static let maxRestoreRetries = 5
-
-        /// Suppresses scroll delegate callbacks during position restore.
-        /// TextKit 1 compatibility mode switch causes relayout storms that
-        /// reset contentOffset to 0 — these ghost callbacks must be ignored.
         var suppressScrollCallbacks = false
-        /// Last programmatic scroll target (search navigation) to avoid re-applying same offset.
         var lastScrollToTarget: Int?
-        /// Currently applied highlight range. Used to avoid re-applying the same highlight.
-        private var currentHighlightRange: NSRange?
-        /// Timer to auto-clear highlight after a delay.
-        private var highlightClearTimer: Timer?
 
         init(delegate: TXTTextViewBridgeDelegate?, config: TXTViewConfig = TXTViewConfig()) {
             self.delegate = delegate
             self.lastConfig = config
+        }
+
+        /// Rebuilds text + highlights from coordinator state (for timer callback).
+        func rebuildHighlights(in textView: UITextView) {
+            guard let base = baseAttributedText else { return }
+            let highlighted = TXTTextViewBridge.buildHighlightedString(
+                base: base,
+                persistedHighlights: persistedHighlights,
+                activeHighlight: currentHighlightRange
+            )
+            if let htv = textView as? HighlightableTextView {
+                htv.setHighlightedText(highlighted)
+            } else {
+                textView.attributedText = highlighted
+            }
         }
 
         /// Restores scroll position, retrying if the view has no valid frame.
@@ -331,65 +365,6 @@ struct TXTTextViewBridge: UIViewRepresentable {
                 textContainer: textView.textContainer
             )
             textView.setContentOffset(CGPoint(x: 0, y: scrollY), animated: false)
-        }
-
-        // MARK: - Search Highlight (Bug #43)
-
-        /// Applies or clears a yellow highlight on the text storage.
-        /// Temporary highlights (search navigation) auto-clear after 3s.
-        /// Persistent highlights (user-created) stay until replaced (bug #54).
-        /// Bug #47 v5: Use layoutManager.addTemporaryAttribute instead of
-        /// textStorage.addAttribute. Direct textStorage modification triggers
-        /// UITextViewAccessibility setAttributedText: → infinite recursion →
-        /// EXC_BAD_ACCESS (stack overflow). Temporary attributes are visual-only
-        /// and don't modify the document, avoiding the accessibility callback loop.
-        func applyHighlight(_ range: NSRange?, in textView: UITextView, isTemporary: Bool = true) {
-            guard let htv = textView as? HighlightableTextView else { return }
-
-            // Clear previous highlight
-            if let prev = currentHighlightRange {
-                let textLength = htv.textStorage.length
-                if prev.location + prev.length <= textLength {
-                    htv.removeHighlightAttribute(range: prev)
-                }
-                currentHighlightRange = nil
-                highlightClearTimer?.invalidate()
-                highlightClearTimer = nil
-            }
-
-            guard let range, range.length > 0 else { return }
-
-            let textLength = htv.textStorage.length
-            guard range.location < textLength else { return }
-            let clampedLength = min(range.length, textLength - range.location)
-            guard clampedLength > 0 else { return }
-            let safeRange = NSRange(location: range.location, length: clampedLength)
-
-            // Skip if same range already applied
-            if currentHighlightRange == safeRange { return }
-
-            htv.addHighlightAttribute(
-                color: UIColor.systemYellow.withAlphaComponent(0.4),
-                range: safeRange
-            )
-            currentHighlightRange = safeRange
-
-            // Only auto-clear temporary highlights (search navigation).
-            // User-created highlights persist until replaced or navigated away (bug #54).
-            highlightClearTimer?.invalidate()
-            highlightClearTimer = nil
-            if isTemporary {
-                highlightClearTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self, weak textView] _ in
-                    DispatchQueue.main.async { [weak self, weak textView] in
-                        guard let self, let htv = textView as? HighlightableTextView else { return }
-                        if let current = self.currentHighlightRange,
-                           current.location + current.length <= htv.textStorage.length {
-                            htv.removeHighlightAttribute(range: current)
-                        }
-                        self.currentHighlightRange = nil
-                    }
-                }
-            }
         }
 
         // MARK: - Content Tap (Toolbar Toggle)

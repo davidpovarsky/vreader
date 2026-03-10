@@ -252,19 +252,14 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             }
 
             let index = indexPath.row
-            let attrStr = attributedString(forChunk: index)
-            cell.textContentView.attributedText = attrStr
+            // Build chunk attributed string with all highlights baked in (bug #47 v10).
+            // NEVER modify textView.attributedText post-creation — that triggers
+            // accessibility recursion / os_unfair_lock abort.
+            let attrStr = buildChunkWithHighlights(forChunk: index)
+            cell.textContentView.setHighlightedText(attrStr)
             cell.textContentView.backgroundColor = config.backgroundColor
             cell.textContentView.delegate = self
             cell.textContentView.tag = index  // Store chunk index for offset calculation
-
-            // Apply persisted highlights from DB for this chunk (bug #55)
-            applyPersistedHighlightsToCell(cell, chunkIndex: index)
-
-            // Re-apply active highlight if this cell matches (bug #54)
-            if index == activeHighlightChunkIndex, let localRange = activeHighlightLocalRange {
-                applyHighlightToCell(cell, range: localRange)
-            }
 
             return cell
         }
@@ -452,9 +447,9 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             activeHighlightChunkIndex = chunkIndex
             activeHighlightLocalRange = localRange
 
-            // Apply to the cell if visible
+            // Rebuild the cell with highlight baked in (bug #47 v10)
             if let cell = tableView.cellForRow(at: IndexPath(row: chunkIndex, section: 0)) as? ChunkedTextCell {
-                applyHighlightToCell(cell, range: localRange)
+                rebuildHighlightCell(cell, chunkIndex: chunkIndex)
             }
 
             // Only auto-clear temporary highlights (search navigation).
@@ -474,48 +469,40 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             }
         }
 
-        /// Clears any highlight from all visible cells, then re-applies persisted highlights.
-        /// Bug #47 v5: Uses layoutManager.removeTemporaryAttribute to avoid
-        /// UITextViewAccessibility setAttributedText: infinite recursion crash.
+        /// Clears active highlight and rebuilds visible cells (bug #47 v10).
+        /// NEVER modifies textView attributes post-creation — rebuilds full string instead.
         func clearHighlight(in tableView: UITableView) {
             highlightClearTimer?.invalidate()
             highlightClearTimer = nil
             for cell in tableView.visibleCells {
                 guard let chunkedCell = cell as? ChunkedTextCell else { continue }
-                let tv = chunkedCell.textContentView
-                let fullRange = NSRange(location: 0, length: tv.textStorage.length)
-                tv.removeHighlightAttribute(range: fullRange)
-                // Re-apply persisted highlights after clearing (bug #55)
-                applyPersistedHighlightsToCell(chunkedCell, chunkIndex: tv.tag)
+                let chunkIndex = chunkedCell.textContentView.tag
+                let attrStr = buildChunkWithHighlights(forChunk: chunkIndex)
+                chunkedCell.textContentView.setHighlightedText(attrStr)
             }
         }
 
-        /// Bug #47 v5: Uses layoutManager.addTemporaryAttribute — visual-only,
-        /// no textStorage mutation, no accessibility callback loop.
-        private func applyHighlightToCell(_ cell: ChunkedTextCell, range: NSRange) {
-            let tv = cell.textContentView
-            guard range.location < tv.textStorage.length else { return }
-            let clampedLength = min(range.length, tv.textStorage.length - range.location)
-            guard clampedLength > 0 else { return }
-            let clampedRange = NSRange(location: range.location, length: clampedLength)
-            tv.addHighlightAttribute(
-                color: UIColor.systemYellow.withAlphaComponent(0.4),
-                range: clampedRange
-            )
+        /// Rebuilds the affected cell's attributed string with highlight baked in (bug #47 v10).
+        private func rebuildHighlightCell(_ cell: ChunkedTextCell, chunkIndex: Int) {
+            let attrStr = buildChunkWithHighlights(forChunk: chunkIndex)
+            cell.textContentView.setHighlightedText(attrStr)
         }
 
-        /// Applies persisted highlight ranges from DB for a specific chunk (bug #55).
-        /// Uses layoutManager.addTemporaryAttribute to avoid accessibility crash (bug #47 v5).
-        private func applyPersistedHighlightsToCell(_ cell: ChunkedTextCell, chunkIndex: Int) {
-            guard !persistedHighlights.isEmpty else { return }
-            guard chunkIndex < chunkStartOffsets.count, chunkIndex < chunks.count else { return }
-            let chunkStart = chunkStartOffsets[chunkIndex]
-            let chunkEnd = chunkIndex + 1 < chunkStartOffsets.count
-                ? chunkStartOffsets[chunkIndex + 1]
-                : chunkStart + chunks[chunkIndex].utf16.count
-            let tv = cell.textContentView
-            let textLength = tv.textStorage.length
-            guard textLength > 0 else { return }
+        /// Builds the attributed string for a chunk with all highlights baked in (bug #47 v10).
+        /// Combines base text + persisted highlights + active highlight into one string,
+        /// set once on the text view — no post-creation attribute mutation.
+        private func buildChunkWithHighlights(forChunk index: Int) -> NSAttributedString {
+            let base = attributedString(forChunk: index)
+            guard index < chunkStartOffsets.count, index < chunks.count else { return base }
+
+            let chunkStart = chunkStartOffsets[index]
+            let chunkEnd = index + 1 < chunkStartOffsets.count
+                ? chunkStartOffsets[index + 1]
+                : chunkStart + chunks[index].utf16.count
+            let textLength = base.length
+
+            // Collect chunk-local persisted highlight ranges
+            var localPersistedRanges: [NSRange] = []
             for globalRange in persistedHighlights {
                 let globalStart = globalRange.location
                 let globalEnd = globalRange.location + globalRange.length
@@ -523,14 +510,28 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 let localStart = max(0, globalStart - chunkStart)
                 let localEnd = min(chunkEnd - chunkStart, globalEnd - chunkStart)
                 let localLength = localEnd - localStart
-                guard localLength > 0 else { continue }
+                guard localLength > 0, localStart < textLength else { continue }
                 let clampedLength = min(localLength, textLength - localStart)
-                guard clampedLength > 0, localStart < textLength else { continue }
-                tv.addHighlightAttribute(
-                    color: UIColor.systemYellow.withAlphaComponent(0.4),
-                    range: NSRange(location: localStart, length: clampedLength)
-                )
+                guard clampedLength > 0 else { continue }
+                localPersistedRanges.append(NSRange(location: localStart, length: clampedLength))
             }
+
+            // Active highlight (chunk-local)
+            var activeLocal: NSRange? = nil
+            if index == activeHighlightChunkIndex, let localRange = activeHighlightLocalRange {
+                if localRange.location < textLength {
+                    let clampedLen = min(localRange.length, textLength - localRange.location)
+                    if clampedLen > 0 {
+                        activeLocal = NSRange(location: localRange.location, length: clampedLen)
+                    }
+                }
+            }
+
+            return TXTTextViewBridge.buildHighlightedString(
+                base: base,
+                persistedHighlights: localPersistedRanges,
+                activeHighlight: activeLocal
+            )
         }
 
         // MARK: - Private

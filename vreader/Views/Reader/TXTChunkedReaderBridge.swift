@@ -37,6 +37,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
     /// Whether the current highlight is temporary (search navigation) vs persistent
     /// (user-created). Temporary highlights auto-clear after 3s. (bug #54)
     var highlightIsTemporary: Bool = true
+    /// Persisted highlight ranges (document-global UTF-16) loaded from DB (bug #55).
+    var persistedHighlights: [NSRange] = []
 
     func makeCoordinator() -> Coordinator {
         Coordinator(delegate: delegate)
@@ -58,6 +60,7 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         context.coordinator.chunks = chunks
         context.coordinator.config = config
         context.coordinator.chunkStartOffsets = chunkStartOffsets
+        context.coordinator.persistedHighlights = persistedHighlights
         context.coordinator.delegate = delegate
 
         // Tap gesture for toolbar toggle
@@ -114,6 +117,13 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             context.coordinator.scrollToGlobalOffset(offset, in: tableView)
         }
 
+        // Sync persisted highlights (bug #55)
+        if context.coordinator.persistedHighlights.count != persistedHighlights.count {
+            context.coordinator.persistedHighlights = persistedHighlights
+            // Reload visible cells to apply new persisted highlights
+            tableView.reloadData()
+        }
+
         // Highlight range for visual feedback (bug #53)
         if highlightRange != context.coordinator.lastHighlightRange {
             // Clear previous highlight
@@ -164,6 +174,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         var chunks: [String] = []
         var config = TXTViewConfig()
         var chunkStartOffsets: [Int] = []
+        /// Persisted highlight ranges (document-global UTF-16) from DB (bug #55).
+        var persistedHighlights: [NSRange] = []
         weak var delegate: TXTTextViewBridgeDelegate?
 
         /// LRU cache for attributed strings keyed by chunk index.
@@ -245,6 +257,9 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             cell.textContentView.backgroundColor = config.backgroundColor
             cell.textContentView.delegate = self
             cell.textContentView.tag = index  // Store chunk index for offset calculation
+
+            // Apply persisted highlights from DB for this chunk (bug #55)
+            applyPersistedHighlightsToCell(cell, chunkIndex: index)
 
             // Re-apply active highlight if this cell matches (bug #54)
             if index == activeHighlightChunkIndex, let localRange = activeHighlightLocalRange {
@@ -459,7 +474,7 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             }
         }
 
-        /// Clears any highlight from all visible cells.
+        /// Clears any highlight from all visible cells, then re-applies persisted highlights.
         func clearHighlight(in tableView: UITableView) {
             highlightClearTimer?.invalidate()
             highlightClearTimer = nil
@@ -467,7 +482,12 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 guard let chunkedCell = cell as? ChunkedTextCell else { continue }
                 let storage = chunkedCell.textContentView.textStorage
                 let fullRange = NSRange(location: 0, length: storage.length)
+                // Bug #47 v4: Batch to prevent reentrant textStorage access.
+                storage.beginEditing()
                 storage.removeAttribute(.backgroundColor, range: fullRange)
+                storage.endEditing()
+                // Re-apply persisted highlights after clearing (bug #55)
+                applyPersistedHighlightsToCell(chunkedCell, chunkIndex: chunkedCell.textContentView.tag)
             }
         }
 
@@ -477,11 +497,46 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             let clampedLength = min(range.length, storage.length - range.location)
             guard clampedLength > 0 else { return }
             let clampedRange = NSRange(location: range.location, length: clampedLength)
+            // Bug #47 v4: Batch to prevent reentrant textStorage access.
+            storage.beginEditing()
             storage.addAttribute(
                 .backgroundColor,
                 value: UIColor.systemYellow.withAlphaComponent(0.4),
                 range: clampedRange
             )
+            storage.endEditing()
+        }
+
+        /// Applies persisted highlight ranges from DB for a specific chunk (bug #55).
+        private func applyPersistedHighlightsToCell(_ cell: ChunkedTextCell, chunkIndex: Int) {
+            guard !persistedHighlights.isEmpty else { return }
+            guard chunkIndex < chunkStartOffsets.count, chunkIndex < chunks.count else { return }
+            let chunkStart = chunkStartOffsets[chunkIndex]
+            let chunkEnd = chunkIndex + 1 < chunkStartOffsets.count
+                ? chunkStartOffsets[chunkIndex + 1]
+                : chunkStart + chunks[chunkIndex].utf16.count
+            let storage = cell.textContentView.textStorage
+            guard storage.length > 0 else { return }
+            var applied = false
+            for globalRange in persistedHighlights {
+                let globalStart = globalRange.location
+                let globalEnd = globalRange.location + globalRange.length
+                // Skip ranges that don't overlap this chunk
+                guard globalEnd > chunkStart, globalStart < chunkEnd else { continue }
+                let localStart = max(0, globalStart - chunkStart)
+                let localEnd = min(chunkEnd - chunkStart, globalEnd - chunkStart)
+                let localLength = localEnd - localStart
+                guard localLength > 0 else { continue }
+                let clampedLength = min(localLength, storage.length - localStart)
+                guard clampedLength > 0, localStart < storage.length else { continue }
+                if !applied { storage.beginEditing(); applied = true }
+                storage.addAttribute(
+                    .backgroundColor,
+                    value: UIColor.systemYellow.withAlphaComponent(0.4),
+                    range: NSRange(location: localStart, length: clampedLength)
+                )
+            }
+            if applied { storage.endEditing() }
         }
 
         // MARK: - Private

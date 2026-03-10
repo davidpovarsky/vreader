@@ -43,6 +43,11 @@ extension PersistenceActor {
         }
 
         stats.recompute(from: sessions)
+        // Bug #45 v5: Always set lastReadAt to now.
+        // recompute() derives lastReadAt from session endedAt, but sessions
+        // shorter than 5s are discarded — leaving lastReadAt nil for quick opens.
+        // Since recomputeStats is only called from reader close(), "now" is correct.
+        stats.lastReadAt = Date()
         try context.save()
     }
 }

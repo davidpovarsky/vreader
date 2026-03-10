@@ -38,6 +38,8 @@ struct MDReaderContainerView: View {
     @State private var pendingAnnotationInfo: TextSelectionInfo?
     /// Text input for the annotation note.
     @State private var annotationNoteText: String = ""
+    /// Persisted highlight ranges loaded from DB on file open (bug #55).
+    @State private var persistedHighlightRanges: [NSRange] = []
 
     var body: some View {
         ZStack {
@@ -63,6 +65,20 @@ struct MDReaderContainerView: View {
         .task {
             await viewModel.open(url: fileURL)
             initialRestoreOffset = viewModel.currentOffsetUTF16
+            // Load persisted highlights from DB for visual rendering (bug #55)
+            if let container = modelContainer {
+                let persistence = PersistenceActor(modelContainer: container)
+                if let records = try? await persistence.fetchHighlights(
+                    forBookWithKey: viewModel.bookFingerprintKey
+                ) {
+                    persistedHighlightRanges = records.compactMap { record in
+                        guard let start = record.locator.charRangeStartUTF16,
+                              let end = record.locator.charRangeEndUTF16,
+                              end > start else { return nil }
+                        return NSRange(location: start, length: end - start)
+                    }
+                }
+            }
         }
         .onDisappear {
             let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
@@ -131,7 +147,10 @@ struct MDReaderContainerView: View {
             ) else { return }
             // Apply persistent visual highlight feedback (bug #46, #54)
             highlightIsTemporary = false
-            highlightRange = NSRange(location: info.startUTF16, length: info.endUTF16 - info.startUTF16)
+            let newRange = NSRange(location: info.startUTF16, length: info.endUTF16 - info.startUTF16)
+            highlightRange = newRange
+            // Add to persisted highlights so it survives text rebuilds (bug #55)
+            persistedHighlightRanges.append(newRange)
             Task {
                 try? await persistence.addHighlight(
                     locator: locator,
@@ -268,6 +287,7 @@ struct MDReaderContainerView: View {
             scrollToOffset: scrollToOffset,
             highlightRange: highlightRange,
             highlightIsTemporary: highlightIsTemporary,
+            persistedHighlights: persistedHighlightRanges,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)

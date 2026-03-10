@@ -46,7 +46,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
-_No open bugs._
+<!-- No open bugs -->
 
 ## Summary
 
@@ -96,9 +96,9 @@ _No open bugs._
 | 42 | Bookmarks cannot be edited or navigated                                                               | Reader/*  | High     | FIXED    | No-op onNavigate in annotations panel; wired all tabs + added bookmark rename via context menu + alert                                             |
 | 43 | Search result not highlighted when navigated                                                          | Reader/*  | Medium   | FIXED    | No visual indicator at match; added highlightRange to bridge with yellow background attribute, auto-clears after 3s                                |
 | 44 | Cannot manually highlight or add notes                                                                | Reader/*  | High     | FIXED    | No edit menu for text selection; added Highlight/Add Note to UITextView edit menu via editMenuForTextIn + NotificationCenter to container views    |
-| 45 | Books sorted by "Last Read" shows stale order                                                         | Library/* | Medium   | FIXED    | v4: Remove loadBooks() from markBookAsJustRead — it overwrote in-memory fix with stale DB data before recomputeStats committed                     |
+| 45 | Books sorted by "Last Read" shows stale order                                                         | Library/* | Medium   | FIXED    | v5: recomputeStats() now always sets lastReadAt=Date() — sessions <5s were discarded leaving nil; DB now correct on refresh/restart                  |
 | 46 | Manual highlight saves record but content not highlighted                                             | Reader/*  | Medium   | FIXED    | No visual feedback on save; added immediate highlightRange set in .readerHighlightRequested handler (3s auto-clear)                                |
-| 47 | App crashes after navigating to search result or bookmark then tapping screen                         | Reader/*  | Critical | FIXED    | v3: Wrap all Timer callbacks in DispatchQueue.main.async — Timer can fire off-main when main thread blocked in TextKit relayout                    |
+| 47 | App crashes after navigating to search result or bookmark then tapping screen                         | Reader/*  | Critical | FIXED    | v4: Wrapped textStorage modifications in beginEditing/endEditing — reentrant access during TextKit 1 relayout caused os_unfair_lock crash          |
 | 48 | Highlight/note edit menu missing in large TXT files (chunked reader)                                  | TXT/*     | High     | FIXED    | TXTChunkedReaderBridge lacked UITextViewDelegate; added conformance + editMenuForTextIn with chunk offset translation                              |
 | 49 | Annotation note input too narrow for long text                                                        | Reader/*  | Low      | FIXED    | .alert TextField is single-line; replaced with .sheet + AddNoteSheet using TextEditor for multi-line input                                         |
 | 50 | Highlight/annotation navigation fails silently when tapped in panel                                   | Reader/*  | High     | FIXED    | LocatorFactory.txtRange didn't set charOffsetUTF16; added it + fallback to charRangeStartUTF16 in navigation handlers                              |
@@ -106,3 +106,4 @@ _No open bugs._
 | 52 | Large CJK TXT annotation panel navigation fails (chunked reader)                                      | TXT/*     | High     | FIXED    | Added scrollToOffset to chunked bridge + scrollToGlobalOffset with binary search chunk mapping + updateUIView handler                              |
 | 53 | Highlight visual not applied in large CJK TXT (chunked reader)                                        | TXT/*     | Medium   | FIXED    | Added highlightRange to chunked bridge + applyHighlight with global-to-local range conversion + 3s auto-clear timer                                |
 | 54 | Highlight disappears in large CJK TXT after selecting other text and canceling                        | TXT/*     | Medium   | FIXED    | v2: Distinguish temporary (search) vs persistent (user) highlights — only auto-clear temporary; persistent keeps activeHighlight state indefinitely |
+| 55 | Highlights not visible when file is reopened                                                          | Reader/*  | Medium   | FIXED    | Fetch highlights from DB on file open; pass as persistedHighlights to bridges; applied in makeUIView/cellForRowAt with beginEditing/endEditing      |

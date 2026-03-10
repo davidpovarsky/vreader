@@ -38,6 +38,9 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-03-10 | REOPENED bug #45 | "Last Read" sort resets on refresh/restart, only tracks last-opened book — v4 in-memory fix doesn't survive loadBooks(). Details updated in Open Bug Details in bugs.md
+2026-03-10 | REOPENED bug #47 | Crash on highlight in test魔头.txt persists after v3 DispatchQueue.main.async fix. Details updated in Open Bug Details in bugs.md
+2026-03-10 | bug #55 | Highlights not visible when file is reopened — no code to load persisted AnnotationRecords on file open. Details added to Open Bug Details in bugs.md
 2026-03-09 | REOPENED bug #45 | "Last Read" sort still stale after v3 in-memory fix — user re-reports with 3 test files. Details moved to Open Bug Details in bugs.md
 2026-03-09 | REOPENED bug #47 | Crash persists when highlighting in test魔头.txt — _os_unfair_lock_unowned_abort crash log preserved in Open Bug Details in bugs.md
 2026-03-09 | REOPENED bug #54 | Highlights still disappear in large CJK TXT after a few seconds — details moved to Open Bug Details in bugs.md

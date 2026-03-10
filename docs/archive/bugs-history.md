@@ -186,3 +186,18 @@ Moved from `docs/bugs.md` to reduce file size. The Summary table in `docs/bugs.m
 - Never call `loadBooks()` (DB re-fetch) immediately after an in-memory fix — the DB write may not have committed yet. Trust the in-memory state for immediate UI; let eventual consistency handle the rest.
 - Always wrap Timer callbacks in `DispatchQueue.main.async` when accessing UIKit objects. Even main-runloop Timers can fire off-main when the main thread is blocked in framework code (e.g., TextKit relayout).
 - Distinguish temporary visual feedback (auto-clear after N seconds) from persistent user-created state. Use separate state variables or type flags to prevent auto-clear from destroying persistent data.
+
+### Bug #45 v5 — "Last Read" sort resets on refresh/restart
+- **Root cause**: `recomputeStats()` derived `lastReadAt` from session `endedAt`, but sessions shorter than 5s were discarded by `ReadingSessionTracker` (minimum duration threshold). Quick opens/closes left `lastReadAt` nil. The v4 in-memory fix via `markBookAsJustRead()` worked until `loadBooks()` re-fetched stale DB data.
+- **Solution**: Added `stats.lastReadAt = Date()` after `stats.recompute(from:)` in `recomputeStats()`. Since this method is only called from reader `close()`, "now" is always correct. DB now has reliable `lastReadAt` that survives refresh/restart.
+- **Lessons**: Session-based derived timestamps can have gaps when sessions are filtered. If a timestamp should always be set on a lifecycle event (close), set it explicitly rather than deriving from filtered data.
+
+### Bug #47 v4 — Crash on highlight (os_unfair_lock_unowned_abort)
+- **Root cause**: `textStorage.addAttribute()` triggers synchronous TextKit 1 relayout. During relayout, delegate callbacks (scrollViewDidScroll, textViewDidChangeSelection) can fire, accessing `textStorage` reentrantly. The reentrant access attempts to acquire an already-held `os_unfair_lock` → crash. CJK text exacerbates this because layout is more complex and takes longer.
+- **Solution**: Wrapped all `textStorage.addAttribute()` and `removeAttribute()` calls in `beginEditing()/endEditing()` pairs in both `TXTTextViewBridge` and `TXTChunkedReaderBridge`. This batches changes and defers notifications until `endEditing()`, preventing reentrant access.
+- **Lessons**: Never modify `NSTextStorage` attributes without `beginEditing()/endEditing()`. TextKit 1 relayout is synchronous and can trigger delegate callbacks that re-enter textStorage. The crash is intermittent because it depends on layout timing. `DispatchQueue.main.async` doesn't help because it's already on main — the issue is reentrant same-thread access.
+
+### Bug #55 — Highlights not visible when file is reopened
+- **Root cause**: Highlights were correctly persisted to DB via `PersistenceActor.addHighlight()`, but no code loaded persisted `HighlightRecord`s on file open and applied their character ranges as background colors to the text view.
+- **Solution**: Added `persistedHighlights: [NSRange]` parameter to both `TXTTextViewBridge` and `TXTChunkedReaderBridge`. Container views (`TXTReaderContainerView`, `MDReaderContainerView`) fetch highlights via `persistence.fetchHighlights()` in their `.task` block after file open. Ranges are applied in `makeUIView` (small files) and `cellForRowAt` (chunked reader), all wrapped in `beginEditing()/endEditing()`.
+- **Lessons**: Persisting data is only half the story — loading and rendering it on the display path must also be implemented. When adding a "save" feature, always plan the "load and display" counterpart.

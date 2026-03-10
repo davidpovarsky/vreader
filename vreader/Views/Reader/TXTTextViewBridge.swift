@@ -39,20 +39,18 @@ final class HighlightableTextView: UITextView {
     }
 
     /// Adds a background highlight attribute safely (no accessibility crash).
+    /// Skips beginEditing/endEditing — those trigger processEditing which
+    /// causes _dispatch_assert_queue_fail when the accessibility setter is blocked.
     func addHighlightAttribute(color: UIColor, range: NSRange) {
         isApplyingHighlight = true
-        textStorage.beginEditing()
         textStorage.addAttribute(.backgroundColor, value: color, range: range)
-        textStorage.endEditing()
         isApplyingHighlight = false
     }
 
     /// Removes a background highlight attribute safely (no accessibility crash).
     func removeHighlightAttribute(range: NSRange) {
         isApplyingHighlight = true
-        textStorage.beginEditing()
         textStorage.removeAttribute(.backgroundColor, range: range)
-        textStorage.endEditing()
         isApplyingHighlight = false
     }
 }

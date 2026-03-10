@@ -134,6 +134,8 @@ struct TXTTextViewBridge: UIViewRepresentable {
         textView.addGestureRecognizer(tapRecognizer)
 
         applyText(to: textView)
+        context.coordinator.lastAppliedText = text
+        context.coordinator.lastAppliedAttrText = attributedText
 
         // Apply persisted highlights from DB (bug #55).
         // Must happen after applyText sets the attributedText.
@@ -184,13 +186,18 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // Detect if config changed by comparing rendering-relevant fields
         let configChanged = !context.coordinator.lastConfig.renderingEquals(config)
 
-        // Update text or re-apply styling if config changed
-        let textChanged = textView.attributedText.string != text
-        let attrChanged = attributedText != nil && !textView.attributedText.isEqual(to: attributedText!)
+        // Check if the SOURCE text changed (not the textView's content, which includes
+        // highlight attributes). Identity/value comparison against coordinator state
+        // prevents the infinite loop: addHighlightAttribute modifies textView.attributedText
+        // but doesn't change the source → no re-apply → no loop (bug #47 v9).
+        let textChanged = text != context.coordinator.lastAppliedText
+        let attrChanged = attributedText !== context.coordinator.lastAppliedAttrText
         if textChanged || attrChanged || configChanged {
             applyText(to: textView)
             applyPersistedHighlights(to: textView) // Re-apply after text rebuild (bug #55)
             context.coordinator.lastConfig = config
+            context.coordinator.lastAppliedText = text
+            context.coordinator.lastAppliedAttrText = attributedText
         }
 
         // Re-apply inset changes
@@ -267,6 +274,13 @@ struct TXTTextViewBridge: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         weak var delegate: TXTTextViewBridgeDelegate?
         var lastConfig: TXTViewConfig
+        /// Reference to the last source attributedText applied via applyText().
+        /// Used to detect when the SOURCE text changes (vs. highlight modifications).
+        /// Identity comparison (===) prevents the infinite loop where addHighlightAttribute
+        /// triggers updateUIView → applyText → applyPersistedHighlights → loop (bug #47 v8).
+        var lastAppliedAttrText: NSAttributedString?
+        /// Last source text string applied via applyText().
+        var lastAppliedText: String?
         /// One-shot flag: once true, scroll position restore is never attempted again.
         /// Prevents the observation feedback loop (bug #15, #17) where:
         /// scroll → viewModel update → SwiftUI re-render → restoreScrollPosition → scroll

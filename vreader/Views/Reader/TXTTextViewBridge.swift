@@ -182,7 +182,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
         let configChanged = !context.coordinator.lastConfig.renderingEquals(config)
         let textChanged = text != context.coordinator.lastAppliedText
         let attrChanged = attributedText !== context.coordinator.lastAppliedAttrText
-        let persistedChanged = persistedHighlights.count != context.coordinator.persistedHighlights.count
+        let persistedChanged = persistedHighlights != context.coordinator.persistedHighlights
         let highlightChanged = highlightRange != context.coordinator.currentHighlightRange
 
         // Update coordinator state
@@ -269,11 +269,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
             activeHighlight: coordinator.currentHighlightRange
         )
 
-        if let htv = textView as? HighlightableTextView {
-            htv.setHighlightedText(highlighted)
-        } else {
-            textView.attributedText = highlighted
-        }
+        // textView is always HighlightableTextView (created in makeUIView).
+        // Using textStorage.setAttributedString via setHighlightedText — NEVER
+        // the attributedText setter which crashes with active selection (bug #47).
+        (textView as! HighlightableTextView).setHighlightedText(highlighted)
         textView.adjustsFontForContentSizeCategory = true
         textView.backgroundColor = config.backgroundColor
     }
@@ -350,11 +349,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
                 persistedHighlights: persistedHighlights,
                 activeHighlight: currentHighlightRange
             )
-            if let htv = textView as? HighlightableTextView {
-                htv.setHighlightedText(highlighted)
-            } else {
-                textView.attributedText = highlighted
-            }
+            (textView as! HighlightableTextView).setHighlightedText(highlighted)
         }
 
         /// Restores scroll position, retrying if the view has no valid frame.

@@ -118,7 +118,7 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         }
 
         // Sync persisted highlights (bug #55)
-        if context.coordinator.persistedHighlights.count != persistedHighlights.count {
+        if context.coordinator.persistedHighlights != persistedHighlights {
             context.coordinator.persistedHighlights = persistedHighlights
             // Reload visible cells to apply new persisted highlights
             tableView.reloadData()
@@ -202,6 +202,7 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         init(delegate: TXTTextViewBridgeDelegate?) {
             self.delegate = delegate
         }
+
 
         /// Restores scroll to a chunk index with optional intra-chunk fraction (0-1),
         /// retrying if the table view has no valid frame.

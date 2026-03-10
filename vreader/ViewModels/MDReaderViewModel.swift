@@ -1,16 +1,17 @@
 // Purpose: ViewModel for the Markdown reader view. Manages reading state,
-// debounced position persistence, session tracking, and rendered content.
+// position persistence (via ReaderPositionService), session tracking, and rendered content.
 //
 // Key decisions:
 // - @Observable + @MainActor for SwiftUI integration.
-// - Debounced position save (2s delay) to avoid excessive writes.
+// - Position persistence delegated to ReaderPositionService (WI-008c).
+// - File loading delegated to MDFileLoader (WI-008c).
 // - Integrates ReadingSessionTracker for reading time tracking.
 // - Uses protocol abstractions for testability (parser, persistence, tracker).
-// - Reads file data, detects encoding, parses on background, displays on main.
 // - Position uses canonical UTF-16 offsets over rendered text.
 // - Empty document: totalProgression = nil (no division by zero).
 //
-// @coordinates-with: MDParserProtocol.swift, ReadingPositionPersisting.swift,
+// @coordinates-with: MDFileLoader.swift, ReaderPositionService.swift,
+//   MDParserProtocol.swift, ReadingPositionPersisting.swift,
 //   ReadingSessionTracker.swift, LocatorFactory.swift, TXTTextViewBridge.swift
 
 import Foundation
@@ -21,9 +22,6 @@ import Foundation
 final class MDReaderViewModel {
 
     // MARK: - Constants
-
-    /// Debounce interval for position persistence (seconds).
-    static let positionSaveDebounce: TimeInterval = 2.0
 
     /// Periodic flush interval for session duration (seconds).
     static let sessionFlushInterval: TimeInterval = 60.0
@@ -66,11 +64,10 @@ final class MDReaderViewModel {
     private let parser: any MDParserProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
-    private let deviceId: String
+    private let positionService: ReaderPositionService
 
     // MARK: - Private State
 
-    private var debounceTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
     private var segmentStartDate: Date?
     private var accumulatedActiveSeconds: TimeInterval = 0
@@ -87,20 +84,28 @@ final class MDReaderViewModel {
         parser: any MDParserProtocol,
         positionStore: any ReadingPositionPersisting,
         sessionTracker: ReadingSessionTracker,
-        deviceId: String
+        deviceId: String,
+        positionSaveDebounceNs: UInt64 = 2_000_000_000
     ) {
         self.bookFingerprint = bookFingerprint
         self.bookFingerprintKey = bookFingerprint.canonicalKey
         self.parser = parser
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.deviceId = deviceId
+        self.positionService = ReaderPositionService(
+            bookFingerprintKey: bookFingerprint.canonicalKey,
+            deviceId: deviceId,
+            persistence: positionStore,
+            debounceNanoseconds: positionSaveDebounceNs
+        )
     }
 
     // MARK: - Lifecycle
 
     /// Opens the Markdown file, parses it, and restores the saved reading position.
     func open(url: URL) async {
+        guard !isLoading else { return }
+
         // Guard against re-open
         if renderedText != nil {
             await close()
@@ -113,17 +118,19 @@ final class MDReaderViewModel {
         isLoading = true
         errorMessage = nil
 
-        // Stage 1: Read file data, detect encoding, and parse on background
-        let config = MDRenderConfig.default
-        let docInfo: MDDocumentInfo
+        // Stage 1+2: Read, parse, and restore position (via MDFileLoader)
+        let loadResult: MDLoadResult
         do {
-            let fileURL = url
-            let parser = self.parser
-            docInfo = try await Task.detached {
-                let data = try Data(contentsOf: fileURL)
-                let result = try EncodingDetector.detect(data: data)
-                return await parser.parse(text: result.text, config: config)
-            }.value
+            loadResult = try await MDFileLoader.load(
+                url: url,
+                parser: parser,
+                positionStore: positionStore,
+                bookFingerprintKey: bookFingerprintKey
+            )
+        } catch is CancellationError {
+            resetState()
+            isLoading = false
+            return
         } catch {
             resetState()
             isLoading = false
@@ -131,27 +138,18 @@ final class MDReaderViewModel {
             return
         }
 
-        // Guard: another open() may have started while we were parsing
-        guard myGeneration == openGeneration else { return }
-
-        renderedText = docInfo.renderedText
-        renderedAttributedString = docInfo.renderedAttributedString
-        renderedTextLengthUTF16 = docInfo.renderedTextLengthUTF16
-        currentOffsetUTF16 = 0
-
-        // Stage 3: Restore saved position (non-fatal on failure)
-        do {
-            let savedLocator = try await positionStore.loadPosition(
-                bookFingerprintKey: bookFingerprintKey
-            )
-            if let savedLocator, let savedOffset = savedLocator.charOffsetUTF16 {
-                currentOffsetUTF16 = clampOffset(savedOffset)
-            }
-        } catch {
-            currentOffsetUTF16 = 0
+        // Guard: another open() may have started while we were loading
+        guard myGeneration == openGeneration else {
+            isLoading = false
+            return
         }
 
-        // Stage 4: Start reading session (rollback on failure)
+        renderedText = loadResult.documentInfo.renderedText
+        renderedAttributedString = loadResult.documentInfo.renderedAttributedString
+        renderedTextLengthUTF16 = loadResult.documentInfo.renderedTextLengthUTF16
+        currentOffsetUTF16 = loadResult.restoredOffsetUTF16
+
+        // Stage 3: Start reading session (rollback on failure)
         do {
             try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
         } catch {
@@ -166,7 +164,7 @@ final class MDReaderViewModel {
         segmentStartDate = Date()
         accumulatedActiveSeconds = 0
 
-        // Stage 5: Update last opened (non-fatal)
+        // Stage 4: Update last opened (non-fatal)
         try? await positionStore.updateLastOpened(
             bookFingerprintKey: bookFingerprintKey,
             date: Date()
@@ -178,33 +176,22 @@ final class MDReaderViewModel {
     }
 
     /// Closes the reader, ending the session and flushing state.
+    /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
         // Invalidate generation so any in-flight open() becomes stale
         openGeneration += 1
 
         flushTask?.cancel()
         flushTask = nil
-        debounceTask?.cancel()
-        debounceTask = nil
 
         if renderedText != nil, isOpenComplete {
             let locator = makeLocator()
+            await positionService.saveNow(locator: locator)
             sessionTracker.recordProgress(locator: locator)
-
-            do {
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch {
-                errorMessage = "Failed to save reading position on close."
-            }
         }
 
         sessionTracker.endSessionIfNeeded()
 
-        // Recompute reading stats so library sorting by time/last-read works (bug #34)
         if let persistence = positionStore as? PersistenceActor {
             try? await persistence.recomputeStats(
                 bookFingerprintKey: bookFingerprintKey,
@@ -212,7 +199,6 @@ final class MDReaderViewModel {
             )
         }
 
-        // Signal library to refresh with up-to-date stats (bug #45)
         NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
 
         resetState()
@@ -220,15 +206,10 @@ final class MDReaderViewModel {
 
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
-    /// Callers must use `beginBackgroundTask` to ensure execution time.
     func onBackground() async {
         if renderedText != nil {
             let locator = makeLocator()
-            try? await positionStore.savePosition(
-                bookFingerprintKey: bookFingerprintKey,
-                locator: locator,
-                deviceId: deviceId
-            )
+            await positionService.saveNow(locator: locator)
         }
 
         if let start = segmentStartDate {
@@ -248,8 +229,9 @@ final class MDReaderViewModel {
             try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
         } catch {
             errorMessage = "Failed to resume reading session."
+            return
         }
-        segmentStartDate = Date()
+        if segmentStartDate == nil { segmentStartDate = Date() }
         startPeriodicFlush()
     }
 
@@ -264,30 +246,7 @@ final class MDReaderViewModel {
         sessionTracker.recordProgress(locator: lightLocator)
 
         updateTimeDisplays()
-        debounceSavePosition()
-    }
-
-    // MARK: - Private: Position Persistence
-
-    private func debounceSavePosition() {
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self, bookFingerprintKey, deviceId, positionStore] in
-            do {
-                try await Task.sleep(for: .seconds(Self.positionSaveDebounce))
-                guard let locator = await self?.makeLocator() else { return }
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch is CancellationError {
-                // Expected when debounce is reset
-            } catch {
-                await MainActor.run {
-                    self?.errorMessage = "Failed to save reading position."
-                }
-            }
-        }
+        positionService.scheduleSave(locator: makeLocator())
     }
 
     // MARK: - Private: Locator Construction
@@ -339,8 +298,9 @@ final class MDReaderViewModel {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    try self?.sessionTracker.periodicFlush()
-                    self?.updateTimeDisplays()
+                    guard let self else { break }
+                    try sessionTracker.periodicFlush()
+                    updateTimeDisplays()
                 } catch is CancellationError {
                     break
                 } catch {

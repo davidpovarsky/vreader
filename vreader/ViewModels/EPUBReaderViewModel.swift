@@ -1,15 +1,16 @@
 // Purpose: ViewModel for the EPUB reader view. Manages reading state,
-// debounced position persistence, session tracking, and navigation.
+// position persistence (via ReaderPositionService), session tracking, navigation.
 //
 // Key decisions:
 // - @Observable + @MainActor for SwiftUI integration.
-// - Debounced position save (2s delay) to avoid excessive writes.
-// - Integrates ReadingSessionTracker for reading time tracking.
+// - Position persistence delegated to ReaderPositionService (WI-008b).
+// - File loading delegated to EPUBFileLoader (WI-008b).
 // - Active reading time excludes background/pause intervals.
 // - Uses protocol abstractions for testability (parser, persistence, tracker).
 // - Staged error handling: parser failure aborts, position/timestamp failures are non-fatal.
 //
-// @coordinates-with: EPUBParserProtocol.swift, ReadingPositionPersisting.swift,
+// @coordinates-with: EPUBFileLoader.swift, ReaderPositionService.swift,
+//   EPUBParserProtocol.swift, ReadingPositionPersisting.swift,
 //   ReadingSessionTracker.swift, LocatorFactory.swift
 
 import Foundation
@@ -20,9 +21,6 @@ import Foundation
 final class EPUBReaderViewModel {
 
     // MARK: - Constants
-
-    /// Debounce interval for position persistence (seconds).
-    static let positionSaveDebounce: TimeInterval = 2.0
 
     /// Periodic flush interval for session duration (seconds).
     static let sessionFlushInterval: TimeInterval = 60.0
@@ -60,11 +58,10 @@ final class EPUBReaderViewModel {
     private let parser: any EPUBParserProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
-    private let deviceId: String
+    private let positionService: ReaderPositionService
 
     // MARK: - Private State
 
-    private var debounceTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
     /// Date when the current active segment started (reset on resume).
     private var segmentStartDate: Date?
@@ -78,27 +75,39 @@ final class EPUBReaderViewModel {
         parser: any EPUBParserProtocol,
         positionStore: any ReadingPositionPersisting,
         sessionTracker: ReadingSessionTracker,
-        deviceId: String
+        deviceId: String,
+        positionSaveDebounceNs: UInt64 = 2_000_000_000
     ) {
         self.bookFingerprint = bookFingerprint
         self.bookFingerprintKey = bookFingerprint.canonicalKey
         self.parser = parser
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.deviceId = deviceId
+        self.positionService = ReaderPositionService(
+            bookFingerprintKey: bookFingerprint.canonicalKey,
+            deviceId: deviceId,
+            persistence: positionStore,
+            debounceNanoseconds: positionSaveDebounceNs
+        )
     }
 
     // MARK: - Lifecycle
 
     /// Opens the EPUB file and restores the saved reading position.
     func open(url: URL) async {
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
 
-        // Stage 1: Parse EPUB
-        let meta: EPUBMetadata
+        // Stage 1+2: Parse EPUB and restore position (via EPUBFileLoader)
+        let loadResult: EPUBLoadResult
         do {
-            meta = try await parser.open(url: url)
+            loadResult = try await EPUBFileLoader.load(
+                url: url,
+                parser: parser,
+                positionStore: positionStore,
+                bookFingerprintKey: bookFingerprintKey
+            )
         } catch {
             isLoading = false
             errorMessage = (error as? EPUBParserError).map(describeParserError)
@@ -106,41 +115,8 @@ final class EPUBReaderViewModel {
             return
         }
 
-        metadata = meta
-
-        // Stage 2: Restore saved position (non-fatal on failure)
-        do {
-            let savedLocator = try await positionStore.loadPosition(
-                bookFingerprintKey: bookFingerprintKey
-            )
-            if let savedLocator,
-               let href = savedLocator.href,
-               meta.spineItems.contains(where: { $0.href == href }) {
-                currentPosition = EPUBPosition(
-                    href: href,
-                    progression: savedLocator.progression ?? 0,
-                    totalProgression: savedLocator.totalProgression ?? 0,
-                    cfi: savedLocator.cfi
-                )
-            } else if let firstSpine = meta.spineItems.first {
-                currentPosition = EPUBPosition(
-                    href: firstSpine.href,
-                    progression: 0,
-                    totalProgression: 0,
-                    cfi: nil
-                )
-            }
-        } catch {
-            // Position restore failed — start from beginning
-            if let firstSpine = meta.spineItems.first {
-                currentPosition = EPUBPosition(
-                    href: firstSpine.href,
-                    progression: 0,
-                    totalProgression: 0,
-                    cfi: nil
-                )
-            }
-        }
+        metadata = loadResult.metadata
+        currentPosition = loadResult.initialPosition
 
         // Stage 3: Start reading session (rollback parser + state on failure)
         do {
@@ -162,42 +138,24 @@ final class EPUBReaderViewModel {
             date: Date()
         )
 
-        // Start periodic session flush
         startPeriodicFlush()
-
         isLoading = false
     }
 
     /// Closes the reader, ending the session and flushing state.
+    /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
-        // Stop periodic flush
         flushTask?.cancel()
         flushTask = nil
 
-        // Cancel pending debounced save
-        debounceTask?.cancel()
-        debounceTask = nil
-
-        // Save final position immediately
         if let position = currentPosition {
             let locator = makeLocator(from: position)
+            await positionService.saveNow(locator: locator)
             sessionTracker.recordProgress(locator: locator)
-
-            do {
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch {
-                errorMessage = "Failed to save reading position on close."
-            }
         }
 
-        // End reading session
         sessionTracker.endSessionIfNeeded()
 
-        // Recompute reading stats so library sorting by time/last-read works (bug #34)
         if let persistence = positionStore as? PersistenceActor {
             try? await persistence.recomputeStats(
                 bookFingerprintKey: bookFingerprintKey,
@@ -205,32 +163,21 @@ final class EPUBReaderViewModel {
             )
         }
 
-        // Signal library to refresh with up-to-date stats (bug #45)
         NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
 
-        // Close parser
         await parser.close()
-
-        // Release state to free memory
         metadata = nil
         currentPosition = nil
     }
 
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
-    /// Callers must use `beginBackgroundTask` to ensure execution time.
     func onBackground() async {
-        // Save current position immediately (best-effort) before potential kill
         if let position = currentPosition {
             let locator = makeLocator(from: position)
-            try? await positionStore.savePosition(
-                bookFingerprintKey: bookFingerprintKey,
-                locator: locator,
-                deviceId: deviceId
-            )
+            await positionService.saveNow(locator: locator)
         }
 
-        // Accumulate active time from current segment before pausing
         if let start = segmentStartDate {
             accumulatedActiveSeconds += Date().timeIntervalSince(start)
             segmentStartDate = nil
@@ -246,10 +193,10 @@ final class EPUBReaderViewModel {
         do {
             try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
         } catch {
-            // Non-fatal: session tracking failure should not block reading
             errorMessage = "Failed to resume reading session."
+            return
         }
-        segmentStartDate = Date()
+        if segmentStartDate == nil { segmentStartDate = Date() }
         startPeriodicFlush()
     }
 
@@ -258,15 +205,10 @@ final class EPUBReaderViewModel {
     /// Called by the EPUB renderer when the reading position changes.
     func updatePosition(_ position: EPUBPosition) {
         currentPosition = position
-
         let locator = makeLocator(from: position)
         sessionTracker.recordProgress(locator: locator)
-
-        // Update time displays
         updateTimeDisplays()
-
-        // Debounced persistence
-        debounceSavePosition(locator: locator)
+        positionService.scheduleSave(locator: locator)
     }
 
     // MARK: - Navigation
@@ -292,28 +234,6 @@ final class EPUBReaderViewModel {
     /// Navigates to the previous spine item.
     func navigatePrevious() {
         navigateToSpine(index: currentSpineIndex - 1)
-    }
-
-    // MARK: - Private: Position Persistence
-
-    private func debounceSavePosition(locator: Locator) {
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self, bookFingerprintKey, deviceId, positionStore] in
-            do {
-                try await Task.sleep(for: .seconds(Self.positionSaveDebounce))
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch is CancellationError {
-                // Expected when debounce is reset
-            } catch {
-                await MainActor.run {
-                    self?.errorMessage = "Failed to save reading position."
-                }
-            }
-        }
     }
 
     // MARK: - Locator Construction
@@ -355,12 +275,13 @@ final class EPUBReaderViewModel {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    try self?.sessionTracker.periodicFlush()
-                    self?.updateTimeDisplays()
+                    guard let self else { break }
+                    try sessionTracker.periodicFlush()
+                    updateTimeDisplays()
                 } catch is CancellationError {
                     break
                 } catch {
-                    // Non-fatal: periodic flush failure is logged but doesn't interrupt reading
+                    // Non-fatal
                 }
             }
         }

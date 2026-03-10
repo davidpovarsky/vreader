@@ -40,7 +40,8 @@ private func makeViewModel(
     mdSource: String = testMDSource,
     documentInfo: MDDocumentInfo? = nil,
     fileData: Data? = nil,
-    fileReadError: Bool = false
+    fileReadError: Bool = false,
+    positionSaveDebounceNs: UInt64 = 2_000_000_000
 ) async -> (MDReaderViewModel, MockMDParser, MockPositionStore, MockSessionStore) {
     let parser = MockMDParser()
     if let info = documentInfo {
@@ -63,7 +64,8 @@ private func makeViewModel(
         parser: parser,
         positionStore: positionStore,
         sessionTracker: tracker,
-        deviceId: "test-device"
+        deviceId: "test-device",
+        positionSaveDebounceNs: positionSaveDebounceNs
     )
 
     return (vm, parser, positionStore, sessionStore)
@@ -478,5 +480,62 @@ struct MDReaderViewModelEdgeCaseTests {
         await vm.open(url: url)
 
         #expect(vm.renderedTextLengthUTF16 == (cjkText as NSString).length)
+    }
+}
+
+// MARK: - Position Service Integration (WI-008c)
+
+@Suite("MDReaderViewModel - Position Service")
+@MainActor
+struct MDReaderViewModelPositionServiceTests {
+
+    @Test("close uses positionService.saveNow for immediate persistence")
+    func closeUsesPositionService() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 0)
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("svc_close_\(UUID().uuidString).md")
+        try! testMDSource.data(using: .utf8)!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await vm.open(url: url)
+        vm.updateScrollPosition(charOffsetUTF16: 15)
+        await vm.close()
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 15)
+    }
+
+    @Test("onBackground uses positionService.saveNow")
+    func onBackgroundUsesPositionService() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 0)
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("svc_bg_\(UUID().uuidString).md")
+        try! testMDSource.data(using: .utf8)!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await vm.open(url: url)
+        vm.updateScrollPosition(charOffsetUTF16: 10)
+        await vm.onBackground()
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 10)
+    }
+
+    @Test("updateScrollPosition uses positionService.scheduleSave")
+    func scrollUsesScheduleSave() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 10_000_000)
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("svc_scroll_\(UUID().uuidString).md")
+        try! testMDSource.data(using: .utf8)!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await vm.open(url: url)
+        vm.updateScrollPosition(charOffsetUTF16: 20)
+
+        // Wait for debounce (10ms)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 20)
     }
 }

@@ -489,6 +489,7 @@ WI-007 (SearchIndexStore split) ─── can start after WI-002 (independent fi
 - **Test gate (v4)**: `xcodebuild test -project vreader.xcodeproj -scheme vreader -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` — unit tests must pass after every WI.
 - **When to run**: Both build gate and test gate after every WI commit, before moving to next WI.
 - **Line count audit**: `find vreader/ -name "*.swift" -not -path "*/Tests/*" | xargs wc -l | sort -rn | head -20`
+- **Codex audit gate (v5)**: After each WI is complete (build + test green), run a Codex `gpt-5.4` or `gpt-5.3-codex` mini audit on the changed files. Fix any findings before moving to the next WI.
 - **Full gate**: Build + test + run on device, test highlight/search/bookmark/annotation flows manually.
 
 ## Manual Test Checklist

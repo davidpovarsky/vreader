@@ -312,14 +312,14 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // MARK: - Content Tap (Toolbar Toggle)
 
         @objc func handleContentTap(_ gesture: UITapGestureRecognizer) {
-            NotificationCenter.default.post(name: .readerContentTapped, object: nil)
+            TXTBridgeShared.postContentTappedNotification()
         }
 
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            true
+            TXTBridgeShared.gestureRecognizerShouldRecognizeSimultaneously()
         }
 
         // MARK: - Link Interaction Policy
@@ -342,43 +342,9 @@ struct TXTTextViewBridge: UIViewRepresentable {
             editMenuForTextIn range: NSRange,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
-            guard range.length > 0 else { return UIMenu(children: suggestedActions) }
-
-            let highlightAction = UIAction(
-                title: "Highlight",
-                image: UIImage(systemName: "highlighter")
-            ) { [weak textView] _ in
-                guard let textView else { return }
-                Self.postSelectionNotification(.readerHighlightRequested, from: textView, range: range)
-            }
-
-            let noteAction = UIAction(
-                title: "Add Note",
-                image: UIImage(systemName: "note.text.badge.plus")
-            ) { [weak textView] _ in
-                guard let textView else { return }
-                Self.postSelectionNotification(.readerAnnotationRequested, from: textView, range: range)
-            }
-
-            let customMenu = UIMenu(title: "", options: .displayInline, children: [highlightAction, noteAction])
-            return UIMenu(children: [customMenu] + suggestedActions)
-        }
-
-        private static func postSelectionNotification(
-            _ name: Notification.Name,
-            from textView: UITextView,
-            range: NSRange
-        ) {
-            let text = textView.text ?? ""
-            let nsText = text as NSString
-            guard range.location + range.length <= nsText.length else { return }
-            let selectedText = nsText.substring(with: range)
-            let info = TextSelectionInfo(
-                selectedText: selectedText,
-                startUTF16: range.location,
-                endUTF16: range.location + range.length
+            TXTBridgeShared.buildReaderEditMenu(
+                range: range, textView: textView, suggestedActions: suggestedActions
             )
-            NotificationCenter.default.post(name: name, object: info)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

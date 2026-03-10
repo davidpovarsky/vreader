@@ -18,40 +18,44 @@
 import SwiftUI
 import UIKit
 
-/// UITextView subclass that prevents accessibility-triggered infinite recursion
-/// when modifying textStorage attributes for highlights (bug #47 v6).
+/// UITextView subclass with safe highlight attribute methods (bug #47 v8).
 ///
-/// Root cause: textStorage.addAttribute triggers UITextViewAccessibility's
-/// setAttributedText: callback, which re-modifies textStorage → infinite
-/// recursion → EXC_BAD_ACCESS (stack overflow). The reentrancy guard on
-/// the attributedText setter breaks this cycle.
+/// Problem: textStorage.addAttribute triggers UITextViewAccessibility's
+/// setAttributedText: callback → infinite recursion → EXC_BAD_ACCESS.
+/// Overriding attributedText setter to guard against this causes
+/// _dispatch_assert_queue_fail (Swift 6 @MainActor enforcement on
+/// property override; UIKit accessibility reads from internal queue).
+///
+/// Solution: Don't modify textStorage directly. Instead, rebuild the full
+/// attributed string with highlights and set via attributedText in one shot.
+/// This avoids the incremental-change notification that triggers the
+/// accessibility recursion, and avoids any property override.
 final class HighlightableTextView: UITextView {
-    /// Reentrancy guard: blocks accessibility system from re-setting
-    /// attributedText while we're modifying highlight attributes.
-    var isApplyingHighlight = false
 
-    override var attributedText: NSAttributedString! {
-        get { super.attributedText }
-        set {
-            guard !isApplyingHighlight else { return }
-            super.attributedText = newValue
-        }
-    }
-
-    /// Adds a background highlight attribute safely (no accessibility crash).
-    /// Skips beginEditing/endEditing — those trigger processEditing which
-    /// causes _dispatch_assert_queue_fail when the accessibility setter is blocked.
+    /// Adds a background color attribute at the given range safely.
+    /// Replaces the full attributedText to avoid textStorage notifications
+    /// that trigger the UITextViewAccessibility infinite recursion.
     func addHighlightAttribute(color: UIColor, range: NSRange) {
-        isApplyingHighlight = true
-        textStorage.addAttribute(.backgroundColor, value: color, range: range)
-        isApplyingHighlight = false
+        guard let current = attributedText else { return }
+        let mutable = NSMutableAttributedString(attributedString: current)
+        mutable.addAttribute(.backgroundColor, value: color, range: range)
+        let savedOffset = contentOffset
+        let savedSelection = selectedRange
+        attributedText = mutable
+        selectedRange = savedSelection
+        contentOffset = savedOffset
     }
 
-    /// Removes a background highlight attribute safely (no accessibility crash).
+    /// Removes the background color attribute at the given range safely.
     func removeHighlightAttribute(range: NSRange) {
-        isApplyingHighlight = true
-        textStorage.removeAttribute(.backgroundColor, range: range)
-        isApplyingHighlight = false
+        guard let current = attributedText else { return }
+        let mutable = NSMutableAttributedString(attributedString: current)
+        mutable.removeAttribute(.backgroundColor, range: range)
+        let savedOffset = contentOffset
+        let savedSelection = selectedRange
+        attributedText = mutable
+        selectedRange = savedSelection
+        contentOffset = savedOffset
     }
 }
 

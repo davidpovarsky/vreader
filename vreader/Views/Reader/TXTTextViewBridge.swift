@@ -199,9 +199,8 @@ struct TXTTextViewBridge: UIViewRepresentable {
             let clampedLength = min(range.length, textLength - range.location)
             guard clampedLength > 0 else { continue }
             let safeRange = NSRange(location: range.location, length: clampedLength)
-            textView.layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: UIColor.systemYellow.withAlphaComponent(0.4),
+            textView.layoutManager.addTemporaryAttributes(
+                [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
                 forCharacterRange: safeRange
             )
         }
@@ -314,9 +313,8 @@ struct TXTTextViewBridge: UIViewRepresentable {
             // Skip if same range already applied
             if currentHighlightRange == safeRange { return }
 
-            textView.layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: UIColor.systemYellow.withAlphaComponent(0.4),
+            textView.layoutManager.addTemporaryAttributes(
+                [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
                 forCharacterRange: safeRange
             )
             currentHighlightRange = safeRange

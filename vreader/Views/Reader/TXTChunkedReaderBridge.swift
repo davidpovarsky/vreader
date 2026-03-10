@@ -498,9 +498,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             let clampedLength = min(range.length, tv.textStorage.length - range.location)
             guard clampedLength > 0 else { return }
             let clampedRange = NSRange(location: range.location, length: clampedLength)
-            tv.layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: UIColor.systemYellow.withAlphaComponent(0.4),
+            tv.layoutManager.addTemporaryAttributes(
+                [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
                 forCharacterRange: clampedRange
             )
         }
@@ -527,9 +526,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 guard localLength > 0 else { continue }
                 let clampedLength = min(localLength, textLength - localStart)
                 guard clampedLength > 0, localStart < textLength else { continue }
-                tv.layoutManager.addTemporaryAttribute(
-                    .backgroundColor,
-                    value: UIColor.systemYellow.withAlphaComponent(0.4),
+                tv.layoutManager.addTemporaryAttributes(
+                    [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
                     forCharacterRange: NSRange(location: localStart, length: clampedLength)
                 )
             }

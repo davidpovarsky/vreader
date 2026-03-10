@@ -105,111 +105,38 @@ struct MDReaderContainerView: View {
                 break
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
-            guard let container = modelContainer else { return }
-            let persistence = PersistenceActor(modelContainer: container)
-            let locator = viewModel.makeLocator()
-            Task {
-                try? await persistence.addBookmark(
-                    locator: locator,
-                    title: nil,
-                    toBookWithKey: viewModel.bookFingerprintKey
-                )
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-            guard let locator = notification.object as? Locator else { return }
-            // Derive scroll offset: prefer charOffsetUTF16, fall back to charRangeStartUTF16 (bug #50)
-            guard let offset = locator.charOffsetUTF16 ?? locator.charRangeStartUTF16 else { return }
-            scrollToOffset = offset
-            // Set highlight range for search match visualization (bug #43)
-            highlightIsTemporary = true
-            if let start = locator.charRangeStartUTF16,
-               let end = locator.charRangeEndUTF16, end > start {
-                highlightRange = NSRange(location: start, length: end - start)
-            } else {
-                highlightRange = nil
-            }
-            viewModel.updateScrollPosition(charOffsetUTF16: offset)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRequested)) { notification in
-            guard let info = notification.object as? TextSelectionInfo,
-                  let container = modelContainer else { return }
-            let persistence = PersistenceActor(modelContainer: container)
-            guard let locator = LocatorFactory.mdRange(
-                fingerprint: viewModel.bookFingerprint,
-                charRangeStartUTF16: info.startUTF16,
-                charRangeEndUTF16: info.endUTF16,
-                sourceText: viewModel.renderedText
-            ) else { return }
-            // Apply persistent visual highlight feedback (bug #46, #54)
-            highlightIsTemporary = false
-            let newRange = NSRange(location: info.startUTF16, length: info.endUTF16 - info.startUTF16)
-            highlightRange = newRange
-            // Add to persisted highlights so it survives text rebuilds (bug #55)
-            persistedHighlightRanges.append(newRange)
-            Task {
-                try? await persistence.addHighlight(
-                    locator: locator,
-                    selectedText: info.selectedText,
-                    color: "yellow",
-                    note: nil,
-                    toBookWithKey: viewModel.bookFingerprintKey
-                )
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .readerAnnotationRequested)) { notification in
-            guard let info = notification.object as? TextSelectionInfo else { return }
-            pendingAnnotationInfo = info
-            annotationNoteText = ""
-        }
-        .sheet(isPresented: .init(
-            get: { pendingAnnotationInfo != nil },
-            set: { if !$0 { pendingAnnotationInfo = nil } }
-        )) {
-            AddNoteSheet(
-                selectedText: pendingAnnotationInfo?.selectedText ?? "",
-                noteText: $annotationNoteText,
-                onSave: {
-                    guard let info = pendingAnnotationInfo,
-                          let container = modelContainer else {
-                        pendingAnnotationInfo = nil
-                        return
-                    }
-                    let trimmed = annotationNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else {
-                        pendingAnnotationInfo = nil
-                        return
-                    }
-                    let persistence = PersistenceActor(modelContainer: container)
-                    guard let locator = LocatorFactory.mdRange(
-                        fingerprint: viewModel.bookFingerprint,
-                        charRangeStartUTF16: info.startUTF16,
-                        charRangeEndUTF16: info.endUTF16,
-                        sourceText: viewModel.renderedText
-                    ) else {
-                        pendingAnnotationInfo = nil
-                        return
-                    }
-                    Task {
-                        try? await persistence.addAnnotation(
-                            locator: locator,
-                            content: trimmed,
-                            toBookWithKey: viewModel.bookFingerprintKey
-                        )
-                    }
-                    pendingAnnotationInfo = nil
-                },
-                onCancel: {
-                    pendingAnnotationInfo = nil
-                }
-            )
-            .presentationDetents([.medium] as Set<PresentationDetent>)
-        }
+        .readerNotificationHandlers(
+            deps: makeNotificationDeps(),
+            scrollToOffset: $scrollToOffset,
+            highlightRange: $highlightRange,
+            highlightIsTemporary: $highlightIsTemporary,
+            persistedHighlightRanges: $persistedHighlightRanges,
+            pendingAnnotationInfo: $pendingAnnotationInfo,
+            annotationNoteText: $annotationNoteText
+        )
         .accessibilityIdentifier("mdReaderContainer")
+    }
+
+    // MARK: - Notification Dependencies
+
+    private func makeNotificationDeps() -> ReaderNotificationDeps {
+        let container = modelContainer
+        return ReaderNotificationDeps(
+            bookFingerprintKey: viewModel.bookFingerprintKey,
+            bookFingerprint: viewModel.bookFingerprint,
+            bookmarkPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpBookmarkStore(),
+            highlightPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpHighlightStore(),
+            annotationPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpAnnotationStore(),
+            locatorFactory: { fp, start, end, text in
+                LocatorFactory.mdRange(fingerprint: fp, charRangeStartUTF16: start, charRangeEndUTF16: end, sourceText: text)
+            },
+            sourceText: { [viewModel] in viewModel.renderedText },
+            makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
+            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) }
+        )
     }
 
     // MARK: - Bottom Overlay

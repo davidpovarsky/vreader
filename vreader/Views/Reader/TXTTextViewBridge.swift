@@ -188,23 +188,23 @@ struct TXTTextViewBridge: UIViewRepresentable {
     // MARK: - Private
 
     /// Applies all persisted highlight ranges as yellow background (bug #55).
+    /// Uses layoutManager.addTemporaryAttribute to avoid triggering
+    /// UITextViewAccessibility setAttributedText: infinite recursion (bug #47 v5).
     private func applyPersistedHighlights(to textView: UITextView) {
         guard !persistedHighlights.isEmpty else { return }
         let textLength = textView.textStorage.length
         guard textLength > 0 else { return }
-        textView.textStorage.beginEditing()
         for range in persistedHighlights {
             guard range.location < textLength else { continue }
             let clampedLength = min(range.length, textLength - range.location)
             guard clampedLength > 0 else { continue }
             let safeRange = NSRange(location: range.location, length: clampedLength)
-            textView.textStorage.addAttribute(
+            textView.layoutManager.addTemporaryAttribute(
                 .backgroundColor,
                 value: UIColor.systemYellow.withAlphaComponent(0.4),
-                range: safeRange
+                forCharacterRange: safeRange
             )
         }
-        textView.textStorage.endEditing()
     }
 
     private func applyText(to textView: UITextView) {
@@ -283,16 +283,20 @@ struct TXTTextViewBridge: UIViewRepresentable {
         /// Applies or clears a yellow highlight on the text storage.
         /// Temporary highlights (search navigation) auto-clear after 3s.
         /// Persistent highlights (user-created) stay until replaced (bug #54).
+        /// Bug #47 v5: Use layoutManager.addTemporaryAttribute instead of
+        /// textStorage.addAttribute. Direct textStorage modification triggers
+        /// UITextViewAccessibility setAttributedText: → infinite recursion →
+        /// EXC_BAD_ACCESS (stack overflow). Temporary attributes are visual-only
+        /// and don't modify the document, avoiding the accessibility callback loop.
         func applyHighlight(_ range: NSRange?, in textView: UITextView, isTemporary: Bool = true) {
-            // Clear previous highlight if it exists.
-            // Bug #47 v4: Wrap in beginEditing/endEditing to batch changes and
-            // prevent reentrant textStorage access during TextKit 1 relayout.
+            // Clear previous highlight
             if let prev = currentHighlightRange {
                 let textLength = textView.textStorage.length
                 if prev.location + prev.length <= textLength {
-                    textView.textStorage.beginEditing()
-                    textView.textStorage.removeAttribute(.backgroundColor, range: prev)
-                    textView.textStorage.endEditing()
+                    textView.layoutManager.removeTemporaryAttribute(
+                        .backgroundColor,
+                        forCharacterRange: prev
+                    )
                 }
                 currentHighlightRange = nil
                 highlightClearTimer?.invalidate()
@@ -302,8 +306,6 @@ struct TXTTextViewBridge: UIViewRepresentable {
             guard let range, range.length > 0 else { return }
 
             let textLength = textView.textStorage.length
-            // Guard BEFORE arithmetic to prevent integer underflow (bug #47):
-            // textLength - range.location is negative when range.location > textLength.
             guard range.location < textLength else { return }
             let clampedLength = min(range.length, textLength - range.location)
             guard clampedLength > 0 else { return }
@@ -312,16 +314,11 @@ struct TXTTextViewBridge: UIViewRepresentable {
             // Skip if same range already applied
             if currentHighlightRange == safeRange { return }
 
-            // Bug #47 v4: Batch attribute change to prevent reentrant textStorage
-            // access. TextKit 1 relayout triggered by addAttribute can cause
-            // delegate callbacks that re-enter textStorage → os_unfair_lock crash.
-            textView.textStorage.beginEditing()
-            textView.textStorage.addAttribute(
+            textView.layoutManager.addTemporaryAttribute(
                 .backgroundColor,
                 value: UIColor.systemYellow.withAlphaComponent(0.4),
-                range: safeRange
+                forCharacterRange: safeRange
             )
-            textView.textStorage.endEditing()
             currentHighlightRange = safeRange
 
             // Only auto-clear temporary highlights (search navigation).
@@ -334,9 +331,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
                         guard let self, let textView else { return }
                         if let current = self.currentHighlightRange,
                            current.location + current.length <= textView.textStorage.length {
-                            textView.textStorage.beginEditing()
-                            textView.textStorage.removeAttribute(.backgroundColor, range: current)
-                            textView.textStorage.endEditing()
+                            textView.layoutManager.removeTemporaryAttribute(
+                                .backgroundColor,
+                                forCharacterRange: current
+                            )
                         }
                         self.currentHighlightRange = nil
                     }

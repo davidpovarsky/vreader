@@ -475,39 +475,38 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         }
 
         /// Clears any highlight from all visible cells, then re-applies persisted highlights.
+        /// Bug #47 v5: Uses layoutManager.removeTemporaryAttribute to avoid
+        /// UITextViewAccessibility setAttributedText: infinite recursion crash.
         func clearHighlight(in tableView: UITableView) {
             highlightClearTimer?.invalidate()
             highlightClearTimer = nil
             for cell in tableView.visibleCells {
                 guard let chunkedCell = cell as? ChunkedTextCell else { continue }
-                let storage = chunkedCell.textContentView.textStorage
-                let fullRange = NSRange(location: 0, length: storage.length)
-                // Bug #47 v4: Batch to prevent reentrant textStorage access.
-                storage.beginEditing()
-                storage.removeAttribute(.backgroundColor, range: fullRange)
-                storage.endEditing()
+                let tv = chunkedCell.textContentView
+                let fullRange = NSRange(location: 0, length: tv.textStorage.length)
+                tv.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
                 // Re-apply persisted highlights after clearing (bug #55)
-                applyPersistedHighlightsToCell(chunkedCell, chunkIndex: chunkedCell.textContentView.tag)
+                applyPersistedHighlightsToCell(chunkedCell, chunkIndex: tv.tag)
             }
         }
 
+        /// Bug #47 v5: Uses layoutManager.addTemporaryAttribute — visual-only,
+        /// no textStorage mutation, no accessibility callback loop.
         private func applyHighlightToCell(_ cell: ChunkedTextCell, range: NSRange) {
-            let storage = cell.textContentView.textStorage
-            guard range.location < storage.length else { return }
-            let clampedLength = min(range.length, storage.length - range.location)
+            let tv = cell.textContentView
+            guard range.location < tv.textStorage.length else { return }
+            let clampedLength = min(range.length, tv.textStorage.length - range.location)
             guard clampedLength > 0 else { return }
             let clampedRange = NSRange(location: range.location, length: clampedLength)
-            // Bug #47 v4: Batch to prevent reentrant textStorage access.
-            storage.beginEditing()
-            storage.addAttribute(
+            tv.layoutManager.addTemporaryAttribute(
                 .backgroundColor,
                 value: UIColor.systemYellow.withAlphaComponent(0.4),
-                range: clampedRange
+                forCharacterRange: clampedRange
             )
-            storage.endEditing()
         }
 
         /// Applies persisted highlight ranges from DB for a specific chunk (bug #55).
+        /// Uses layoutManager.addTemporaryAttribute to avoid accessibility crash (bug #47 v5).
         private func applyPersistedHighlightsToCell(_ cell: ChunkedTextCell, chunkIndex: Int) {
             guard !persistedHighlights.isEmpty else { return }
             guard chunkIndex < chunkStartOffsets.count, chunkIndex < chunks.count else { return }
@@ -515,28 +514,25 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             let chunkEnd = chunkIndex + 1 < chunkStartOffsets.count
                 ? chunkStartOffsets[chunkIndex + 1]
                 : chunkStart + chunks[chunkIndex].utf16.count
-            let storage = cell.textContentView.textStorage
-            guard storage.length > 0 else { return }
-            var applied = false
+            let tv = cell.textContentView
+            let textLength = tv.textStorage.length
+            guard textLength > 0 else { return }
             for globalRange in persistedHighlights {
                 let globalStart = globalRange.location
                 let globalEnd = globalRange.location + globalRange.length
-                // Skip ranges that don't overlap this chunk
                 guard globalEnd > chunkStart, globalStart < chunkEnd else { continue }
                 let localStart = max(0, globalStart - chunkStart)
                 let localEnd = min(chunkEnd - chunkStart, globalEnd - chunkStart)
                 let localLength = localEnd - localStart
                 guard localLength > 0 else { continue }
-                let clampedLength = min(localLength, storage.length - localStart)
-                guard clampedLength > 0, localStart < storage.length else { continue }
-                if !applied { storage.beginEditing(); applied = true }
-                storage.addAttribute(
+                let clampedLength = min(localLength, textLength - localStart)
+                guard clampedLength > 0, localStart < textLength else { continue }
+                tv.layoutManager.addTemporaryAttribute(
                     .backgroundColor,
                     value: UIColor.systemYellow.withAlphaComponent(0.4),
-                    range: NSRange(location: localStart, length: clampedLength)
+                    forCharacterRange: NSRange(location: localStart, length: clampedLength)
                 )
             }
-            if applied { storage.endEditing() }
         }
 
         // MARK: - Private

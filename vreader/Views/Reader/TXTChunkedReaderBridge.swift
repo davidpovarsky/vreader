@@ -140,8 +140,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
     final class ChunkedTextCell: UITableViewCell {
         static let reuseID = "ChunkedTextCell"
 
-        let textContentView: UITextView = {
-            let tv = UITextView()
+        let textContentView: HighlightableTextView = {
+            let tv = HighlightableTextView()
             tv.isEditable = false
             tv.isSelectable = true
             tv.isScrollEnabled = false
@@ -484,7 +484,7 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 guard let chunkedCell = cell as? ChunkedTextCell else { continue }
                 let tv = chunkedCell.textContentView
                 let fullRange = NSRange(location: 0, length: tv.textStorage.length)
-                tv.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+                tv.removeHighlightAttribute(range: fullRange)
                 // Re-apply persisted highlights after clearing (bug #55)
                 applyPersistedHighlightsToCell(chunkedCell, chunkIndex: tv.tag)
             }
@@ -498,9 +498,9 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             let clampedLength = min(range.length, tv.textStorage.length - range.location)
             guard clampedLength > 0 else { return }
             let clampedRange = NSRange(location: range.location, length: clampedLength)
-            tv.layoutManager.addTemporaryAttributes(
-                [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
-                forCharacterRange: clampedRange
+            tv.addHighlightAttribute(
+                color: UIColor.systemYellow.withAlphaComponent(0.4),
+                range: clampedRange
             )
         }
 
@@ -526,9 +526,9 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 guard localLength > 0 else { continue }
                 let clampedLength = min(localLength, textLength - localStart)
                 guard clampedLength > 0, localStart < textLength else { continue }
-                tv.layoutManager.addTemporaryAttributes(
-                    [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
-                    forCharacterRange: NSRange(location: localStart, length: clampedLength)
+                tv.addHighlightAttribute(
+                    color: UIColor.systemYellow.withAlphaComponent(0.4),
+                    range: NSRange(location: localStart, length: clampedLength)
                 )
             }
         }

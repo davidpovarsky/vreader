@@ -18,6 +18,45 @@
 import SwiftUI
 import UIKit
 
+/// UITextView subclass that prevents accessibility-triggered infinite recursion
+/// when modifying textStorage attributes for highlights (bug #47 v6).
+///
+/// Root cause: textStorage.addAttribute triggers UITextViewAccessibility's
+/// setAttributedText: callback, which re-modifies textStorage → infinite
+/// recursion → EXC_BAD_ACCESS (stack overflow). The reentrancy guard on
+/// the attributedText setter breaks this cycle.
+final class HighlightableTextView: UITextView {
+    /// Reentrancy guard: blocks accessibility system from re-setting
+    /// attributedText while we're modifying highlight attributes.
+    var isApplyingHighlight = false
+
+    override var attributedText: NSAttributedString! {
+        get { super.attributedText }
+        set {
+            guard !isApplyingHighlight else { return }
+            super.attributedText = newValue
+        }
+    }
+
+    /// Adds a background highlight attribute safely (no accessibility crash).
+    func addHighlightAttribute(color: UIColor, range: NSRange) {
+        isApplyingHighlight = true
+        textStorage.beginEditing()
+        textStorage.addAttribute(.backgroundColor, value: color, range: range)
+        textStorage.endEditing()
+        isApplyingHighlight = false
+    }
+
+    /// Removes a background highlight attribute safely (no accessibility crash).
+    func removeHighlightAttribute(range: NSRange) {
+        isApplyingHighlight = true
+        textStorage.beginEditing()
+        textStorage.removeAttribute(.backgroundColor, range: range)
+        textStorage.endEditing()
+        isApplyingHighlight = false
+    }
+}
+
 /// Configuration for TXT text view appearance.
 struct TXTViewConfig: @unchecked Sendable {
     var fontSize: CGFloat = 18
@@ -71,7 +110,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
     weak var delegate: TXTTextViewBridgeDelegate?
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        let textView = HighlightableTextView()
         textView.isEditable = false
         textView.isSelectable = true
         textView.showsVerticalScrollIndicator = true
@@ -191,17 +230,18 @@ struct TXTTextViewBridge: UIViewRepresentable {
     /// Uses layoutManager.addTemporaryAttribute to avoid triggering
     /// UITextViewAccessibility setAttributedText: infinite recursion (bug #47 v5).
     private func applyPersistedHighlights(to textView: UITextView) {
+        guard let htv = textView as? HighlightableTextView else { return }
         guard !persistedHighlights.isEmpty else { return }
-        let textLength = textView.textStorage.length
+        let textLength = htv.textStorage.length
         guard textLength > 0 else { return }
         for range in persistedHighlights {
             guard range.location < textLength else { continue }
             let clampedLength = min(range.length, textLength - range.location)
             guard clampedLength > 0 else { continue }
             let safeRange = NSRange(location: range.location, length: clampedLength)
-            textView.layoutManager.addTemporaryAttributes(
-                [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
-                forCharacterRange: safeRange
+            htv.addHighlightAttribute(
+                color: UIColor.systemYellow.withAlphaComponent(0.4),
+                range: safeRange
             )
         }
     }
@@ -288,14 +328,13 @@ struct TXTTextViewBridge: UIViewRepresentable {
         /// EXC_BAD_ACCESS (stack overflow). Temporary attributes are visual-only
         /// and don't modify the document, avoiding the accessibility callback loop.
         func applyHighlight(_ range: NSRange?, in textView: UITextView, isTemporary: Bool = true) {
+            guard let htv = textView as? HighlightableTextView else { return }
+
             // Clear previous highlight
             if let prev = currentHighlightRange {
-                let textLength = textView.textStorage.length
+                let textLength = htv.textStorage.length
                 if prev.location + prev.length <= textLength {
-                    textView.layoutManager.removeTemporaryAttribute(
-                        .backgroundColor,
-                        forCharacterRange: prev
-                    )
+                    htv.removeHighlightAttribute(range: prev)
                 }
                 currentHighlightRange = nil
                 highlightClearTimer?.invalidate()
@@ -304,7 +343,7 @@ struct TXTTextViewBridge: UIViewRepresentable {
 
             guard let range, range.length > 0 else { return }
 
-            let textLength = textView.textStorage.length
+            let textLength = htv.textStorage.length
             guard range.location < textLength else { return }
             let clampedLength = min(range.length, textLength - range.location)
             guard clampedLength > 0 else { return }
@@ -313,9 +352,9 @@ struct TXTTextViewBridge: UIViewRepresentable {
             // Skip if same range already applied
             if currentHighlightRange == safeRange { return }
 
-            textView.layoutManager.addTemporaryAttributes(
-                [.backgroundColor: UIColor.systemYellow.withAlphaComponent(0.4)],
-                forCharacterRange: safeRange
+            htv.addHighlightAttribute(
+                color: UIColor.systemYellow.withAlphaComponent(0.4),
+                range: safeRange
             )
             currentHighlightRange = safeRange
 
@@ -326,13 +365,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
             if isTemporary {
                 highlightClearTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self, weak textView] _ in
                     DispatchQueue.main.async { [weak self, weak textView] in
-                        guard let self, let textView else { return }
+                        guard let self, let htv = textView as? HighlightableTextView else { return }
                         if let current = self.currentHighlightRange,
-                           current.location + current.length <= textView.textStorage.length {
-                            textView.layoutManager.removeTemporaryAttribute(
-                                .backgroundColor,
-                                forCharacterRange: current
-                            )
+                           current.location + current.length <= htv.textStorage.length {
+                            htv.removeHighlightAttribute(range: current)
                         }
                         self.currentHighlightRange = nil
                     }

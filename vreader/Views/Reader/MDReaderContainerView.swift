@@ -58,7 +58,12 @@ struct MDReaderContainerView: View {
             if viewModel.renderedText != nil && !viewModel.isLoading && isChromeVisible {
                 VStack {
                     Spacer()
-                    mdBottomOverlay
+                    ReaderBottomOverlay(
+                        progress: viewModel.totalProgression,
+                        sessionTime: viewModel.sessionTimeDisplay,
+                        settingsStore: settingsStore,
+                        accessibilityPrefix: "md"
+                    )
                 }
             }
         }
@@ -137,43 +142,6 @@ struct MDReaderContainerView: View {
             makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
             onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) }
         )
-    }
-
-    // MARK: - Bottom Overlay
-
-    private var overlaySecondaryColor: Color {
-        Color(settingsStore?.theme.secondaryTextColor ?? ReaderTheme.default.secondaryTextColor)
-    }
-
-    private var overlayBackground: Color {
-        Color(settingsStore?.theme.backgroundColor ?? ReaderTheme.default.backgroundColor).opacity(0.92)
-    }
-
-    @ViewBuilder
-    private var mdBottomOverlay: some View {
-        HStack {
-            if let progress = viewModel.totalProgression {
-                Text("\(Int(progress * 100))%")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundColor(overlaySecondaryColor)
-                    .accessibilityLabel("Reading progress \(Int(progress * 100)) percent")
-                    .accessibilityIdentifier("mdProgressIndicator")
-            }
-
-            Spacer()
-
-            if let sessionTime = viewModel.sessionTimeDisplay {
-                Text(sessionTime)
-                    .font(.caption)
-                    .foregroundColor(overlaySecondaryColor)
-                    .accessibilityIdentifier("mdSessionTime")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(overlayBackground)
-        .accessibilityIdentifier("mdBottomOverlay")
     }
 
     // MARK: - Subviews

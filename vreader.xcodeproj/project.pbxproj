@@ -212,6 +212,13 @@
 		C1A2B3C4D5E60001AABB3003 /* ReaderNotificationModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB3004 /* ReaderNotificationModifier.swift */; };
 		C1A2B3C4D5E60001AABB3005 /* NoOpPersistenceStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB3006 /* NoOpPersistenceStores.swift */; };
 		C1A2B3C4D5E60001AABB3007 /* ReaderNotificationHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB3008 /* ReaderNotificationHandlerTests.swift */; };
+		C1A2B3C4D5E60001AABB4001 /* AnnotationsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB4002 /* AnnotationsPanelView.swift */; };
+		C1A2B3C4D5E60001AABB4003 /* ReaderFormatHosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB4004 /* ReaderFormatHosts.swift */; };
+		C1A2B3C4D5E60001AABB4005 /* AnnotationsPanelViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB4006 /* AnnotationsPanelViewTests.swift */; };
+		C1A2B3C4D5E60001AABB5001 /* ReaderBottomOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB5002 /* ReaderBottomOverlay.swift */; };
+		C1A2B3C4D5E60001AABB5003 /* ReaderBottomOverlayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB5004 /* ReaderBottomOverlayTests.swift */; };
+		C1A2B3C4D5E60001AABB6001 /* ReaderPositionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB6002 /* ReaderPositionService.swift */; };
+		C1A2B3C4D5E60001AABB6003 /* ReaderPositionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB6004 /* ReaderPositionServiceTests.swift */; };
 		C1A2B3C4D5E60001AABB1003 /* HighlightableTextViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E60001AABB1004 /* HighlightableTextViewTests.swift */; };
 		BBF57D9DB0812B5253D353A5 /* AnnotationListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A980DB0017049401DAB3E93 /* AnnotationListViewModel.swift */; };
 		BDCFAEB3BDC0697448C8EF46 /* AccessibilityAuditHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12A029D167735B92A38BA7 /* AccessibilityAuditHelper.swift */; };
@@ -391,6 +398,13 @@
 		C1A2B3C4D5E60001AABB3004 /* ReaderNotificationModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderNotificationModifier.swift; sourceTree = "<group>"; };
 		C1A2B3C4D5E60001AABB3006 /* NoOpPersistenceStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoOpPersistenceStores.swift; sourceTree = "<group>"; };
 		C1A2B3C4D5E60001AABB3008 /* ReaderNotificationHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderNotificationHandlerTests.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB4002 /* AnnotationsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationsPanelView.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB4004 /* ReaderFormatHosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderFormatHosts.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB4006 /* AnnotationsPanelViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationsPanelViewTests.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB5002 /* ReaderBottomOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderBottomOverlay.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB5004 /* ReaderBottomOverlayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderBottomOverlayTests.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB6002 /* ReaderPositionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPositionService.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E60001AABB6004 /* ReaderPositionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPositionServiceTests.swift; sourceTree = "<group>"; };
 		43D54AC9AD2556A67C96BD52 /* PDFReaderViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderViewModel.swift; sourceTree = "<group>"; };
 		43EE33FE1EDFE9B393885110 /* FeatureFlagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlagsTests.swift; sourceTree = "<group>"; };
 		445A7C6C3D4466A57B29BDA8 /* ReaderSettingsSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsSheetTests.swift; sourceTree = "<group>"; };
@@ -788,6 +802,8 @@
 			isa = PBXGroup;
 			children = (
 				C1A2B3C4D5E60001AABB1004 /* HighlightableTextViewTests.swift */,
+				C1A2B3C4D5E60001AABB4006 /* AnnotationsPanelViewTests.swift */,
+				C1A2B3C4D5E60001AABB5004 /* ReaderBottomOverlayTests.swift */,
 				C1A2B3C4D5E60001AABB3008 /* ReaderNotificationHandlerTests.swift */,
 				C1A2B3C4D5E60001AABB2006 /* TXTBridgeSharedTests.swift */,
 			);
@@ -913,13 +929,16 @@
 			children = (
 				907D934613DDAEA1F3055F82 /* EPUBReaderContainerView.swift */,
 				C0E536B950D178C97842DF52 /* EPUBWebViewBridge.swift */,
+				C1A2B3C4D5E60001AABB4002 /* AnnotationsPanelView.swift */,
 				C1A2B3C4D5E60001AABB1002 /* HighlightableTextView.swift */,
+				C1A2B3C4D5E60001AABB5002 /* ReaderBottomOverlay.swift */,
 				4B0EDE73D4EB702686B1326E /* MDReaderContainerView.swift */,
 				C1A2B3C4D5E60001AABB3006 /* NoOpPersistenceStores.swift */,
 				425829C48779CD64EB0C5A05 /* PDFPasswordPromptView.swift */,
 				5D2BA1A05E4E36D5D7B2DCFD /* PDFReaderContainerView.swift */,
 				17E7FD8CD67F19A2213DB6F5 /* PDFViewBridge.swift */,
 				EAB42EEEFFCAD8D654D57AE7 /* ReaderContainerView.swift */,
+				C1A2B3C4D5E60001AABB4004 /* ReaderFormatHosts.swift */,
 				C1A2B3C4D5E60001AABB3002 /* ReaderNotificationHandlers.swift */,
 				C1A2B3C4D5E60001AABB3004 /* ReaderNotificationModifier.swift */,
 				C1A2B3C4D5E60001AABB2002 /* ReaderNotifications.swift */,
@@ -1094,6 +1113,7 @@
 				CF5C12635DFA6BEE42EBB1CE /* KeychainServiceTests.swift */,
 				B6DAD680DB86CF1A65D34F3F /* LibraryRefreshServiceTests.swift */,
 				21BC5F159064D57CFAE2A676 /* MetadataExtractorTests.swift */,
+				C1A2B3C4D5E60001AABB6004 /* ReaderPositionServiceTests.swift */,
 				8A86CD6BD10792F5107FFB5A /* ReaderSettingsStoreTests.swift */,
 				398F1BAF549E7AC80E9CE320 /* ReadingSessionTrackerTests.swift */,
 				58456B0AB20C3D6AD39090A5 /* SwiftDataSessionStoreTests.swift */,
@@ -1231,6 +1251,7 @@
 				A1B2C3D4E5F60001STATS01 /* PersistenceActor+Stats.swift */,
 				59ECD5BE8EE959A2EF3E208E /* PersistenceActor+ReadingPosition.swift */,
 				9B432A1C9D875A14C4E9E633 /* ReaderSettingsStore.swift */,
+				C1A2B3C4D5E60001AABB6002 /* ReaderPositionService.swift */,
 				41D94EE13466B0286DEA2EA7 /* ReadingSessionTracker.swift */,
 				818F6161D2855C49A12AF5A6 /* TOCBuilder.swift */,
 				5C65E5FD23C2800C87ADD82A /* TOCProvider.swift */,
@@ -1551,6 +1572,9 @@
 				CD8C26CB53B0BE57CE214F00 /* TXTBridgeOffsetTests.swift in Sources */,
 				01B2C3D4E5F60718AABB0003 /* TXTAttributedStringBuilderTests.swift in Sources */,
 				C1A2B3C4D5E60001AABB3007 /* ReaderNotificationHandlerTests.swift in Sources */,
+				C1A2B3C4D5E60001AABB4005 /* AnnotationsPanelViewTests.swift in Sources */,
+				C1A2B3C4D5E60001AABB5003 /* ReaderBottomOverlayTests.swift in Sources */,
+				C1A2B3C4D5E60001AABB6003 /* ReaderPositionServiceTests.swift in Sources */,
 				C1A2B3C4D5E60001AABB2005 /* TXTBridgeSharedTests.swift in Sources */,
 				E9177AEFF47DA3EFEAC13C50 /* TXTChunkedLoaderTests.swift in Sources */,
 				C1A2B3C4D5E60001AABB0003 /* TXTTextChunkerTests.swift in Sources */,
@@ -1662,6 +1686,10 @@
 				A190FE66621610AD2D04739D /* PersistenceActor.swift in Sources */,
 				B64CAC947A1951E5ED22009C /* QuoteRecovery.swift in Sources */,
 				4CCBF4F6E186A7363A995303 /* ReaderContainerView.swift in Sources */,
+				C1A2B3C4D5E60001AABB4001 /* AnnotationsPanelView.swift in Sources */,
+				C1A2B3C4D5E60001AABB5001 /* ReaderBottomOverlay.swift in Sources */,
+				C1A2B3C4D5E60001AABB6001 /* ReaderPositionService.swift in Sources */,
+				C1A2B3C4D5E60001AABB4003 /* ReaderFormatHosts.swift in Sources */,
 				C1A2B3C4D5E60001AABB3001 /* ReaderNotificationHandlers.swift in Sources */,
 				C1A2B3C4D5E60001AABB3003 /* ReaderNotificationModifier.swift in Sources */,
 				C1A2B3C4D5E60001AABB2001 /* ReaderNotifications.swift in Sources */,

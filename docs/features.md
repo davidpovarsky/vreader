@@ -48,23 +48,23 @@ Before setting a feature to `PLANNED`, fill in these fields in a sub-section und
 
 | #  | Summary | Area | Priority | Status | Notes |
 | -- | ------- | ---- | -------- | ------ | ----- |
-| 1  | Edit and delete bookmarks | Reader/* | High | TODO | Bookmark creation exists (bug #31). Rename added (bug #42). Full edit/delete UI not implemented |
+| 1  | Edit and delete bookmarks | Reader/* | High | DONE | Rename via context menu (bug #42), delete via swipe + context menu. BookmarkListView has full CRUD UI |
 | 2  | Highlight search result at destination | Search/* | Medium | DONE | Resolved by bug #43 — yellow background highlight, auto-clears after 3s |
 | 3  | Manual text highlighting | Reader/* | High | DONE | Resolved by bug #44 — Highlight action added to UITextView edit menu |
 | 4  | Add notes/annotations to text | Reader/* | Medium | DONE | Resolved by bug #44 — Add Note action added to UITextView edit menu |
-| 5  | Search highlight auto-dismiss on next action | Search/* | Low | TODO | From task inbox — highlighted search result should clear when user performs another action (scroll, tap, new search) |
-| 6  | Persist library view preferences across app restarts | Library/* | Medium | TODO | sortOrder defaults to .title and viewMode defaults to .grid every launch; neither saved to UserDefaults/AppStorage. Persist both sort order and display mode (grid/list) |
-| 7  | Visual feedback when adding a bookmark | Reader/* | Low | TODO | No toast, haptic, or icon change when bookmark button is tapped; user can't tell if it worked |
-| 8  | Reading position scrubber/progress bar | Reader/* | Medium | TODO | No slider or progress bar to seek to arbitrary positions in large books; only scroll or search navigation |
-| 9  | Comprehensive book context menu in library | Library/* | Medium | TODO | Context menu only has "Delete"; needs info/details, share, rename, and other management actions |
-| 10 | iCloud backup and restore | Settings/* | Medium | TODO | No mechanism to backup library data (books, annotations, reading progress) to iCloud or restore from it |
-| 11 | EPUB text highlighting and note-taking | EPUB/* | High | TODO | Only TXT/MD have edit menu for highlight/notes (UITextView). EPUB uses WKWebView — needs JS-based selection handling |
-| 12 | Auto-generate TOC for TXT and MD files | Reader/* | Medium | TODO | TOCBuilder exists but forTXT()/forMD() return empty. EPUB TOC works. Need heading extraction for MD and heuristic chapter detection for TXT |
-| 13 | AI book/chapter summarization | AI/* | High | TODO | AIService + AIProvider + AIContextExtractor + AIAssistantViewModel exist and are functional. Not wired to reader UI. Feature flag is OFF. Need toolbar button + settings for API key |
-| 14 | AI chat — talk to the book | AI/* | High | TODO | Single-question askQuestion() works via AIAssistantViewModel. Missing: multi-turn chat UI (message list, input field, conversation history). Currently single-response only |
-| 15 | AI chat interface | AI/* | Medium | TODO | General AI chat beyond book context. Overlaps with #14 but broader scope — could include general Q&A, not just book content |
-| 16 | Remote server integration (claude CLI / directory management) | Server/* | High | TODO | No remote server code exists. Concept: connect to server running "claude -p" for AI-powered directory management and book interaction. Needs: protocol design, networking layer, auth, UI |
-| 17 | PDF text highlighting, annotation, and theming | PDF/* | High | TODO | PDFKit is read-only — no text selection, annotation, or style override APIs. Need either PDF manipulation library, text extraction + UITextView rendering, or PDFKit annotation API integration. EPUB parts already tracked: highlighting (#11), theme (bug #9 FIXED), AI (#13/#14) |
-| 18 | AI-powered contextual translation with bilingual view | AI/* | High | TODO | Translate content into Chinese (or other languages) using AI (claude -p / DeepL API). Bilingual side-by-side or interleaved display. Toggle switch to enable/disable. AIService.translate() exists but not wired. Needs: translation UI, bilingual layout, language selection, API integration |
+| 5  | Search highlight auto-dismiss on next action | Search/* | Low | PLANNED | WI-003. Clear highlight on scroll, tap, or new search |
+| 6  | Persist library view preferences across app restarts | Library/* | Medium | PLANNED | WI-001. PreferenceStore wrapping UserDefaults for sortOrder + viewMode |
+| 7  | Visual feedback when adding a bookmark | Reader/* | Low | PLANNED | WI-002. UIImpactFeedbackGenerator(.light) on successful toggle |
+| 8  | Reading position scrubber/progress bar | Reader/* | Medium | PLANNED | WI-004. UISlider overlay at bottom of reader |
+| 9  | Comprehensive book context menu in library | Library/* | Medium | PLANNED | WI-006. Add Info, Share alongside Delete |
+| 10 | iCloud backup and restore | Settings/* | Medium | PLANNED | WI-015 (design only). Deferred to V2 |
+| 11 | EPUB text highlighting and note-taking | EPUB/* | High | PLANNED | WI-C00 (anchor schema) → WI-007. JS injection for WKWebView selection |
+| 12 | Auto-generate TOC for MD files | Reader/* | Medium | PLANNED | WI-005. MD heading extraction via regex (skip fenced code blocks). TXT deferred indefinitely — too fragile |
+| 13 | AI book/chapter summarization | AI/* | High | PLANNED | WI-D00 (AI foundation) → WI-009 (settings) → WI-010. Wire AIAssistantViewModel to reader toolbar |
+| 14 | AI chat — talk to the book | AI/* | High | PLANNED | WI-D00 → WI-009 → WI-010 → WI-011. Multi-turn chat with book context. Shares AIChatViewModel with #15 |
+| 15 | AI chat interface (general) | AI/* | Medium | PLANNED | WI-D00 → WI-009 → WI-010 → WI-011 → WI-013. General chat (nil bookFingerprint). Separate entry point from library, shared ViewModel with #14 |
+| 16 | Remote server integration (claude CLI / directory management) | Server/* | High | PLANNED | WI-014 (design only). Deferred to V2 |
+| 17 | PDF text highlighting, annotation, and theming | PDF/* | High | PLANNED | WI-C00 (anchor schema) → WI-008. PDFAnnotation API for highlights |
+| 18 | AI-powered contextual translation with bilingual view | AI/* | High | PLANNED | WI-D00 → WI-009 → WI-010 → WI-012. Bilingual side-by-side display |
 | 19 | ~~Merged into feature #6~~ | Library/* | — | DUPLICATE | Display mode persistence merged into feature #6 (library view preferences) |
-| 20 | Sort order reset/revert to default | Library/* | Low | TODO | No way to reset sort order back to default (.title). Need a "Reset" or "Default" option in the sort picker menu |
+| 20 | Sort order reset/revert to default | Library/* | Low | PLANNED | WI-001 (bundled with #6). Add "Default" option in sort picker |

@@ -291,14 +291,14 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         // MARK: - Content Tap (Toolbar Toggle)
 
         @objc func handleContentTap(_ gesture: UITapGestureRecognizer) {
-            NotificationCenter.default.post(name: .readerContentTapped, object: nil)
+            TXTBridgeShared.postContentTappedNotification()
         }
 
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            true
+            TXTBridgeShared.gestureRecognizerShouldRecognizeSimultaneously()
         }
 
         // MARK: - UITextViewDelegate
@@ -324,58 +324,12 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             editMenuForTextIn range: NSRange,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
-            guard range.length > 0 else { return UIMenu(children: suggestedActions) }
-
             let chunkIndex = textView.tag
             let chunkOffset = chunkIndex < chunkStartOffsets.count ? chunkStartOffsets[chunkIndex] : 0
-
-            let highlightAction = UIAction(
-                title: "Highlight",
-                image: UIImage(systemName: "highlighter")
-            ) { [weak textView] _ in
-                guard let textView else { return }
-                Self.postChunkedSelectionNotification(
-                    .readerHighlightRequested,
-                    from: textView,
-                    range: range,
-                    chunkOffset: chunkOffset
-                )
-            }
-
-            let noteAction = UIAction(
-                title: "Add Note",
-                image: UIImage(systemName: "note.text.badge.plus")
-            ) { [weak textView] _ in
-                guard let textView else { return }
-                Self.postChunkedSelectionNotification(
-                    .readerAnnotationRequested,
-                    from: textView,
-                    range: range,
-                    chunkOffset: chunkOffset
-                )
-            }
-
-            let customMenu = UIMenu(title: "", options: .displayInline, children: [highlightAction, noteAction])
-            return UIMenu(children: [customMenu] + suggestedActions)
-        }
-
-        private static func postChunkedSelectionNotification(
-            _ name: Notification.Name,
-            from textView: UITextView,
-            range: NSRange,
-            chunkOffset: Int
-        ) {
-            let text = textView.text ?? ""
-            let nsText = text as NSString
-            guard range.location + range.length <= nsText.length else { return }
-            let selectedText = nsText.substring(with: range)
-            // Convert chunk-local range to document-global range
-            let info = TextSelectionInfo(
-                selectedText: selectedText,
-                startUTF16: chunkOffset + range.location,
-                endUTF16: chunkOffset + range.location + range.length
+            return TXTBridgeShared.buildReaderEditMenu(
+                range: range, textView: textView, suggestedActions: suggestedActions,
+                chunkOffset: chunkOffset
             )
-            NotificationCenter.default.post(name: name, object: info)
         }
 
         // MARK: - Dynamic Navigation (Bug #52)

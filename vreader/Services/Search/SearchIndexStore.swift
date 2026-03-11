@@ -1,20 +1,21 @@
 // Purpose: SQLite FTS5 wrapper for full-text search indexing and querying.
+// Owns SearchIndexCore (db + lock) and SearchQueryExecutor (query logic).
 // Stores content in FTS5 virtual table and token positions in a span map table.
 //
 // Key decisions:
-// - Uses raw SQLite3 C API (available on iOS without dependencies).
+// - All DB access goes through SearchIndexCore — no raw SQLite3 in this file.
+// - Query execution delegated to SearchQueryExecutor (WI-007).
 // - In-memory database for this vertical slice (":memory:").
 // - FTS5 with unicode61 tokenizer handles diacritic removal at query time.
 // - Span map stores per-token UTF-16 offsets for locator resolution.
-// - Thread-safe via OSAllocatedUnfairLock protecting all DB access.
+// - Thread-safe via SearchIndexCore's internal lock.
 // - Re-indexing the same book DELETEs old rows before INSERT (no duplicates).
 //
-// @coordinates-with SearchTextExtractor.swift, SearchTextNormalizer.swift,
+// @coordinates-with: SearchIndexCore.swift, SearchQueryExecutor.swift,
+//   SearchTextExtractor.swift, SearchTextNormalizer.swift,
 //   SearchHitToLocatorResolver.swift, TokenSpan.swift, SearchTokenizer.swift
 
 import Foundation
-import SQLite3
-import os
 
 /// A search result from the FTS5 index.
 struct SearchHit: Sendable, Equatable {
@@ -38,39 +39,31 @@ enum SearchIndexError: Error, Sendable {
 }
 
 /// SQLite FTS5 search index with token span map for offset resolution.
-/// Thread-safe via internal lock — callers may call from any thread.
+/// Thread-safe via SearchIndexCore's internal lock — callers may call from any thread.
 final class SearchIndexStore: @unchecked Sendable {
 
-    private var db: OpaquePointer?
-    private let lock = OSAllocatedUnfairLock()
+    private let core: SearchIndexCore
+    private let queryExecutor: SearchQueryExecutor
 
     /// Creates a new in-memory search index.
     init() throws {
-        var dbPtr: OpaquePointer?
-        let rc = sqlite3_open(":memory:", &dbPtr)
-        guard rc == SQLITE_OK, let dbPtr else {
-            let msg = dbPtr.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "unknown"
-            throw SearchIndexError.databaseOpenFailed(msg)
-        }
-        self.db = dbPtr
+        let core = try SearchIndexCore()
+        self.core = core
+        self.queryExecutor = SearchQueryExecutor(core: core)
         try createTables()
-    }
-
-    deinit {
-        if let db { sqlite3_close(db) }
     }
 
     // MARK: - Schema
 
     private func createTables() throws {
-        try exec("""
+        try core.exec("""
             CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
                 fingerprint_key, source_unit_id, content,
                 tokenize='unicode61 remove_diacritics 2'
             )
         """)
 
-        try exec("""
+        try core.exec("""
             CREATE TABLE IF NOT EXISTS token_spans (
                 fingerprint_key TEXT NOT NULL,
                 source_unit_id TEXT NOT NULL,
@@ -80,13 +73,13 @@ final class SearchIndexStore: @unchecked Sendable {
             )
         """)
 
-        try exec("""
+        try core.exec("""
             CREATE INDEX IF NOT EXISTS idx_spans_lookup
             ON token_spans(fingerprint_key, source_unit_id, normalized_token)
         """)
 
         // Store original texts for per-occurrence snippet generation (bug #28).
-        try exec("""
+        try core.exec("""
             CREATE TABLE IF NOT EXISTS source_texts (
                 fingerprint_key TEXT NOT NULL,
                 source_unit_id TEXT NOT NULL,
@@ -100,62 +93,51 @@ final class SearchIndexStore: @unchecked Sendable {
 
     /// Removes all indexed data for a book.
     func removeBook(fingerprintKey: String) throws {
-        lock.lock()
-        defer { lock.unlock() }
-
-        try exec("BEGIN TRANSACTION")
-        do {
-            try execBind("DELETE FROM search_index WHERE fingerprint_key = ?", params: [fingerprintKey])
-            try execBind("DELETE FROM token_spans WHERE fingerprint_key = ?", params: [fingerprintKey])
-            try execBind("DELETE FROM source_texts WHERE fingerprint_key = ?", params: [fingerprintKey])
-            try exec("COMMIT")
-        } catch {
-            try? exec("ROLLBACK")
-            throw error
+        try core.withLock {
+            try core.exec("BEGIN TRANSACTION")
+            do {
+                try deleteBookDataUnlocked(fingerprintKey: fingerprintKey)
+                try core.exec("COMMIT")
+            } catch {
+                try? core.exec("ROLLBACK")
+                throw error
+            }
         }
     }
 
     /// Indexes a book's text units into FTS5 and the span map.
     /// Re-indexing the same book replaces existing rows (no duplicates).
+    /// Empty textUnits clears stale data for the book without inserting new rows.
     func indexBook(fingerprintKey: String, textUnits: [TextUnit]) throws {
-        guard !textUnits.isEmpty else { return }
+        try core.withLock {
+            try core.exec("BEGIN TRANSACTION")
+            do {
+                try deleteBookDataUnlocked(fingerprintKey: fingerprintKey)
 
-        lock.lock()
-        defer { lock.unlock() }
-
-        try exec("BEGIN TRANSACTION")
-        do {
-            // Remove previous index for this book to prevent duplicates on re-index
-            try execBind(
-                "DELETE FROM search_index WHERE fingerprint_key = ?",
-                params: [fingerprintKey]
-            )
-            try execBind(
-                "DELETE FROM token_spans WHERE fingerprint_key = ?",
-                params: [fingerprintKey]
-            )
-            try execBind(
-                "DELETE FROM source_texts WHERE fingerprint_key = ?",
-                params: [fingerprintKey]
-            )
-
-            let ftsSQL = "INSERT INTO search_index(fingerprint_key, source_unit_id, content) VALUES (?, ?, ?)"
-            let srcSQL = "INSERT INTO source_texts(fingerprint_key, source_unit_id, original_text) VALUES (?, ?, ?)"
-            for unit in textUnits {
-                // Normalize + segment CJK so both index and query use the same pipeline
-                let normalized = SearchTextNormalizer.normalize(unit.text)
-                let segmented = SearchTextNormalizer.segmentCJK(normalized)
-                try execBind(ftsSQL, params: [fingerprintKey, unit.sourceUnitId, segmented])
-                try execBind(srcSQL, params: [fingerprintKey, unit.sourceUnitId, unit.text])
+                let ftsSQL = "INSERT INTO search_index(fingerprint_key, source_unit_id, content) VALUES (?, ?, ?)"
+                let srcSQL = "INSERT INTO source_texts(fingerprint_key, source_unit_id, original_text) VALUES (?, ?, ?)"
+                for unit in textUnits {
+                    let normalized = SearchTextNormalizer.normalize(unit.text)
+                    let segmented = SearchTextNormalizer.segmentCJK(normalized)
+                    try core.execBind(ftsSQL, params: [fingerprintKey, unit.sourceUnitId, segmented])
+                    try core.execBind(srcSQL, params: [fingerprintKey, unit.sourceUnitId, unit.text])
+                }
+                for unit in textUnits {
+                    try indexSpans(fingerprintKey: fingerprintKey, sourceUnitId: unit.sourceUnitId, text: unit.text)
+                }
+                try core.exec("COMMIT")
+            } catch {
+                try? core.exec("ROLLBACK")
+                throw error
             }
-            for unit in textUnits {
-                try indexSpans(fingerprintKey: fingerprintKey, sourceUnitId: unit.sourceUnitId, text: unit.text)
-            }
-            try exec("COMMIT")
-        } catch {
-            try? exec("ROLLBACK")
-            throw error
         }
+    }
+
+    /// Deletes all rows for a book across all tables. Must be called within core.withLock.
+    private func deleteBookDataUnlocked(fingerprintKey: String) throws {
+        try core.execBind("DELETE FROM search_index WHERE fingerprint_key = ?", params: [fingerprintKey])
+        try core.execBind("DELETE FROM token_spans WHERE fingerprint_key = ?", params: [fingerprintKey])
+        try core.execBind("DELETE FROM source_texts WHERE fingerprint_key = ?", params: [fingerprintKey])
     }
 
     private func indexSpans(fingerprintKey: String, sourceUnitId: String, text: String) throws {
@@ -165,250 +147,27 @@ final class SearchIndexStore: @unchecked Sendable {
                                     start_offset_utf16, end_offset_utf16) VALUES (?, ?, ?, ?, ?)
         """
         for token in tokens {
-            try execBind(sql, params: [
+            try core.execBind(sql, params: [
                 fingerprintKey, sourceUnitId, token.normalized,
                 "\(token.startUTF16)", "\(token.endUTF16)"
             ])
         }
     }
 
-    // MARK: - Searching
+    // MARK: - Searching (delegated to SearchQueryExecutor)
 
     /// Searches the FTS5 index for the given query within a specific book.
     func search(query: String, bookFingerprintKey: String, limit: Int = 50) throws -> [SearchHit] {
-        guard !query.isEmpty else { return [] }
-        let safeLimit = max(1, limit)
-        let normalized = SearchTextNormalizer.normalize(query)
-        let normalizedQuery = SearchTextNormalizer.segmentCJK(normalized)
-        guard !normalizedQuery.isEmpty else { return [] }
-
-        // Reject queries that produce no valid tokens (whitespace-only, punctuation-only)
-        let escapedQuery = SearchTokenizer.escapeFTS5Query(normalizedQuery)
-        guard !escapedQuery.isEmpty else { return [] }
-
-        lock.lock()
-        defer { lock.unlock() }
-
-        // No SQL LIMIT — expand all segment matches to per-occurrence hits,
-        // then cap at the caller's limit. In-memory single-book scan is fast.
-        let sql = """
-            SELECT fingerprint_key, source_unit_id,
-                   snippet(search_index, 2, '<b>', '</b>', '...', 32) as snip
-            FROM search_index WHERE search_index MATCH ? AND fingerprint_key = ?
-        """
-        let ftsQuery = "content : \(escapedQuery)"
-
-        var stmt: OpaquePointer?
-        let rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-        guard rc == SQLITE_OK, let stmt else {
-            throw SearchIndexError.queryFailed(errMsg())
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        bindText(stmt, 1, ftsQuery)
-        bindText(stmt, 2, bookFingerprintKey)
-
-        var results: [SearchHit] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let fpKey = colText(stmt, 0)
-            let unitId = colText(stmt, 1)
-            let allOffsets = try findAllMatchOffsets(fingerprintKey: fpKey, sourceUnitId: unitId, normalizedQuery: normalizedQuery)
-
-            // Generate per-occurrence snippets from original text (bug #28)
-            let originalText = try fetchSourceTextUnlocked(fingerprintKey: fpKey, sourceUnitId: unitId)
-
-            for offsets in allOffsets {
-                let snippet = Self.extractSnippet(
-                    from: originalText,
-                    matchStart: offsets.start,
-                    matchEnd: offsets.end,
-                    contextChars: 40
-                )
-                results.append(SearchHit(
-                    fingerprintKey: fpKey, sourceUnitId: unitId, snippet: snippet,
-                    matchStartOffsetUTF16: offsets.start, matchEndOffsetUTF16: offsets.end
-                ))
-                if results.count >= safeLimit { break }
-            }
-            if results.count >= safeLimit { break }
-        }
-        return results
+        try queryExecutor.search(query: query, bookFingerprintKey: bookFingerprintKey, limit: limit)
     }
 
     /// Retrieves token spans for a specific source unit and optional token filter.
     func tokenSpans(fingerprintKey: String, sourceUnitId: String, normalizedToken: String? = nil) throws -> [TokenSpan] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return try tokenSpansUnlocked(fingerprintKey: fingerprintKey, sourceUnitId: sourceUnitId, normalizedToken: normalizedToken)
-    }
-
-    /// Internal unlocked version for use within already-locked contexts.
-    private func tokenSpansUnlocked(fingerprintKey: String, sourceUnitId: String, normalizedToken: String? = nil) throws -> [TokenSpan] {
-        var sql = "SELECT fingerprint_key, source_unit_id, normalized_token, start_offset_utf16, end_offset_utf16 FROM token_spans WHERE fingerprint_key = ? AND source_unit_id = ?"
-        var params = [fingerprintKey, sourceUnitId]
-        if let token = normalizedToken {
-            sql += " AND normalized_token = ?"
-            params.append(token)
-        }
-        sql += " ORDER BY start_offset_utf16 ASC"
-
-        var stmt: OpaquePointer?
-        let rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-        guard rc == SQLITE_OK, let stmt else { throw SearchIndexError.queryFailed(errMsg()) }
-        defer { sqlite3_finalize(stmt) }
-
-        for (i, param) in params.enumerated() { bindText(stmt, Int32(i + 1), param) }
-
-        var spans: [TokenSpan] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            spans.append(TokenSpan(
-                bookFingerprintKey: colText(stmt, 0), normalizedToken: colText(stmt, 2),
-                startOffsetUTF16: Int(sqlite3_column_int64(stmt, 3)),
-                endOffsetUTF16: Int(sqlite3_column_int64(stmt, 4)),
-                sourceUnitId: colText(stmt, 1)
-            ))
-        }
-        return spans
-    }
-
-    // MARK: - Private
-
-    /// Finds all UTF-16 offset ranges where the query tokens match in the source unit.
-    /// Returns one (start, end) per occurrence so each match becomes a separate SearchHit.
-    ///
-    /// For multi-token queries, verifies all tokens appear in offset order with each
-    /// subsequent token starting no more than `maxTokenGap` UTF-16 units after the
-    /// previous token ends. This approximates phrase matching without requiring true
-    /// adjacency. FTS5 already confirmed all tokens exist in the segment.
-    private func findAllMatchOffsets(fingerprintKey: String, sourceUnitId: String, normalizedQuery: String) throws -> [(start: Int, end: Int)] {
-        let queryTokens = normalizedQuery.split(separator: " ").map(String.init)
-        guard let firstTokenStr = queryTokens.first else { return [] }
-
-        let firstSpans = try tokenSpansUnlocked(
-            fingerprintKey: fingerprintKey, sourceUnitId: sourceUnitId,
-            normalizedToken: firstTokenStr
-        )
-        guard !firstSpans.isEmpty else { return [] }
-
-        // Single-token query: each span is a separate occurrence
-        if queryTokens.count == 1 {
-            return firstSpans.map { ($0.startOffsetUTF16, $0.endOffsetUTF16) }
-        }
-
-        // Multi-token: load spans for all distinct query tokens
-        var spansByToken: [String: [TokenSpan]] = [firstTokenStr: firstSpans]
-        for token in queryTokens.dropFirst() where spansByToken[token] == nil {
-            spansByToken[token] = try tokenSpansUnlocked(
-                fingerprintKey: fingerprintKey, sourceUnitId: sourceUnitId,
-                normalizedToken: token
-            )
-        }
-
-        // For each first-token span, verify all subsequent tokens follow in offset order
-        // with a maximum gap to approximate phrase-level proximity.
-        let maxTokenGap = 50 // UTF-16 units — allows whitespace/punctuation between tokens
-        var results: [(start: Int, end: Int)] = []
-        for firstSpan in firstSpans {
-            var currentEnd = firstSpan.endOffsetUTF16
-            var valid = true
-            for token in queryTokens.dropFirst() {
-                guard let spans = spansByToken[token],
-                      let nextSpan = spans.first(where: { $0.startOffsetUTF16 >= currentEnd }),
-                      nextSpan.startOffsetUTF16 - currentEnd <= maxTokenGap else {
-                    valid = false
-                    break
-                }
-                currentEnd = nextSpan.endOffsetUTF16
-            }
-            if valid {
-                results.append((firstSpan.startOffsetUTF16, currentEnd))
-            }
-        }
-
-        return results
-    }
-
-    /// Fetches the original text for a source unit. Must be called within lock.
-    private func fetchSourceTextUnlocked(fingerprintKey: String, sourceUnitId: String) throws -> String? {
-        let sql = "SELECT original_text FROM source_texts WHERE fingerprint_key = ? AND source_unit_id = ?"
-        var stmt: OpaquePointer?
-        let rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-        guard rc == SQLITE_OK, let stmt else { throw SearchIndexError.queryFailed(errMsg()) }
-        defer { sqlite3_finalize(stmt) }
-
-        bindText(stmt, 1, fingerprintKey)
-        bindText(stmt, 2, sourceUnitId)
-
-        if sqlite3_step(stmt) == SQLITE_ROW {
-            return colText(stmt, 0)
-        }
-        return nil
+        try queryExecutor.tokenSpans(fingerprintKey: fingerprintKey, sourceUnitId: sourceUnitId, normalizedToken: normalizedToken)
     }
 
     /// Extracts a context snippet around match offsets in the original text.
-    /// Returns `...prefix<b>match</b>suffix...` with ~contextChars on each side.
     static func extractSnippet(from text: String?, matchStart: Int, matchEnd: Int, contextChars: Int) -> String {
-        guard let text, !text.isEmpty else { return "" }
-        let utf16 = text.utf16
-        let totalLen = utf16.count
-        guard matchStart >= 0, matchStart < totalLen else { return "" }
-        let safeEnd = min(matchEnd, totalLen)
-
-        // Compute window bounds in UTF-16
-        let windowStart = max(0, matchStart - contextChars)
-        let windowEnd = min(totalLen, safeEnd + contextChars)
-
-        // Convert UTF-16 offsets to String.Index
-        let startIdx = String.Index(utf16Offset: windowStart, in: text)
-        let matchStartIdx = String.Index(utf16Offset: matchStart, in: text)
-        let matchEndIdx = String.Index(utf16Offset: safeEnd, in: text)
-        let endIdx = String.Index(utf16Offset: windowEnd, in: text)
-
-        let prefix = windowStart > 0 ? "..." : ""
-        let suffix = windowEnd < totalLen ? "..." : ""
-        let before = String(text[startIdx..<matchStartIdx])
-        let match = String(text[matchStartIdx..<matchEndIdx])
-        let after = String(text[matchEndIdx..<endIdx])
-
-        return "\(prefix)\(before)<b>\(match)</b>\(after)\(suffix)"
-    }
-
-    private func errMsg() -> String {
-        db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "unknown"
-    }
-
-    private func colText(_ stmt: OpaquePointer, _ col: Int32) -> String {
-        guard let ptr = sqlite3_column_text(stmt, col) else { return "" }
-        return String(cString: ptr)
-    }
-
-    /// SQLITE_TRANSIENT tells SQLite to copy the string immediately.
-    private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
-    private func bindText(_ stmt: OpaquePointer, _ idx: Int32, _ value: String) {
-        sqlite3_bind_text(stmt, idx, value, -1, Self.SQLITE_TRANSIENT)
-    }
-
-    private func exec(_ sql: String) throws {
-        var errMsg: UnsafeMutablePointer<CChar>?
-        let rc = sqlite3_exec(db, sql, nil, nil, &errMsg)
-        if rc != SQLITE_OK {
-            let msg = errMsg.map { String(cString: $0) } ?? "unknown error"
-            sqlite3_free(errMsg)
-            throw SearchIndexError.indexFailed(msg)
-        }
-    }
-
-    private func execBind(_ sql: String, params: [String]) throws {
-        var stmt: OpaquePointer?
-        let rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-        guard rc == SQLITE_OK, let stmt else { throw SearchIndexError.indexFailed(errMsg()) }
-        defer { sqlite3_finalize(stmt) }
-        for (i, param) in params.enumerated() { bindText(stmt, Int32(i + 1), param) }
-        let stepRC = sqlite3_step(stmt)
-        guard stepRC == SQLITE_DONE || stepRC == SQLITE_ROW else {
-            throw SearchIndexError.indexFailed(errMsg())
-        }
+        SearchQueryExecutor.extractSnippet(from: text, matchStart: matchStart, matchEnd: matchEnd, contextChars: contextChars)
     }
 }

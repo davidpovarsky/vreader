@@ -329,14 +329,14 @@ struct SearchIndexStoreTests {
         }
     }
 
-    @Test func searchLimitZeroReturnsAtLeastOne() throws {
+    @Test func searchLimitZeroReturnsEmpty() throws {
         let store = try makeStore()
         let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "hello world")]
         try store.indexBook(fingerprintKey: "txt:abc:1024", textUnits: units)
 
-        // limit is clamped to max(1, limit) so 0 should still return 1
+        // limit=0 means "no results requested" — returns empty
         let hits = try store.search(query: "hello", bookFingerprintKey: "txt:abc:1024", limit: 0)
-        #expect(hits.count == 1, "limit=0 should be clamped to 1, got \(hits.count)")
+        #expect(hits.isEmpty, "limit=0 should return empty, got \(hits.count)")
     }
 
     @Test func searchMultiTokenNonAdjacentDoesNotMatch() throws {

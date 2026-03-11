@@ -1,15 +1,16 @@
-// Purpose: ViewModel for the PDF reader. Manages page tracking, debounced
-// position persistence, session tracking, and pages-per-hour metrics.
+// Purpose: ViewModel for the PDF reader. Manages page tracking, position
+// persistence (via ReaderPositionService), session tracking, and pages-per-hour.
 //
 // Key decisions:
 // - @Observable + @MainActor for SwiftUI integration.
-// - Debounced position save (2s), periodic session flush (60s).
+// - Position persistence delegated to ReaderPositionService (WI-008a).
+// - Periodic session flush (60s).
 // - Page-based position using Locator.page (zero-based index).
 // - Tracks distinct pages visited via Set<Int> for pagesRead.
 // - Password flow: needsPassword drives UI, bridge callbacks confirm.
 // - Empty PDF (0 pages): totalProgression = nil.
 //
-// @coordinates-with: ReadingPositionPersisting.swift,
+// @coordinates-with: ReaderPositionService.swift, ReadingPositionPersisting.swift,
 //   ReadingSessionTracker.swift, LocatorFactory.swift, PDFViewBridge.swift
 
 import Foundation
@@ -20,9 +21,6 @@ import Foundation
 final class PDFReaderViewModel {
 
     // MARK: - Constants
-
-    /// Debounce interval for position persistence (seconds).
-    static let positionSaveDebounce: TimeInterval = 2.0
 
     /// Periodic flush interval for session duration (seconds).
     static let sessionFlushInterval: TimeInterval = 60.0
@@ -88,11 +86,10 @@ final class PDFReaderViewModel {
     let bookFingerprintKey: String
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
-    private let deviceId: String
+    private let positionService: ReaderPositionService
 
     // MARK: - Private State
 
-    private var debounceTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
     /// Date when the current active segment started (reset on resume).
     private var segmentStartDate: Date?
@@ -107,13 +104,19 @@ final class PDFReaderViewModel {
         bookFingerprint: DocumentFingerprint,
         positionStore: any ReadingPositionPersisting,
         sessionTracker: ReadingSessionTracker,
-        deviceId: String
+        deviceId: String,
+        positionSaveDebounceNs: UInt64 = 2_000_000_000
     ) {
         self.bookFingerprint = bookFingerprint
         self.bookFingerprintKey = bookFingerprint.canonicalKey
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.deviceId = deviceId
+        self.positionService = ReaderPositionService(
+            bookFingerprintKey: bookFingerprint.canonicalKey,
+            deviceId: deviceId,
+            persistence: positionStore,
+            debounceNanoseconds: positionSaveDebounceNs
+        )
     }
 
     // MARK: - Document Lifecycle (called by bridge)
@@ -192,30 +195,19 @@ final class PDFReaderViewModel {
     }
 
     /// Closes the reader, ending the session and flushing state.
+    /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
         flushTask?.cancel()
         flushTask = nil
-        debounceTask?.cancel()
-        debounceTask = nil
 
         if isDocumentLoaded {
             let locator = makeCurrentLocator()
+            await positionService.saveNow(locator: locator)
             sessionTracker.recordProgress(locator: locator)
-
-            do {
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch {
-                errorMessage = "Failed to save reading position on close."
-            }
         }
 
         sessionTracker.endSessionIfNeeded()
 
-        // Recompute reading stats so library sorting by time/last-read works (bug #34)
         if let persistence = positionStore as? PersistenceActor {
             try? await persistence.recomputeStats(
                 bookFingerprintKey: bookFingerprintKey,
@@ -223,21 +215,15 @@ final class PDFReaderViewModel {
             )
         }
 
-        // Signal library to refresh with up-to-date stats (bug #45)
         NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
     }
 
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
-    /// Callers must use `beginBackgroundTask` to ensure execution time.
     func onBackground() async {
         if isDocumentLoaded {
             let locator = makeCurrentLocator()
-            try? await positionStore.savePosition(
-                bookFingerprintKey: bookFingerprintKey,
-                locator: locator,
-                deviceId: deviceId
-            )
+            await positionService.saveNow(locator: locator)
         }
 
         if let start = segmentStartDate {
@@ -257,6 +243,7 @@ final class PDFReaderViewModel {
             try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
         } catch {
             errorMessage = "Failed to resume reading session."
+            return
         }
         segmentStartDate = Date()
         startPeriodicFlush()
@@ -266,21 +253,15 @@ final class PDFReaderViewModel {
 
     /// Called when the visible page changes in PDFView.
     func pageDidChange(to pageIndex: Int) {
-        guard isDocumentLoaded else { return }
-
+        guard isDocumentLoaded, totalPages > 0 else { return }
         let clamped = clampPage(pageIndex)
         currentPageIndex = clamped
-
-        // Track distinct pages visited
         visitedPages.insert(clamped)
         distinctPagesVisited = visitedPages.count
-
-        // Record progress on session tracker
         let locator = makeCurrentLocator()
         sessionTracker.recordProgress(locator: locator)
-
         updateTimeDisplays()
-        debounceSavePosition()
+        positionService.scheduleSave(locator: locator)
     }
 
     // MARK: - Locator Construction (internal for testing)
@@ -313,30 +294,6 @@ final class PDFReaderViewModel {
         return Double(pagesRead) / hours
     }
 
-    // MARK: - Private: Position Persistence
-
-    private func debounceSavePosition() {
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self, bookFingerprintKey, deviceId, positionStore] in
-            do {
-                try await Task.sleep(for: .seconds(Self.positionSaveDebounce))
-                guard let self, !Task.isCancelled else { return }
-                let locator = self.makeCurrentLocator()
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch is CancellationError {
-                // Expected when debounce is reset
-            } catch {
-                await MainActor.run {
-                    self?.errorMessage = "Failed to save reading position."
-                }
-            }
-        }
-    }
-
     // MARK: - Private: Session Time Tracking
 
     private func startPeriodicFlush() {
@@ -345,8 +302,9 @@ final class PDFReaderViewModel {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    try self?.sessionTracker.periodicFlush()
-                    self?.updateTimeDisplays()
+                    guard let self else { break }
+                    try sessionTracker.periodicFlush()
+                    updateTimeDisplays()
                 } catch is CancellationError {
                     break
                 } catch {

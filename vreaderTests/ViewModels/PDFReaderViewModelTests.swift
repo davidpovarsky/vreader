@@ -21,7 +21,8 @@ private let testURL = URL(fileURLWithPath: "/tmp/test.pdf")
 
 @MainActor
 private func makeViewModel(
-    fingerprint: DocumentFingerprint = pdfFingerprint
+    fingerprint: DocumentFingerprint = pdfFingerprint,
+    positionSaveDebounceNs: UInt64 = 2_000_000_000
 ) -> (PDFReaderViewModel, MockPositionStore, MockSessionStore) {
     let positionStore = MockPositionStore()
     let sessionStore = MockSessionStore()
@@ -36,7 +37,8 @@ private func makeViewModel(
         bookFingerprint: fingerprint,
         positionStore: positionStore,
         sessionTracker: tracker,
-        deviceId: "test-device"
+        deviceId: "test-device",
+        positionSaveDebounceNs: positionSaveDebounceNs
     )
 
     return (vm, positionStore, sessionStore)
@@ -535,6 +537,80 @@ struct PDFReaderViewModelEdgeCaseTests {
         }
 
         #expect(vm.isDocumentLoaded == true) // document is still loaded
+    }
+}
+
+// MARK: - Position Service Integration (WI-008a)
+
+@Suite("PDFReaderViewModel - Position Service")
+@MainActor
+struct PDFReaderViewModelPositionServiceTests {
+
+    @Test("pageDidChange triggers debounced save via position service")
+    func pageDidChangeTriggersScheduledSave() async throws {
+        let (vm, positionStore, _) = makeViewModel(positionSaveDebounceNs: 0)
+        vm.documentDidLoad(totalPages: 10)
+        try vm.startSession()
+
+        vm.pageDidChange(to: 5)
+
+        // Zero debounce — save should complete after a brief yield
+        try await Task.sleep(for: .milliseconds(50))
+
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount >= 1)
+        let saved = await positionStore.position(forKey: pdfFingerprint.canonicalKey)
+        #expect(saved?.page == 5)
+    }
+
+    @Test("close saves position immediately via position service")
+    func closeSavesViaPositionService() async {
+        let (vm, positionStore, _) = makeViewModel(positionSaveDebounceNs: 500_000_000)
+        vm.documentDidLoad(totalPages: 10)
+        try? vm.startSession()
+
+        vm.pageDidChange(to: 7)
+        await vm.close()
+
+        // close() uses saveNow — save must be complete after await
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount >= 1)
+        let saved = await positionStore.position(forKey: pdfFingerprint.canonicalKey)
+        #expect(saved?.page == 7)
+    }
+
+    @Test("onBackground saves position immediately via position service")
+    func onBackgroundSavesViaPositionService() async {
+        let (vm, positionStore, _) = makeViewModel(positionSaveDebounceNs: 500_000_000)
+        vm.documentDidLoad(totalPages: 10)
+        try? vm.startSession()
+
+        vm.pageDidChange(to: 3)
+        await vm.onBackground()
+
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount >= 1)
+        let saved = await positionStore.position(forKey: pdfFingerprint.canonicalKey)
+        #expect(saved?.page == 3)
+    }
+
+    @Test("rapid page changes coalesce saves")
+    func rapidPageChangesCoalesceSaves() async throws {
+        let (vm, positionStore, _) = makeViewModel(positionSaveDebounceNs: 100_000_000)
+        vm.documentDidLoad(totalPages: 100)
+        try vm.startSession()
+
+        // Rapid page changes — only the last should persist via debounce
+        for i in 0..<10 {
+            vm.pageDidChange(to: i)
+        }
+
+        try await Task.sleep(for: .milliseconds(200))
+
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount == 1)
+        let saved = await positionStore.position(forKey: pdfFingerprint.canonicalKey)
+        #expect(saved?.page == 9)
     }
 }
 

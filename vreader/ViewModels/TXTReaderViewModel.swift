@@ -1,9 +1,11 @@
 // Purpose: ViewModel for the TXT reader view. Manages reading state,
-// debounced position persistence, session tracking, and word count estimation.
+// position persistence (via ReaderPositionService), session tracking,
+// and word count estimation.
 //
 // Key decisions:
 // - @Observable + @MainActor for SwiftUI integration.
-// - Debounced position save (2s delay) to avoid excessive writes.
+// - Position persistence delegated to ReaderPositionService (WI-008d).
+// - File loading delegated to TXTFileLoader (WI-008d).
 // - Integrates ReadingSessionTracker for reading time tracking.
 // - Active reading time excludes background/pause intervals.
 // - Uses protocol abstractions for testability (service, persistence, tracker).
@@ -11,7 +13,8 @@
 // - Position uses canonical UTF-16 offsets matching TXTOffsetMapper conventions.
 // - wordsRead estimated via Section 9.6 normative formula.
 //
-// @coordinates-with: TXTServiceProtocol.swift, ReadingPositionPersisting.swift,
+// @coordinates-with: TXTFileLoader.swift, ReaderPositionService.swift,
+//   TXTServiceProtocol.swift, ReadingPositionPersisting.swift,
 //   ReadingSessionTracker.swift, LocatorFactory.swift, TXTTextViewBridge.swift
 
 import Foundation
@@ -22,9 +25,6 @@ import Foundation
 final class TXTReaderViewModel {
 
     // MARK: - Constants
-
-    /// Debounce interval for position persistence (seconds).
-    static let positionSaveDebounce: TimeInterval = 2.0
 
     /// Periodic flush interval for session duration (seconds).
     static let sessionFlushInterval: TimeInterval = 60.0
@@ -86,11 +86,10 @@ final class TXTReaderViewModel {
     private let txtService: any TXTServiceProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
-    private let deviceId: String
+    private let positionService: ReaderPositionService
 
     // MARK: - Private State
 
-    private var debounceTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
     /// Date when the current active segment started (reset on resume).
     private var segmentStartDate: Date?
@@ -115,20 +114,28 @@ final class TXTReaderViewModel {
         txtService: any TXTServiceProtocol,
         positionStore: any ReadingPositionPersisting,
         sessionTracker: ReadingSessionTracker,
-        deviceId: String
+        deviceId: String,
+        positionSaveDebounceNs: UInt64 = 2_000_000_000
     ) {
         self.bookFingerprint = bookFingerprint
         self.bookFingerprintKey = bookFingerprint.canonicalKey
         self.txtService = txtService
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.deviceId = deviceId
+        self.positionService = ReaderPositionService(
+            bookFingerprintKey: bookFingerprint.canonicalKey,
+            deviceId: deviceId,
+            persistence: positionStore,
+            debounceNanoseconds: positionSaveDebounceNs
+        )
     }
 
     // MARK: - Lifecycle
 
     /// Opens the TXT file and restores the saved reading position.
     func open(url: URL) async {
+        guard !isLoading else { return }
+
         // Guard against re-open: close previous state first
         if textContent != nil {
             await close()
@@ -141,10 +148,19 @@ final class TXTReaderViewModel {
         isLoading = true
         errorMessage = nil
 
-        // Stage 1: Load and decode TXT
-        let meta: TXTFileMetadata
+        // Stage 1+2: Load, decode, and restore position (via TXTFileLoader)
+        let loadResult: TXTLoadResult
         do {
-            meta = try await txtService.open(url: url)
+            loadResult = try await TXTFileLoader.load(
+                url: url,
+                service: txtService,
+                positionStore: positionStore,
+                bookFingerprintKey: bookFingerprintKey
+            )
+        } catch is CancellationError {
+            resetState()
+            isLoading = false
+            return
         } catch {
             resetState()
             isLoading = false
@@ -157,28 +173,18 @@ final class TXTReaderViewModel {
         // Close the service we just opened so it doesn't leak in .alreadyOpen state.
         guard myGeneration == openGeneration else {
             await txtService.close()
+            isLoading = false
             return
         }
 
-        textContent = meta.text
-        totalTextLengthUTF16 = meta.totalTextLengthUTF16
-        totalWordCount = meta.totalWordCount
-        currentOffsetUTF16 = 0
+        textContent = loadResult.metadata.text
+        totalTextLengthUTF16 = loadResult.metadata.totalTextLengthUTF16
+        totalWordCount = loadResult.metadata.totalWordCount
+        currentOffsetUTF16 = loadResult.restoredOffsetUTF16
 
-        // Stage 2: Restore saved position (non-fatal on failure)
-        restoreSuppressUntil = nil
-        do {
-            let savedLocator = try await positionStore.loadPosition(
-                bookFingerprintKey: bookFingerprintKey
-            )
-            if let savedLocator, let savedOffset = savedLocator.charOffsetUTF16 {
-                currentOffsetUTF16 = clampOffset(savedOffset)
-                restoreSuppressUntil = Date().addingTimeInterval(Self.restoreSuppressDuration)
-            }
-        } catch {
-            // Position restore failed — start from beginning
-            currentOffsetUTF16 = 0
-        }
+        restoreSuppressUntil = loadResult.hadSavedPosition
+            ? Date().addingTimeInterval(Self.restoreSuppressDuration)
+            : nil
 
         // Stage 3: Start reading session (rollback on failure)
         do {
@@ -202,45 +208,27 @@ final class TXTReaderViewModel {
             date: Date()
         )
 
-        // Start periodic session flush
         startPeriodicFlush()
-
         isOpenComplete = true
         isLoading = false
     }
 
     /// Closes the reader, ending the session and flushing state.
+    /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
-        // Invalidate generation so any in-flight open() becomes stale
         openGeneration += 1
 
         flushTask?.cancel()
         flushTask = nil
-        debounceTask?.cancel()
-        debounceTask = nil
 
-        // Save final position immediately.
-        // Guard: only save if open() completed position restore. If close() races
-        // with an in-progress open(), currentOffsetUTF16 may be 0 (initial value
-        // before position restore), which would overwrite the correct saved position.
         if textContent != nil, isOpenComplete {
             let locator = makeLocator()
+            await positionService.saveNow(locator: locator)
             sessionTracker.recordProgress(locator: locator)
-
-            do {
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch {
-                errorMessage = "Failed to save reading position on close."
-            }
         }
 
         sessionTracker.endSessionIfNeeded()
 
-        // Recompute reading stats so library sorting by time/last-read works (bug #34)
         if let persistence = positionStore as? PersistenceActor {
             try? await persistence.recomputeStats(
                 bookFingerprintKey: bookFingerprintKey,
@@ -248,9 +236,6 @@ final class TXTReaderViewModel {
             )
         }
 
-        // Signal library to refresh with up-to-date stats (bug #45)
-        // Pass bookFingerprintKey so library can update in-memory lastReadAt
-        // immediately, bypassing SwiftData ModelContext isolation issues.
         NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
 
         await txtService.close()
@@ -259,15 +244,10 @@ final class TXTReaderViewModel {
 
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
-    /// Callers must use `beginBackgroundTask` to ensure execution time.
     func onBackground() async {
         if textContent != nil {
             let locator = makeLocator()
-            try? await positionStore.savePosition(
-                bookFingerprintKey: bookFingerprintKey,
-                locator: locator,
-                deviceId: deviceId
-            )
+            await positionService.saveNow(locator: locator)
         }
 
         if let start = segmentStartDate {
@@ -287,8 +267,9 @@ final class TXTReaderViewModel {
             try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
         } catch {
             errorMessage = "Failed to resume reading session."
+            return
         }
-        segmentStartDate = Date()
+        if segmentStartDate == nil { segmentStartDate = Date() }
         startPeriodicFlush()
     }
 
@@ -296,6 +277,7 @@ final class TXTReaderViewModel {
 
     /// Called when the scroll position changes. Offset is in UTF-16 code units.
     func updateScrollPosition(charOffsetUTF16: Int) {
+        guard textContent != nil, isOpenComplete else { return }
         let clamped = clampOffset(charOffsetUTF16)
 
         // Suppress scroll position saves during the post-restore settling window.
@@ -314,14 +296,11 @@ final class TXTReaderViewModel {
 
         currentOffsetUTF16 = clamped
 
-        // Use lightweight locator (no quote extraction) for transient progress updates
         let lightLocator = makeLightLocator()
         sessionTracker.recordProgress(locator: lightLocator)
 
         updateTimeDisplays()
-
-        // Defer full locator construction to debounced persistence (avoids quote extraction on every scroll)
-        debounceSavePosition()
+        positionService.scheduleSave(locator: makeLocator())
     }
 
     // MARK: - Selection
@@ -342,30 +321,6 @@ final class TXTReaderViewModel {
     func clearSelection() {
         currentSelectionStart = nil
         currentSelectionEnd = nil
-    }
-
-    // MARK: - Private: Position Persistence
-
-    private func debounceSavePosition() {
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self, bookFingerprintKey, deviceId, positionStore] in
-            do {
-                try await Task.sleep(for: .seconds(Self.positionSaveDebounce))
-                // Construct full locator (with quote/context) only after debounce fires
-                guard let locator = await self?.makeLocator() else { return }
-                try await positionStore.savePosition(
-                    bookFingerprintKey: bookFingerprintKey,
-                    locator: locator,
-                    deviceId: deviceId
-                )
-            } catch is CancellationError {
-                // Expected when debounce is reset
-            } catch {
-                await MainActor.run {
-                    self?.errorMessage = "Failed to save reading position."
-                }
-            }
-        }
     }
 
     // MARK: - Private: Locator Construction
@@ -420,12 +375,13 @@ final class TXTReaderViewModel {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    try self?.sessionTracker.periodicFlush()
-                    self?.updateTimeDisplays()
+                    guard let self else { break }
+                    try sessionTracker.periodicFlush()
+                    updateTimeDisplays()
                 } catch is CancellationError {
                     break
                 } catch {
-                    // Non-fatal: periodic flush failure doesn't interrupt reading
+                    // Non-fatal
                 }
             }
         }

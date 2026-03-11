@@ -56,7 +56,8 @@ private let testURL = URL(fileURLWithPath: "/tmp/test.epub")
 private func makeViewModel(
     fingerprint: DocumentFingerprint = testFingerprint,
     parserMetadata: EPUBMetadata? = testMetadata,
-    parserError: EPUBParserError? = nil
+    parserError: EPUBParserError? = nil,
+    positionSaveDebounceNs: UInt64 = 2_000_000_000
 ) async -> (EPUBReaderViewModel, MockEPUBParser, MockPositionStore, MockSessionStore) {
     let parser = MockEPUBParser()
     await parser.setMetadata(parserMetadata)
@@ -78,7 +79,8 @@ private func makeViewModel(
         parser: parser,
         positionStore: positionStore,
         sessionTracker: tracker,
-        deviceId: "test-device"
+        deviceId: "test-device",
+        positionSaveDebounceNs: positionSaveDebounceNs
     )
 
     return (vm, parser, positionStore, sessionStore)
@@ -553,6 +555,65 @@ struct EPUBReaderViewModelEdgeCaseTests {
         await vm.close()
 
         #expect(vm.errorMessage == nil)
+    }
+}
+
+// MARK: - Position Service Integration (WI-008b)
+
+@Suite("EPUBReaderViewModel - Position Service")
+@MainActor
+struct EPUBReaderViewModelPositionServiceTests {
+
+    @Test("updatePosition triggers debounced save via position service")
+    func updatePositionTriggersScheduledSave() async throws {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 0)
+        await vm.open(url: testURL)
+
+        vm.updatePosition(EPUBPosition(
+            href: "chapter2.xhtml",
+            progression: 0.5,
+            totalProgression: 0.4,
+            cfi: nil
+        ))
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount >= 1)
+    }
+
+    @Test("close saves position immediately via position service")
+    func closeSavesViaPositionService() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 500_000_000)
+        await vm.open(url: testURL)
+
+        vm.updatePosition(EPUBPosition(
+            href: "chapter3.xhtml",
+            progression: 0.8,
+            totalProgression: 0.9,
+            cfi: nil
+        ))
+        await vm.close()
+
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount >= 1)
+    }
+
+    @Test("onBackground saves position immediately via position service")
+    func onBackgroundSavesViaPositionService() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 500_000_000)
+        await vm.open(url: testURL)
+
+        vm.updatePosition(EPUBPosition(
+            href: "chapter2.xhtml",
+            progression: 0.3,
+            totalProgression: 0.3,
+            cfi: nil
+        ))
+        await vm.onBackground()
+
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount >= 1)
     }
 }
 

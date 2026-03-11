@@ -49,7 +49,8 @@ private let testURL = URL(fileURLWithPath: "/tmp/test.txt")
 private func makeViewModel(
     fingerprint: DocumentFingerprint = testFingerprint,
     serviceMetadata: TXTFileMetadata? = testMetadata,
-    serviceError: TXTServiceError? = nil
+    serviceError: TXTServiceError? = nil,
+    positionSaveDebounceNs: UInt64 = 2_000_000_000
 ) async -> (TXTReaderViewModel, MockTXTService, MockPositionStore, MockSessionStore) {
     let service = MockTXTService()
     await service.setMetadata(serviceMetadata)
@@ -71,7 +72,8 @@ private func makeViewModel(
         txtService: service,
         positionStore: positionStore,
         sessionTracker: tracker,
-        deviceId: "test-device"
+        deviceId: "test-device",
+        positionSaveDebounceNs: positionSaveDebounceNs
     )
 
     return (vm, service, positionStore, sessionStore)
@@ -754,5 +756,50 @@ struct TXTFileMetadataTests {
         let meta = TXTFileMetadata(text: "", fileByteCount: 0, detectedEncoding: "UTF-8", totalTextLengthUTF16: 0, totalWordCount: 0)
         #expect(meta.text.isEmpty)
         #expect(meta.totalWordCount == 0)
+    }
+}
+
+// MARK: - Position Service Integration (WI-008d)
+
+@Suite("TXTReaderViewModel - Position Service")
+@MainActor
+struct TXTReaderViewModelPositionServiceTests {
+
+    @Test("close uses positionService.saveNow for immediate persistence")
+    func closeUsesPositionService() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 0)
+
+        await vm.open(url: testURL)
+        vm.updateScrollPosition(charOffsetUTF16: 15)
+        await vm.close()
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 15)
+    }
+
+    @Test("onBackground uses positionService.saveNow")
+    func onBackgroundUsesPositionService() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 0)
+
+        await vm.open(url: testURL)
+        vm.updateScrollPosition(charOffsetUTF16: 10)
+        await vm.onBackground()
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 10)
+    }
+
+    @Test("updateScrollPosition uses positionService.scheduleSave")
+    func scrollUsesScheduleSave() async {
+        let (vm, _, positionStore, _) = await makeViewModel(positionSaveDebounceNs: 10_000_000)
+
+        await vm.open(url: testURL)
+        vm.updateScrollPosition(charOffsetUTF16: 20)
+
+        // Wait for debounce (10ms)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let saved = await positionStore.position(forKey: testFingerprint.canonicalKey)
+        #expect(saved?.charOffsetUTF16 == 20)
     }
 }

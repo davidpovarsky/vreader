@@ -3,61 +3,23 @@
 //
 // Key decisions:
 // - Dispatches to format-specific reader based on BookFormat.
-// - EPUB reader wired with production EPUBParser (ZIP extraction + OPF parsing).
-// - TXT, PDF, MD readers are fully wired with real ViewModels and containers.
 // - File URL resolved from fingerprintKey using the sandbox import convention.
 // - DocumentFingerprint parsed from the canonical key string.
-// - Each format host view owns its ViewModel via @State for stable lifecycle.
-// - Provides navigation bar with back button, search button, settings button, and annotations menu.
-// - Settings panel presented as a sheet for theme/typography controls.
-// - Annotations sheet provides access to bookmarks, TOC, highlights, annotations.
+// - Format host views (TXTReaderHost, etc.) extracted to ReaderFormatHosts.swift (WI-004).
+// - AnnotationsPanelView extracted to AnnotationsPanelView.swift (WI-004).
+// - Provides navigation bar with back button, search, bookmark, annotations, settings.
 // - TOC entries computed per format: EPUB from spine items, PDF from outline tree.
 // - Search sheet wired with SearchService, SearchViewModel, and SearchView.
 // - Book content is indexed for search on first open using format-specific extractors.
-// - Session persistence uses SwiftDataSessionStore (real SwiftData, not NoOp).
 //
-// @coordinates-with: EPUBReaderViewModel.swift, TXTReaderViewModel.swift,
-//   MDReaderViewModel.swift, PDFReaderViewModel.swift, LibraryView.swift,
-//   ReaderSettingsStore.swift, ReaderSettingsPanel.swift,
-//   TXTReaderContainerView.swift, PDFReaderContainerView.swift,
-//   MDReaderContainerView.swift, DocumentFingerprint.swift,
-//   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift,
-//   TXTTextExtractor.swift, PDFTextExtractor.swift, EPUBTextExtractor.swift, MDTextExtractor.swift
+// @coordinates-with: ReaderFormatHosts.swift, AnnotationsPanelView.swift,
+//   ReaderSettingsStore.swift, ReaderSettingsPanel.swift, DocumentFingerprint.swift,
+//   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift
 
 import SwiftUI
 import SwiftData
 import PDFKit
 import os
-import Combine
-
-extension Notification.Name {
-    /// Posted by reader bridges when the user taps the content area.
-    /// Used by ReaderContainerView to toggle toolbar visibility.
-    static let readerContentTapped = Notification.Name("vreader.readerContentTapped")
-    /// Posted by ReaderContainerView when the user taps the bookmark button.
-    /// Format-specific container views observe this and save a bookmark at the current position.
-    static let readerBookmarkRequested = Notification.Name("vreader.readerBookmarkRequested")
-    /// Posted by ReaderContainerView when the user taps a search result.
-    /// The notification's `object` is the `Locator` to navigate to.
-    /// Format-specific container views observe this and scroll/navigate accordingly.
-    static let readerNavigateToLocator = Notification.Name("vreader.readerNavigateToLocator")
-    /// Posted by text view bridges when the user selects "Highlight" from the edit menu.
-    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
-    static let readerHighlightRequested = Notification.Name("vreader.readerHighlightRequested")
-    /// Posted by text view bridges when the user selects "Add Note" from the edit menu.
-    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
-    static let readerAnnotationRequested = Notification.Name("vreader.readerAnnotationRequested")
-    /// Posted by reader ViewModels at the end of close(), after recomputeStats completes.
-    /// LibraryView observes this to refresh with guaranteed up-to-date stats (bug #45).
-    static let readerDidClose = Notification.Name("vreader.readerDidClose")
-}
-
-/// Carries text selection info from bridges to container views via NotificationCenter.
-struct TextSelectionInfo {
-    let selectedText: String
-    let startUTF16: Int
-    let endUTF16: Int
-}
 
 /// Container view that dispatches to the correct format-specific reader.
 struct ReaderContainerView: View {
@@ -74,7 +36,6 @@ struct ReaderContainerView: View {
     @State private var showSettings = false
     @State private var showAnnotationsPanel = false
     @State private var showSearch = false
-    @State private var selectedAnnotationsTab: AnnotationsPanelTab = .bookmarks
     @State private var searchViewModel: SearchViewModel?
     @State private var searchService: SearchService?
     /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
@@ -187,12 +148,19 @@ struct ReaderContainerView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAnnotationsPanel) {
-            AnnotationsPanelSheet(
-                selectedTab: $selectedAnnotationsTab,
-                isPresented: $showAnnotationsPanel,
+            AnnotationsPanelView(
                 bookFingerprintKey: book.fingerprintKey,
                 modelContainer: modelContext.container,
-                tocEntries: tocEntries
+                tocEntries: tocEntries,
+                onNavigate: { locator in
+                    NotificationCenter.default.post(
+                        name: .readerNavigateToLocator,
+                        object: locator
+                    )
+                },
+                onDismiss: {
+                    showAnnotationsPanel = false
+                }
             )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -468,272 +436,4 @@ struct ReaderContainerView: View {
     }
 }
 
-// MARK: - Format-Specific Host Views
 
-/// Owns TXTReaderViewModel lifecycle via @State.
-private struct TXTReaderHost: View {
-    let fileURL: URL
-    let fingerprint: DocumentFingerprint
-    let modelContainer: ModelContainer
-    let settingsStore: ReaderSettingsStore
-
-    @State private var viewModel: TXTReaderViewModel?
-
-    var body: some View {
-        Group {
-            if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            guard viewModel == nil else { return }
-            let persistence = PersistenceActor(modelContainer: modelContainer)
-            let tracker = ReadingSessionTracker(
-                clock: SystemClock(),
-                store: SwiftDataSessionStore(modelContainer: modelContainer),
-                deviceId: ReaderContainerView.deviceId
-            )
-            viewModel = TXTReaderViewModel(
-                bookFingerprint: fingerprint,
-                txtService: TXTService(),
-                positionStore: persistence,
-                sessionTracker: tracker,
-                deviceId: ReaderContainerView.deviceId
-            )
-        }
-    }
-}
-
-/// Owns PDFReaderViewModel lifecycle via @State.
-private struct PDFReaderHost: View {
-    let fileURL: URL
-    let fingerprint: DocumentFingerprint
-    let modelContainer: ModelContainer
-
-    @State private var viewModel: PDFReaderViewModel?
-
-    var body: some View {
-        Group {
-            if let viewModel {
-                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer)
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            guard viewModel == nil else { return }
-            let persistence = PersistenceActor(modelContainer: modelContainer)
-            let tracker = ReadingSessionTracker(
-                clock: SystemClock(),
-                store: SwiftDataSessionStore(modelContainer: modelContainer),
-                deviceId: ReaderContainerView.deviceId
-            )
-            viewModel = PDFReaderViewModel(
-                bookFingerprint: fingerprint,
-                positionStore: persistence,
-                sessionTracker: tracker,
-                deviceId: ReaderContainerView.deviceId
-            )
-        }
-    }
-}
-
-/// Owns MDReaderViewModel lifecycle via @State.
-private struct MDReaderHost: View {
-    let fileURL: URL
-    let fingerprint: DocumentFingerprint
-    let modelContainer: ModelContainer
-    let settingsStore: ReaderSettingsStore
-
-    @State private var viewModel: MDReaderViewModel?
-
-    var body: some View {
-        Group {
-            if let viewModel {
-                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            guard viewModel == nil else { return }
-            let persistence = PersistenceActor(modelContainer: modelContainer)
-            let tracker = ReadingSessionTracker(
-                clock: SystemClock(),
-                store: SwiftDataSessionStore(modelContainer: modelContainer),
-                deviceId: ReaderContainerView.deviceId
-            )
-            viewModel = MDReaderViewModel(
-                bookFingerprint: fingerprint,
-                parser: MDParser(),
-                positionStore: persistence,
-                sessionTracker: tracker,
-                deviceId: ReaderContainerView.deviceId
-            )
-        }
-    }
-}
-
-/// Owns EPUBReaderViewModel lifecycle via @State.
-private struct EPUBReaderHost: View {
-    let fileURL: URL
-    let fingerprint: DocumentFingerprint
-    let modelContainer: ModelContainer
-    let settingsStore: ReaderSettingsStore
-
-    @State private var viewModel: EPUBReaderViewModel?
-    @State private var parser: EPUBParser?
-
-    var body: some View {
-        Group {
-            if let viewModel, let parser {
-                EPUBReaderContainerView(
-                    fileURL: fileURL,
-                    viewModel: viewModel,
-                    parser: parser,
-                    settingsStore: settingsStore,
-                    modelContainer: modelContainer
-                )
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            guard viewModel == nil else { return }
-            let persistence = PersistenceActor(modelContainer: modelContainer)
-            let tracker = ReadingSessionTracker(
-                clock: SystemClock(),
-                store: SwiftDataSessionStore(modelContainer: modelContainer),
-                deviceId: ReaderContainerView.deviceId
-            )
-            let epubParser = EPUBParser()
-            parser = epubParser
-            viewModel = EPUBReaderViewModel(
-                bookFingerprint: fingerprint,
-                parser: epubParser,
-                positionStore: persistence,
-                sessionTracker: tracker,
-                deviceId: ReaderContainerView.deviceId
-            )
-        }
-    }
-}
-
-// MARK: - Annotations Panel
-
-/// Tabs for the annotations panel sheet.
-enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
-    case bookmarks = "Bookmarks"
-    case toc = "Contents"
-    case highlights = "Highlights"
-    case annotations = "Notes"
-
-    var id: String { rawValue }
-
-    var systemImage: String {
-        switch self {
-        case .bookmarks: return "bookmark"
-        case .toc: return "list.bullet"
-        case .highlights: return "highlighter"
-        case .annotations: return "note.text"
-        }
-    }
-}
-
-/// Sheet that hosts the tabbed annotations panel.
-/// Wires real list views for bookmarks, highlights, and annotations.
-/// TOC entries are passed in from the parent (computed per book format).
-private struct AnnotationsPanelSheet: View {
-    @Binding var selectedTab: AnnotationsPanelTab
-    @Binding var isPresented: Bool
-    let bookFingerprintKey: String
-    let modelContainer: ModelContainer
-    let tocEntries: [TOCEntry]
-
-    @State private var bookmarkVM: BookmarkListViewModel?
-    @State private var highlightVM: HighlightListViewModel?
-    @State private var annotationVM: AnnotationListViewModel?
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Section", selection: $selectedTab) {
-                    ForEach(AnnotationsPanelTab.allCases) { tab in
-                        Label(tab.rawValue, systemImage: tab.systemImage)
-                            .tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-
-                Divider()
-                    .padding(.top, 8)
-
-                Group {
-                    switch selectedTab {
-                    case .bookmarks:
-                        if let vm = bookmarkVM {
-                            BookmarkListView(viewModel: vm, onNavigate: { locator in
-                                navigateToLocator(locator)
-                            })
-                        } else {
-                            ProgressView()
-                        }
-                    case .toc:
-                        TOCListView(entries: tocEntries, onNavigate: { locator in
-                            navigateToLocator(locator)
-                        })
-                    case .highlights:
-                        if let vm = highlightVM {
-                            HighlightListView(viewModel: vm, onNavigate: { locator in
-                                navigateToLocator(locator)
-                            })
-                        } else {
-                            ProgressView()
-                        }
-                    case .annotations:
-                        if let vm = annotationVM {
-                            AnnotationListView(viewModel: vm, onNavigate: { locator in
-                                navigateToLocator(locator)
-                            })
-                        } else {
-                            ProgressView()
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .navigationTitle("Reader Panels")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .task {
-            guard bookmarkVM == nil else { return }
-            let persistence = PersistenceActor(modelContainer: modelContainer)
-            bookmarkVM = BookmarkListViewModel(
-                bookFingerprintKey: bookFingerprintKey,
-                store: persistence
-            )
-            highlightVM = HighlightListViewModel(
-                bookFingerprintKey: bookFingerprintKey,
-                store: persistence,
-                totalTextLengthUTF16: nil
-            )
-            annotationVM = AnnotationListViewModel(
-                bookFingerprintKey: bookFingerprintKey,
-                store: persistence
-            )
-        }
-        .accessibilityIdentifier("annotationsPanelSheet")
-    }
-
-    private func navigateToLocator(_ locator: Locator) {
-        NotificationCenter.default.post(
-            name: .readerNavigateToLocator,
-            object: locator
-        )
-        isPresented = false
-    }
-}

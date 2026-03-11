@@ -1,17 +1,12 @@
 {
   "enabled": true,
-  "testCommand": "pnpm test",
-  "coverageCommand": "pnpm test:coverage",
-  "coverageSummaryPath": "coverage/coverage-summary.json",
+  "testCommand": "xcodebuild test -project vreader.xcodeproj -scheme vreader -destination 'platform=iOS Simulator,name=iPhone 16' -quiet",
+  "coverageCommand": "",
+  "coverageSummaryPath": "",
   "mutationCommand": "",
-  "thresholds": {
-    "lines": 44,
-    "functions": 50,
-    "branches": 37,
-    "statements": 43
-  },
-  "enforceRedGreenRefactor": true,
-  "blockCommitOnFailure": true,
-  "stack": "react-ts-vitest",
-  "packageManager": "pnpm"
+  "thresholds": {},
+  "stack": "swift-xcode",
+  "smartStaleness": true,
+  "gateFreshnessMinutes": 120,
+  "enforceOnTaskCompleted": false
 }

@@ -7,14 +7,23 @@
 // - DocumentFingerprint parsed from the canonical key string.
 // - Format host views (TXTReaderHost, etc.) extracted to ReaderFormatHosts.swift (WI-004).
 // - AnnotationsPanelView extracted to AnnotationsPanelView.swift (WI-004).
-// - Provides navigation bar with back button, search, bookmark, annotations, settings.
+// - Provides navigation bar with back button, search, bookmark, annotations, AI, settings.
 // - TOC entries computed per format: EPUB from spine items, PDF from outline tree.
 // - Search sheet wired with SearchService, SearchViewModel, and SearchView.
 // - Book content is indexed for search on first open using format-specific extractors.
+// - AI button conditionally shown when feature flag is ON and API key exists (WI-010).
+// - AIReaderPanel presented as sheet for summarization, translation, and chat (WI-010, WI-012).
+// - AITranslationViewModel created alongside AIAssistantViewModel for bilingual translation.
+// - AIChatViewModel created with book fingerprint and book content context.
+// - Book text loaded for AI; AIContextExtractor extracts ~2500 chars around current position.
+// - EPUB text extracted via EPUBParser + EPUBTextExtractor.stripHTML (not raw ZIP read).
+// - AI panel locator uses live reader position via .readerPositionDidChange notification.
 //
 // @coordinates-with: ReaderFormatHosts.swift, AnnotationsPanelView.swift,
 //   ReaderSettingsStore.swift, ReaderSettingsPanel.swift, DocumentFingerprint.swift,
-//   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift
+//   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift,
+//   AIReaderPanel.swift, AIReaderAvailability.swift, AIAssistantViewModel.swift,
+//   AITranslationViewModel.swift, AIChatViewModel.swift
 
 import SwiftUI
 import SwiftData
@@ -36,8 +45,12 @@ struct ReaderContainerView: View {
     @State private var showSettings = false
     @State private var showAnnotationsPanel = false
     @State private var showSearch = false
+    @State private var showAIPanel = false
     @State private var searchViewModel: SearchViewModel?
     @State private var searchService: SearchService?
+    @State private var aiViewModel: AIAssistantViewModel?
+    @State private var translationViewModel: AITranslationViewModel?
+    @State private var chatViewModel: AIChatViewModel?
     /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
     @State private var isChromeVisible = true
     /// Computed TOC entries for the current book (format-specific).
@@ -133,6 +146,16 @@ struct ReaderContainerView: View {
                 .accessibilityLabel("Bookmarks and annotations")
                 .accessibilityIdentifier("readerAnnotationsButton")
 
+                if isAIAvailable {
+                    Button {
+                        showAIPanel = true
+                    } label: {
+                        Image(systemName: "sparkles")
+                    }
+                    .accessibilityLabel("AI Assistant")
+                    .accessibilityIdentifier("readerAIButton")
+                }
+
                 Button {
                     showSettings = true
                 } label: {
@@ -141,6 +164,42 @@ struct ReaderContainerView: View {
                 .accessibilityLabel("Reading settings")
                 .accessibilityIdentifier("readerSettingsButton")
             }
+        }
+        .sheet(isPresented: $showAIPanel) {
+            if let aiVM = aiViewModel,
+               let transVM = translationViewModel,
+               let chatVM = chatViewModel,
+               let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+                AIReaderPanel(
+                    viewModel: aiVM,
+                    translationViewModel: transVM,
+                    chatViewModel: chatVM,
+                    locator: currentLocator ?? Locator(
+                        bookFingerprint: fingerprint,
+                        href: nil, progression: nil, totalProgression: nil, cfi: nil,
+                        page: nil, charOffsetUTF16: nil,
+                        charRangeStartUTF16: nil, charRangeEndUTF16: nil,
+                        textQuote: nil, textContextBefore: nil, textContextAfter: nil
+                    ),
+                    textContent: currentTextContent,
+                    format: resolvedBookFormat,
+                    onDismiss: { showAIPanel = false }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+        }
+        .task {
+            setupAIViewModelIfNeeded()
+        }
+        .task {
+            await loadBookTextContent()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
+            guard let locator = notification.object as? Locator else { return }
+            currentLocator = locator
+            // Update chat VM with extracted context around new position
+            chatViewModel?.bookContext = currentTextContent
         }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel(store: settingsStore)
@@ -213,6 +272,134 @@ struct ReaderContainerView: View {
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint
             )
+        }
+    }
+
+    // MARK: - AI Integration
+
+    /// Whether the AI assistant button should be visible.
+    private var isAIAvailable: Bool {
+        AIReaderAvailability.isAvailable(
+            featureFlags: FeatureFlags.shared,
+            keychainService: KeychainService()
+        )
+    }
+
+    /// The resolved book format enum value.
+    private var resolvedBookFormat: BookFormat {
+        BookFormat(rawValue: book.format.lowercased()) ?? .txt
+    }
+
+    /// Full text content loaded from the book file. Used as the source for AI context extraction.
+    @State private var loadedTextContent: String?
+
+    /// Current reading position locator, updated via `.readerPositionDidChange` notification.
+    /// Used by AIContextExtractor to determine which section to send as AI context.
+    @State private var currentLocator: Locator?
+
+    /// Text content for AI context. Extracts ~2500 chars around the current reading position
+    /// using AIContextExtractor, instead of sending the entire book.
+    private var currentTextContent: String {
+        guard let loaded = loadedTextContent, !loaded.isEmpty else {
+            return book.title.isEmpty ? "No content available" : book.title
+        }
+        let extractor = AIContextExtractor()
+        if let locator = currentLocator {
+            let extracted = extractor.extractContext(
+                locator: locator,
+                textContent: loaded,
+                format: resolvedBookFormat
+            )
+            if !extracted.isEmpty { return extracted }
+        }
+        // Fallback: extract from beginning
+        return String(loaded.prefix(extractor.targetCharacterCount))
+    }
+
+    /// Creates the AI ViewModels if AI features are available.
+    private func setupAIViewModelIfNeeded() {
+        guard aiViewModel == nil, isAIAvailable else { return }
+        let flags = FeatureFlags.shared
+        let keychain = KeychainService()
+        let service = AIService(
+            featureFlags: flags,
+            consentManager: AIConsentManager(),
+            keychainService: keychain,
+            providerFactory: { apiKey, config in
+                OpenAICompatibleProvider(
+                    baseURL: config.endpoint,
+                    apiKey: apiKey,
+                    model: config.model
+                )
+            }
+        )
+        aiViewModel = AIAssistantViewModel(aiService: service)
+        translationViewModel = AITranslationViewModel(aiService: service)
+
+        let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey)
+        let chatVM = AIChatViewModel(aiService: service, bookFingerprint: fingerprint)
+        chatVM.bookContext = currentTextContent
+        chatViewModel = chatVM
+    }
+
+    /// Loads text content from the book file for AI context extraction.
+    /// For TXT/MD: reads the full text file.
+    /// For PDF: extracts text from all pages via PDFKit.
+    /// For EPUB: reads the raw content (best-effort text extraction).
+    /// The full text is stored in `loadedTextContent`; AIContextExtractor then
+    /// extracts only the relevant section (~2500 chars) around the current position.
+    private func loadBookTextContent() async {
+        guard loadedTextContent == nil else { return }
+        let url = resolvedFileURL
+        let format = book.format.lowercased()
+
+        let text: String? = await Task.detached {
+            switch format {
+            case "txt", "md":
+                return try? String(contentsOf: url, encoding: .utf8)
+
+            case "pdf":
+                guard let doc = PDFKit.PDFDocument(url: url) else { return nil }
+                var pages: [String] = []
+                for i in 0..<doc.pageCount {
+                    if let page = doc.page(at: i), let text = page.string {
+                        pages.append(text)
+                    }
+                }
+                return pages.joined(separator: "\n\n")
+
+            case "epub":
+                // Extract text from EPUB spine items via EPUBParser + HTML stripping.
+                // String(contentsOf:) on a .epub file reads the raw ZIP archive (garbage).
+                let parser = EPUBParser()
+                do {
+                    let metadata = try await parser.open(url: url)
+                    var textParts: [String] = []
+                    for item in metadata.spineItems {
+                        if let xhtml = try? await parser.contentForSpineItem(href: item.href) {
+                            let plain = EPUBTextExtractor.stripHTML(xhtml)
+                            let trimmed = plain.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty {
+                                textParts.append(trimmed)
+                            }
+                        }
+                    }
+                    await parser.close()
+                    return textParts.isEmpty ? nil : textParts.joined(separator: "\n\n")
+                } catch {
+                    await parser.close()
+                    return nil
+                }
+
+            default:
+                return nil
+            }
+        }.value
+
+        if let text, !text.isEmpty {
+            loadedTextContent = text
+            // Update chat VM book context with extracted section (not full text)
+            chatViewModel?.bookContext = currentTextContent
         }
     }
 
@@ -335,8 +522,16 @@ struct ReaderContainerView: View {
                 Self.extractPDFOutline(from: fileURL, fingerprint: fingerprint)
             }.value
 
-        case "txt", "md":
+        case "txt":
             return []
+
+        case "md":
+            do {
+                let text = try String(contentsOf: fileURL, encoding: .utf8)
+                return TOCBuilder.forMD(text: text, fingerprint: fingerprint)
+            } catch {
+                return []
+            }
 
         default:
             return []

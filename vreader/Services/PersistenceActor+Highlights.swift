@@ -2,7 +2,7 @@
 // Provides highlight CRUD for the reader views.
 //
 // @coordinates-with: PersistenceActor.swift, HighlightPersisting.swift,
-//   Highlight.swift, HighlightRecord.swift
+//   Highlight.swift, HighlightRecord.swift, AnnotationAnchor.swift
 
 import Foundation
 import SwiftData
@@ -11,6 +11,24 @@ extension PersistenceActor: HighlightPersisting {
 
     func addHighlight(
         locator: Locator,
+        selectedText: String,
+        color: String,
+        note: String?,
+        toBookWithKey key: String
+    ) async throws -> HighlightRecord {
+        try await addHighlight(
+            locator: locator,
+            anchor: nil,
+            selectedText: selectedText,
+            color: color,
+            note: note,
+            toBookWithKey: key
+        )
+    }
+
+    func addHighlight(
+        locator: Locator,
+        anchor: AnnotationAnchor?,
         selectedText: String,
         color: String,
         note: String?,
@@ -29,9 +47,22 @@ extension PersistenceActor: HighlightPersisting {
             throw ImportError.bookNotFound(key)
         }
 
-        // Dedupe: return existing highlight at the same location
+        // Dedupe: return existing highlight at the same location + anchor.
+        // When anchor is present, require both profileKey AND anchorHash to match.
+        // When anchor is nil (legacy), fall back to profileKey-only among nil-anchor highlights.
         let profileKey = "\(locator.bookFingerprint.canonicalKey):\(locator.canonicalHash)"
-        if let existing = book.highlights.first(where: { $0.profileKey == profileKey }) {
+        if let existing = book.highlights.first(where: { existing in
+            guard existing.profileKey == profileKey else { return false }
+            switch (existing.anchor, anchor) {
+            case (nil, nil):
+                return true
+            case let (existingAnchor?, newAnchor?):
+                return existingAnchor.anchorHash == newAnchor.anchorHash
+            default:
+                // One nil, one non-nil → not a duplicate
+                return false
+            }
+        }) {
             return highlightToRecord(existing)
         }
 
@@ -39,7 +70,8 @@ extension PersistenceActor: HighlightPersisting {
             locator: locator,
             selectedText: selectedText,
             color: color,
-            note: note
+            note: note,
+            anchor: anchor
         )
         highlight.book = book
         book.highlights.append(highlight)
@@ -117,6 +149,7 @@ extension PersistenceActor: HighlightPersisting {
         HighlightRecord(
             highlightId: highlight.highlightId,
             locator: highlight.locator,
+            anchor: highlight.anchor,
             profileKey: highlight.profileKey,
             selectedText: highlight.selectedText,
             color: highlight.color,

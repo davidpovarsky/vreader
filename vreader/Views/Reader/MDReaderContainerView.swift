@@ -8,7 +8,8 @@
 // - Shows error message on failure.
 // - Passes rendered NSAttributedString to bridge for rich display.
 //
-// @coordinates-with: MDReaderViewModel.swift, TXTTextViewBridge.swift
+// @coordinates-with: MDReaderViewModel.swift, TXTTextViewBridge.swift,
+//   ReadingProgressBar.swift, ScrollProgressHelper.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -41,6 +42,10 @@ struct MDReaderContainerView: View {
     /// Persisted highlight ranges loaded from DB on file open (bug #55).
     @State private var persistedHighlightRanges: [NSRange] = []
 
+    /// Current reading progress for the scrubber bar (0.0-1.0).
+    /// Synced from viewModel.totalProgression via onChange.
+    @State private var readingProgress: Double = 0
+
     var body: some View {
         ZStack {
             if viewModel.isLoading {
@@ -54,10 +59,23 @@ struct MDReaderContainerView: View {
                 Color.clear
             }
 
-            // Bottom overlay for progress and session time
+            // Bottom overlay for progress, scrubber, and session time (WI-004b)
             if viewModel.renderedText != nil && !viewModel.isLoading && isChromeVisible {
                 VStack {
                     Spacer()
+                    ReadingProgressBar(
+                        progress: $readingProgress,
+                        onSeek: { seekValue in
+                            let charOffset = ScrollProgressHelper.charOffsetFromProgress(
+                                progress: seekValue,
+                                totalLengthUTF16: viewModel.renderedTextLengthUTF16
+                            )
+                            scrollToOffset = charOffset
+                        },
+                        isVisible: viewModel.renderedTextLengthUTF16 > 0,
+                        label: ScrollProgressHelper.percentageLabel(readingProgress),
+                        settingsStore: settingsStore
+                    )
                     ReaderBottomOverlay(
                         progress: viewModel.totalProgression,
                         sessionTime: viewModel.sessionTimeDisplay,
@@ -110,6 +128,14 @@ struct MDReaderContainerView: View {
                 break
             }
         }
+        .onChange(of: viewModel.totalProgression) { _, newValue in
+            readingProgress = newValue ?? 0
+            // Notify ReaderContainerView of the live position for AI panel.
+            let locator = viewModel.makeLocator()
+            NotificationCenter.default.post(
+                name: .readerPositionDidChange, object: locator
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
         }
@@ -140,7 +166,8 @@ struct MDReaderContainerView: View {
             },
             sourceText: { [viewModel] in viewModel.renderedText },
             makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
-            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) }
+            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) },
+            hapticFeedback: HapticFeedbackProvider()
         )
     }
 

@@ -1,15 +1,19 @@
-// Purpose: Runtime feature flags with per-environment defaults and debug overrides.
+// Purpose: Runtime feature flags with per-environment defaults, debug overrides,
+// and thread-safe shared singleton.
 // Flags gate features like AI assistant and sync that are disabled in V1.
 //
 // Key decisions:
-// - Default values are determined by environment at construction time.
-// - Runtime overrides allow debug builds to toggle flags without rebuild.
-// - Struct-based (value type) for Sendable compliance and simple copy semantics.
-// - Override storage is a plain dictionary; no persistence (overrides are session-scoped).
+// - Reference type (class) so AIService/SyncService see live changes via .shared.
+// - Thread-safe via OSAllocatedUnfairLock (iOS 16+, os framework).
+// - `static let shared` singleton configured once at startup via configure(environment:).
+// - `aiAssistant` override is persisted to UserDefaults for cross-launch stickiness.
+// - Non-persisted overrides remain session-scoped.
+// - Convenience init(environment:) creates standalone instances for testing.
 //
-// @coordinates-with: AppConfiguration.swift
+// @coordinates-with: AppConfiguration.swift, AIService.swift, SyncService.swift
 
 import Foundation
+import os
 
 /// Identifies a specific feature flag.
 enum FeatureFlagKey: String, Sendable, CaseIterable {
@@ -18,76 +22,155 @@ enum FeatureFlagKey: String, Sendable, CaseIterable {
     case searchIndexingVerboseLogs
 }
 
-/// Runtime feature flags with environment-based defaults and override support.
+/// Runtime feature flags with environment-based defaults, override support,
+/// and a thread-safe shared singleton.
 ///
-/// **Usage**: Create once per app launch with the resolved environment.
-/// This is a value type (struct) — copies are independent. Overrides are
-/// session-scoped and not persisted across app launches.
+/// **Production usage**: Configure `.shared` once at app launch:
+/// ```swift
+/// FeatureFlags.shared.configure(environment: config.environment)
+/// ```
+/// Then read flags via `FeatureFlags.shared.isEnabled(.aiAssistant)`.
 ///
-/// Thread safety: Instances are `Sendable`. For shared mutable access,
-/// wrap in an actor or use `@MainActor` property.
-struct FeatureFlags: Sendable {
+/// **Testing**: Create standalone instances with `FeatureFlags(environment:)`.
+nonisolated final class FeatureFlags: Sendable {
 
-    /// The environment these flags were configured for.
-    let environment: AppEnvironment
+    /// Thread-safe storage for overrides and environment.
+    private let storage: OSAllocatedUnfairLock<Storage>
 
-    /// Runtime overrides applied on top of defaults. Session-scoped, not persisted.
-    private var overrides: [FeatureFlagKey: Bool] = [:]
+    /// Optional UserDefaults for persisting select flag overrides.
+    /// nonisolated(unsafe) is safe because UserDefaults methods are thread-safe.
+    private nonisolated(unsafe) let persistenceDefaults: UserDefaults?
 
-    // MARK: - Flag Accessors
+    /// UserDefaults key prefix for persisted flags.
+    private static let persistenceKeyPrefix = "com.vreader.featureFlags."
 
-    /// Whether the AI assistant feature is enabled. Default: OFF in all environments.
-    var aiAssistant: Bool {
-        overrides[.aiAssistant] ?? defaultValue(for: .aiAssistant)
-    }
+    /// Flags that are persisted to UserDefaults when overridden.
+    private static let persistedFlags: Set<FeatureFlagKey> = [.aiAssistant]
 
-    /// Whether sync is enabled. Default: OFF in all environments (V1).
-    var sync: Bool {
-        overrides[.sync] ?? defaultValue(for: .sync)
-    }
+    // MARK: - Shared Singleton
 
-    /// Whether verbose search indexing logs are enabled.
-    /// Default: ON in dev/staging, OFF in prod.
-    var searchIndexingVerboseLogs: Bool {
-        overrides[.searchIndexingVerboseLogs] ?? defaultValue(for: .searchIndexingVerboseLogs)
+    /// The shared singleton instance. Call `configure(environment:)` at startup.
+    static let shared = FeatureFlags(environment: .prod, persistenceDefaults: .standard)
+
+    // MARK: - Internal Storage
+
+    private struct Storage: Sendable {
+        var environment: AppEnvironment
+        var overrides: [FeatureFlagKey: Bool]
     }
 
     // MARK: - Initialization
 
     /// Creates feature flags for the given environment.
+    /// For production, use `.shared` instead.
     ///
-    /// - Parameter environment: The app environment to determine defaults.
-    init(environment: AppEnvironment) {
-        self.environment = environment
+    /// - Parameters:
+    ///   - environment: The app environment to determine defaults.
+    ///   - persistenceDefaults: Optional UserDefaults for persisting flag overrides.
+    ///     Pass nil for session-scoped only (default for standalone instances).
+    init(environment: AppEnvironment, persistenceDefaults: UserDefaults? = nil) {
+        self.persistenceDefaults = persistenceDefaults
+
+        // Load persisted overrides if UserDefaults is provided
+        var initialOverrides: [FeatureFlagKey: Bool] = [:]
+        if let defaults = persistenceDefaults {
+            for key in Self.persistedFlags {
+                let udKey = Self.persistenceKeyPrefix + key.rawValue
+                if defaults.object(forKey: udKey) != nil {
+                    initialOverrides[key] = defaults.bool(forKey: udKey)
+                }
+            }
+        }
+
+        self.storage = OSAllocatedUnfairLock(initialState: Storage(
+            environment: environment,
+            overrides: initialOverrides
+        ))
     }
+
+    // MARK: - Configuration
+
+    /// Configures the shared instance with the resolved environment.
+    /// Should be called once at app startup.
+    ///
+    /// - Parameter environment: The app environment.
+    func configure(environment: AppEnvironment) {
+        storage.withLock { state in
+            state.environment = environment
+        }
+    }
+
+    // MARK: - Flag Accessors
+
+    /// Returns whether the given feature flag is enabled.
+    ///
+    /// Checks overrides first, then falls back to environment-based defaults.
+    func isEnabled(_ key: FeatureFlagKey) -> Bool {
+        storage.withLock { state in
+            if let override = state.overrides[key] {
+                return override
+            }
+            return Self.defaultValue(for: key, environment: state.environment)
+        }
+    }
+
+    /// Whether the AI assistant feature is enabled.
+    var aiAssistant: Bool { isEnabled(.aiAssistant) }
+
+    /// Whether sync is enabled.
+    var sync: Bool { isEnabled(.sync) }
+
+    /// Whether verbose search indexing logs are enabled.
+    var searchIndexingVerboseLogs: Bool { isEnabled(.searchIndexingVerboseLogs) }
 
     // MARK: - Override Management
 
     /// Sets a runtime override for a feature flag.
+    /// Persisted flags (aiAssistant) are written to UserDefaults.
     ///
     /// - Parameters:
-    ///   - key: The flag to override.
     ///   - value: The override value.
-    mutating func setOverride(_ key: FeatureFlagKey, value: Bool) {
-        overrides[key] = value
+    ///   - key: The flag to override.
+    func setOverride(_ value: Bool, for key: FeatureFlagKey) {
+        storage.withLock { state in
+            state.overrides[key] = value
+        }
+        // Persist to UserDefaults outside the lock (UserDefaults is thread-safe).
+        // Order relative to memory is benign: the lock serializes the in-memory state,
+        // and UserDefaults.set is itself atomic per-key.
+        if Self.persistedFlags.contains(key), let defaults = persistenceDefaults {
+            defaults.set(value, forKey: Self.persistenceKeyPrefix + key.rawValue)
+        }
     }
 
     /// Removes the runtime override for a feature flag, restoring the default.
     ///
     /// - Parameter key: The flag to restore to its default.
-    mutating func removeOverride(_ key: FeatureFlagKey) {
-        overrides.removeValue(forKey: key)
+    func removeOverride(for key: FeatureFlagKey) {
+        storage.withLock { state in
+            state.overrides.removeValue(forKey: key)
+        }
+        if Self.persistedFlags.contains(key), let defaults = persistenceDefaults {
+            defaults.removeObject(forKey: Self.persistenceKeyPrefix + key.rawValue)
+        }
     }
 
     /// Removes all runtime overrides, restoring all flags to defaults.
-    mutating func clearAllOverrides() {
-        overrides.removeAll()
+    func clearAllOverrides() {
+        storage.withLock { state in
+            state.overrides.removeAll()
+        }
+        if let defaults = persistenceDefaults {
+            for key in Self.persistedFlags {
+                defaults.removeObject(forKey: Self.persistenceKeyPrefix + key.rawValue)
+            }
+        }
     }
 
     // MARK: - Private
 
-    /// Returns the default value for a flag based on the current environment.
-    private func defaultValue(for key: FeatureFlagKey) -> Bool {
+    /// Returns the default value for a flag based on environment.
+    private static func defaultValue(for key: FeatureFlagKey, environment: AppEnvironment) -> Bool {
         switch key {
         case .aiAssistant:
             return false

@@ -4,7 +4,8 @@
 // Key decisions:
 // - EPUB: builds from EPUBSpineItem titles (skips untitled items).
 // - PDF: placeholder for outline tree traversal (not yet wired).
-// - TXT/MD: always empty (no inherent TOC structure).
+// - TXT: always empty (no inherent TOC structure).
+// - MD: extracts ATX headings (# through ######), skipping fenced code blocks.
 //
 // @coordinates-with: TOCProvider.swift, EPUBTypes.swift, LocatorFactory.swift
 
@@ -80,8 +81,117 @@ enum TOCBuilder {
 
     // MARK: - MD
 
-    /// MD heading extraction is deferred to a future version.
-    static func forMD() -> [TOCEntry] {
-        []
+    /// Extracts ATX headings from Markdown text.
+    /// Skips headings inside fenced code blocks (backtick or tilde fences).
+    /// Returns entries in document order with level = (hash count - 1).
+    static func forMD(
+        text: String,
+        fingerprint: DocumentFingerprint
+    ) -> [TOCEntry] {
+        guard !text.isEmpty else { return [] }
+
+        let lines = text.components(separatedBy: "\n")
+        var entries: [TOCEntry] = []
+        var sequenceIndex = 0
+        var utf16Offset = 0
+
+        // Fenced code block tracking: stores the fence marker character
+        // so inner fences with fewer backticks/tildes don't close it.
+        var fenceChar: Character?
+        var fenceLength: Int = 0
+
+        for (lineIndex, line) in lines.enumerated() {
+            // Advance offset past this line after processing.
+            // Each line contributes its UTF-16 length + 1 for the \n separator,
+            // except the last line which has no trailing newline.
+            defer {
+                utf16Offset += line.utf16.count + (lineIndex < lines.count - 1 ? 1 : 0)
+            }
+
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Check for fence open/close
+            if let (char, length) = parseFenceLine(trimmed) {
+                if fenceChar == nil {
+                    // Open a fence
+                    fenceChar = char
+                    fenceLength = length
+                } else if char == fenceChar, length >= fenceLength {
+                    // Close the fence
+                    fenceChar = nil
+                    fenceLength = 0
+                }
+                continue
+            }
+
+            // Skip lines inside fenced code blocks
+            if fenceChar != nil { continue }
+
+            // Match ATX heading
+            guard let (level, title) = parseATXHeading(trimmed) else { continue }
+
+            let locator = LocatorFactory.mdPosition(
+                fingerprint: fingerprint,
+                charOffsetUTF16: utf16Offset
+            )
+            guard let locator else { continue }
+
+            entries.append(TOCEntry(
+                title: title,
+                level: level,
+                locator: locator,
+                sequenceIndex: sequenceIndex
+            ))
+            sequenceIndex += 1
+        }
+
+        return entries
+    }
+
+    // MARK: - MD Private Helpers
+
+    /// Parses a line as a fenced code block delimiter.
+    /// Returns the fence character and its count, or nil if not a fence line.
+    private static func parseFenceLine(_ trimmed: String) -> (Character, Int)? {
+        guard let first = trimmed.first, first == "`" || first == "~" else { return nil }
+        let count = trimmed.prefix(while: { $0 == first }).count
+        guard count >= 3 else { return nil }
+        // Fence lines may have an info string after backticks, but no backticks in it
+        if first == "`" {
+            let rest = trimmed.dropFirst(count)
+            if rest.contains("`") { return nil }
+        }
+        return (first, count)
+    }
+
+    /// Parses an ATX heading line. Returns (level, title) or nil.
+    /// Level is 0-based (# = 0, ## = 1, ..., ###### = 5).
+    private static func parseATXHeading(_ trimmed: String) -> (Int, String)? {
+        guard trimmed.hasPrefix("#") else { return nil }
+
+        let hashCount = trimmed.prefix(while: { $0 == "#" }).count
+        guard hashCount >= 1, hashCount <= 6 else { return nil }
+
+        // Must have a space after the hashes
+        let afterHashes = trimmed.dropFirst(hashCount)
+        guard afterHashes.hasPrefix(" ") else { return nil }
+
+        // Extract title, stripping trailing closing hashes per CommonMark
+        var title = String(afterHashes).trimmingCharacters(in: .whitespaces)
+        // Strip optional trailing ATX closing sequence: one or more trailing #
+        // (optionally preceded by spaces)
+        if title.hasSuffix("#") {
+            let stripped = title
+                .reversed()
+                .drop(while: { $0 == "#" })
+                .reversed()
+            let beforeHashes = String(stripped).trimmingCharacters(in: .whitespaces)
+            if !beforeHashes.isEmpty {
+                title = beforeHashes
+            }
+        }
+
+        guard !title.isEmpty else { return nil }
+        return (hashCount - 1, title)
     }
 }

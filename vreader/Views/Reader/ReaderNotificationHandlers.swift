@@ -40,6 +40,32 @@ struct ReaderNotificationDeps {
     let sourceText: @MainActor () -> String?
     let makeCurrentLocator: @MainActor () -> Locator
     let onNavigate: @MainActor (Int) -> Void
+    /// Optional haptic feedback provider. When non-nil, fires on successful bookmark add.
+    let hapticFeedback: (any HapticFeedbackProviding)?
+
+    init(
+        bookFingerprintKey: String,
+        bookFingerprint: DocumentFingerprint,
+        bookmarkPersistence: any BookmarkPersisting,
+        highlightPersistence: any HighlightPersisting,
+        annotationPersistence: any AnnotationPersisting,
+        locatorFactory: @Sendable @escaping (DocumentFingerprint, Int, Int, String?) -> Locator?,
+        sourceText: @MainActor @escaping () -> String?,
+        makeCurrentLocator: @MainActor @escaping () -> Locator,
+        onNavigate: @MainActor @escaping (Int) -> Void,
+        hapticFeedback: (any HapticFeedbackProviding)? = nil
+    ) {
+        self.bookFingerprintKey = bookFingerprintKey
+        self.bookFingerprint = bookFingerprint
+        self.bookmarkPersistence = bookmarkPersistence
+        self.highlightPersistence = highlightPersistence
+        self.annotationPersistence = annotationPersistence
+        self.locatorFactory = locatorFactory
+        self.sourceText = sourceText
+        self.makeCurrentLocator = makeCurrentLocator
+        self.onNavigate = onNavigate
+        self.hapticFeedback = hapticFeedback
+    }
 }
 
 // MARK: - Handlers
@@ -49,6 +75,7 @@ struct ReaderNotificationDeps {
 enum ReaderNotificationHandlers {
 
     /// Bookmark the current position (no state mutation — pure persistence).
+    /// Fires haptic feedback on success; suppresses haptic on failure.
     @MainActor
     static func handleBookmarkRequest(
         deps: ReaderNotificationDeps
@@ -56,7 +83,12 @@ enum ReaderNotificationHandlers {
         let locator = deps.makeCurrentLocator()
         let persistence = deps.bookmarkPersistence
         let key = deps.bookFingerprintKey
-        try? await persistence.addBookmark(locator: locator, title: nil, toBookWithKey: key)
+        do {
+            _ = try await persistence.addBookmark(locator: locator, title: nil, toBookWithKey: key)
+            deps.hapticFeedback?.triggerLightImpact()
+        } catch {
+            // Bookmark add failed — no haptic feedback
+        }
     }
 
     /// Navigate to a locator (from search result or annotation panel).

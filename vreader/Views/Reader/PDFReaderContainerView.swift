@@ -1,19 +1,30 @@
 // Purpose: SwiftUI container for the PDF reader. Composes the PDFViewBridge
-// with loading/error/password overlays and reading session chrome.
+// with loading/error/password overlays, reading progress bar, session chrome,
+// and PDF text selection / highlight annotation pipeline.
 //
 // Key decisions:
 // - Owns PDFReaderViewModel lifecycle (close on disappear).
 // - Bridge calls ViewModel directly (no delegate protocol needed).
 // - Bridge is always mounted; loading/password/error are overlays.
 // - Shows password prompt overlay for encrypted PDFs.
+// - ReadingProgressBar wired via PDFProgressHelper for page-level scrubbing.
 // - Page indicator and session time overlay at bottom.
+// - Observes .readerTextSelected for PDF annotation creation via PDFAnnotationBridge.
+// - Text selection triggers confirmationDialog with Highlight/Note/Copy actions.
+// - "Add Note" opens a TextEditor sheet and persists highlight with note text.
+// - Highlights stored in SwiftData (non-destructive — not written into the PDF file).
+// - After persisting a highlight, passes anchor to bridge for visible annotation creation.
+// - On document open, fetches saved highlights and passes to bridge for restoration.
+// - Posts .readerPositionDidChange notification for AI panel live locator.
 //
 // @coordinates-with: PDFReaderViewModel.swift, PDFViewBridge.swift,
-//   PDFPasswordPromptView.swift
+//   PDFPasswordPromptView.swift, ReadingProgressBar.swift, PDFProgressHelper.swift,
+//   PDFAnnotationBridge.swift, HighlightPersisting.swift
 
 #if canImport(UIKit)
 import SwiftUI
 import SwiftData
+import PDFKit
 import UIKit
 
 /// Container view for the PDF reader screen.
@@ -26,10 +37,25 @@ struct PDFReaderContainerView: View {
     @State private var submittedPassword: String?
     @State private var passwordAttemptId: Int = 0
     @State private var restoredPage: Int?
+    @State private var readingProgress: Double = 0
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
     @State private var isChromeVisible = true
+    /// Pending PDF text selection event for highlight action menu.
+    @State private var pendingSelectionEvent: ReaderSelectionEvent?
+    /// Whether the highlight action sheet is visible.
+    @State private var showHighlightSheet = false
+    /// Saved highlights to restore as visible annotations when the document loads.
+    @State private var savedHighlightRecords: [HighlightRecord]?
+    /// Pending highlight to create as a visible annotation after persist.
+    @State private var pendingHighlightPayload: PDFHighlightNotificationPayload?
+    /// Incremented each time a new highlight is persisted, triggers updateUIView.
+    @State private var pendingHighlightId: Int = 0
+    /// Whether the note input sheet is visible.
+    @State private var showNoteSheet = false
+    /// Text input for the note being added.
+    @State private var noteText = ""
 
     var body: some View {
         ZStack {
@@ -39,7 +65,10 @@ struct PDFReaderContainerView: View {
                 restorePage: restoredPage,
                 password: submittedPassword,
                 passwordAttemptId: passwordAttemptId,
-                viewModel: viewModel
+                viewModel: viewModel,
+                highlightRecords: savedHighlightRecords,
+                pendingHighlight: pendingHighlightPayload,
+                pendingHighlightId: pendingHighlightId
             )
             .ignoresSafeArea(edges: .bottom)
             .accessibilityIdentifier("pdfReaderContent")
@@ -57,10 +86,11 @@ struct PDFReaderContainerView: View {
                 errorOverlay(message: errorMessage)
             }
 
-            // Bottom overlay for page indicator and session time
+            // Bottom overlay for progress bar, page indicator, and session time
             if viewModel.isDocumentLoaded && isChromeVisible {
                 VStack {
                     Spacer()
+                    progressBar
                     bottomOverlay
                 }
             }
@@ -98,6 +128,16 @@ struct PDFReaderContainerView: View {
                 try? viewModel.startSession()
                 restoredPage = await viewModel.restorePosition()
                 await viewModel.updateLastOpened()
+                // Restore saved highlights as visible annotations
+                if let container = modelContainer {
+                    let persistence = PersistenceActor(modelContainer: container)
+                    let records = try? await persistence.fetchHighlights(
+                        forBookWithKey: viewModel.bookFingerprintKey
+                    )
+                    if let records, !records.isEmpty {
+                        savedHighlightRecords = records
+                    }
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
@@ -120,6 +160,47 @@ struct PDFReaderContainerView: View {
                   let page = locator.page else { return }
             restoredPage = page
             viewModel.pageDidChange(to: page)
+        }
+        .onChange(of: viewModel.currentPageIndex) { _, _ in
+            readingProgress = PDFProgressHelper.progressForPage(
+                currentPageIndex: viewModel.currentPageIndex,
+                totalPages: viewModel.totalPages
+            )
+            // Notify ReaderContainerView of the live position for AI panel.
+            let locator = viewModel.makeCurrentLocator()
+            NotificationCenter.default.post(
+                name: .readerPositionDidChange, object: locator
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerTextSelected)) { notification in
+            guard let event = notification.object as? ReaderSelectionEvent else { return }
+            pendingSelectionEvent = event
+            showHighlightSheet = true
+        }
+        .confirmationDialog(
+            "Text Selection",
+            isPresented: $showHighlightSheet,
+            titleVisibility: .visible
+        ) {
+            Button("Highlight") {
+                guard let event = pendingSelectionEvent,
+                      let container = modelContainer else { return }
+                handleHighlightAction(event: event, container: container)
+            }
+            Button("Add Note") {
+                noteText = ""
+                showNoteSheet = true
+            }
+            Button("Copy") {
+                guard let event = pendingSelectionEvent else { return }
+                UIPasteboard.general.string = event.selectedText
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSelectionEvent = nil
+            }
+        }
+        .sheet(isPresented: $showNoteSheet) {
+            pdfNoteInputSheet
         }
         .accessibilityIdentifier("pdfReaderContainer")
     }
@@ -176,6 +257,30 @@ struct PDFReaderContainerView: View {
     }
 
     @ViewBuilder
+    private var progressBar: some View {
+        ReadingProgressBar(
+            progress: $readingProgress,
+            onSeek: { seekValue in
+                let targetPage = PDFProgressHelper.pageForSeekValue(
+                    seekValue: seekValue, totalPages: viewModel.totalPages
+                )
+                restoredPage = targetPage
+                viewModel.pageDidChange(to: targetPage)
+            },
+            discreteSteps: PDFProgressHelper.discreteSteps(totalPages: viewModel.totalPages),
+            isVisible: PDFProgressHelper.shouldShowProgressBar(
+                isDocumentLoaded: viewModel.isDocumentLoaded,
+                totalPages: viewModel.totalPages
+            ),
+            label: PDFProgressHelper.pageLabel(
+                currentPageIndex: viewModel.currentPageIndex,
+                totalPages: viewModel.totalPages
+            )
+        )
+        .accessibilityIdentifier("pdfReadingProgressBar")
+    }
+
+    @ViewBuilder
     private var bottomOverlay: some View {
         HStack {
             Text(viewModel.pageIndicator)
@@ -204,6 +309,114 @@ struct PDFReaderContainerView: View {
         .padding(.vertical, 8)
         .background(.regularMaterial)
         .accessibilityIdentifier("pdfBottomOverlay")
+    }
+
+    // MARK: - Highlight Actions
+
+    private func handleHighlightAction(
+        event: ReaderSelectionEvent,
+        container: ModelContainer
+    ) {
+        let persistence = PersistenceActor(modelContainer: container)
+        let locator = viewModel.makeCurrentLocator()
+        let anchor = event.anchor
+
+        Task {
+            try? await persistence.addHighlight(
+                locator: locator,
+                anchor: anchor,
+                selectedText: event.selectedText,
+                color: "yellow",
+                note: nil,
+                toBookWithKey: viewModel.bookFingerprintKey
+            )
+        }
+        // Create visible annotation immediately (bridge processes in updateUIView)
+        pendingHighlightPayload = PDFHighlightNotificationPayload(
+            anchor: anchor, color: "yellow"
+        )
+        pendingHighlightId += 1
+        pendingSelectionEvent = nil
+    }
+
+    // MARK: - Note Input Sheet
+
+    @ViewBuilder
+    private var pdfNoteInputSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                if let event = pendingSelectionEvent {
+                    Text(event.selectedText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                }
+                TextEditor(text: $noteText)
+                    .frame(minHeight: 100)
+                    .padding(.horizontal)
+                    .accessibilityIdentifier("pdfNoteTextEditor")
+                Spacer()
+            }
+            .padding(.top)
+            .navigationTitle("Add Note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        showNoteSheet = false
+                        pendingSelectionEvent = nil
+                    }
+                    .accessibilityIdentifier("pdfNoteCancelButton")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        guard let event = pendingSelectionEvent,
+                              let container = modelContainer else {
+                            showNoteSheet = false
+                            return
+                        }
+                        handleHighlightWithNote(
+                            event: event,
+                            container: container,
+                            note: noteText.isEmpty ? nil : noteText
+                        )
+                        showNoteSheet = false
+                    }
+                    .accessibilityIdentifier("pdfNoteSaveButton")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Persists a highlight with an attached note and creates a visible annotation.
+    private func handleHighlightWithNote(
+        event: ReaderSelectionEvent,
+        container: ModelContainer,
+        note: String?
+    ) {
+        let persistence = PersistenceActor(modelContainer: container)
+        let locator = viewModel.makeCurrentLocator()
+        let anchor = event.anchor
+
+        Task {
+            try? await persistence.addHighlight(
+                locator: locator,
+                anchor: anchor,
+                selectedText: event.selectedText,
+                color: "yellow",
+                note: note,
+                toBookWithKey: viewModel.bookFingerprintKey
+            )
+        }
+        pendingHighlightPayload = PDFHighlightNotificationPayload(
+            anchor: anchor, color: "yellow"
+        )
+        pendingHighlightId += 1
+        pendingSelectionEvent = nil
     }
 }
 #endif

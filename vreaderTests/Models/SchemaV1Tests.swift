@@ -59,12 +59,13 @@ struct SchemaV1Tests {
 
     // MARK: - Migration Plan
 
-    @Test func migrationPlanHasSchemaV1() {
+    @Test func migrationPlanHasSchemas() {
         let schemas = VReaderMigrationPlan.schemas
-        #expect(schemas.count == 1)
+        #expect(schemas.count == 2) // V1 + V2
     }
 
-    @Test func migrationPlanHasNoStagesYet() {
+    @Test func migrationPlanHasNoExplicitStages() {
+        // V1→V2 is inferred by SwiftData (additive optional field).
         let stages = VReaderMigrationPlan.stages
         #expect(stages.isEmpty)
     }

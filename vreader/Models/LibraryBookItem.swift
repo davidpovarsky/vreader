@@ -18,6 +18,7 @@ struct LibraryBookItem: Sendable, Identifiable, Equatable, Hashable {
     let author: String?
     let coverImagePath: String?
     let format: String
+    let fileByteCount: Int64
     let addedAt: Date
     let lastOpenedAt: Date?
     let isFavorite: Bool
@@ -45,6 +46,21 @@ struct LibraryBookItem: Sendable, Identifiable, Equatable, Hashable {
     /// Uppercased format badge label (e.g. "EPUB", "PDF", "TXT").
     var formatBadge: String {
         ReadingTimeFormatter.formatBadgeLabel(format: format)
+    }
+
+    /// Sandbox file URL for the imported book.
+    /// Uses the same convention as BookImporter: fingerprintKey with colons replaced
+    /// by underscores, stored under Application Support/ImportedBooks/.
+    var resolvedFileURL: URL {
+        let booksDir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ImportedBooks", isDirectory: true)
+        let safeName = fingerprintKey.replacingOccurrences(of: ":", with: "_")
+        let bookFormat = BookFormat(rawValue: format.lowercased())
+        let ext = bookFormat?.fileExtensions.first ?? format.lowercased()
+        return booksDir
+            .appendingPathComponent(safeName)
+            .appendingPathExtension(ext)
     }
 
     /// SF Symbol name for the book's format.

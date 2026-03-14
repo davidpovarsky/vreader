@@ -69,14 +69,18 @@ enum SchemaV1: VersionedSchema {
 }
 
 /// Migration plan for vreader schema evolution.
-/// Currently only V1 exists; future versions will add migration stages.
+/// Schemas listed oldest-to-newest; stages define how to migrate between them.
+///
+/// NOTE: SwiftData lightweight migration for additive optional fields does not
+/// require explicit MigrationStage when both VersionedSchema types reference the
+/// same live model types. The migration plan lists schemas in order; SwiftData
+/// infers the column addition automatically.
 enum VReaderMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self]
+        [SchemaV1.self, SchemaV2.self]
     }
 
     static var stages: [MigrationStage] {
-        // No migration stages yet — V1 is the baseline.
         []
     }
 }

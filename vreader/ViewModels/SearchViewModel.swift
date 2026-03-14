@@ -105,6 +105,9 @@ final class SearchViewModel {
         // Cancel any pending search
         searchTask?.cancel()
 
+        // Clear any temporary search highlight in the reader bridge
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             results = []

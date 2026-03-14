@@ -19,7 +19,10 @@ struct NoOpBookmarkStore: BookmarkPersisting {
 /// No-op highlight store — all operations are silent no-ops.
 struct NoOpHighlightStore: HighlightPersisting {
     func addHighlight(locator: Locator, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
-        HighlightRecord(highlightId: UUID(), locator: locator, profileKey: "", selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
+        HighlightRecord(highlightId: UUID(), locator: locator, anchor: nil, profileKey: "", selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
+    }
+    func addHighlight(locator: Locator, anchor: AnnotationAnchor?, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
+        HighlightRecord(highlightId: UUID(), locator: locator, anchor: anchor, profileKey: "", selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
     }
     func removeHighlight(highlightId: UUID) async throws {}
     func updateHighlightNote(highlightId: UUID, note: String?) async throws {}

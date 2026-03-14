@@ -1,15 +1,27 @@
 // Purpose: Protocol for highlight persistence operations.
 // Enables mock injection in tests.
 //
-// @coordinates-with: PersistenceActor+Highlights.swift, HighlightRecord.swift
+// @coordinates-with: PersistenceActor+Highlights.swift, HighlightRecord.swift,
+//   AnnotationAnchor.swift
 
 import Foundation
 
 /// Protocol for highlight persistence operations, enabling mock injection in tests.
 protocol HighlightPersisting: Sendable {
-    /// Adds a highlight to a book. Returns the created record.
+    /// Adds a highlight to a book using a Locator. Returns the created record.
+    /// Legacy API — prefer `addHighlight(locator:anchor:...)` for new code.
     func addHighlight(
         locator: Locator,
+        selectedText: String,
+        color: String,
+        note: String?,
+        toBookWithKey key: String
+    ) async throws -> HighlightRecord
+
+    /// Adds a highlight to a book with an optional AnnotationAnchor. Returns the created record.
+    func addHighlight(
+        locator: Locator,
+        anchor: AnnotationAnchor?,
         selectedText: String,
         color: String,
         note: String?,

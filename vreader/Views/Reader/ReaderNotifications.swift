@@ -3,9 +3,11 @@
 //
 // @coordinates-with ReaderContainerView.swift, TXTTextViewBridge.swift,
 //   TXTChunkedReaderBridge.swift, TXTReaderContainerView.swift, MDReaderContainerView.swift,
-//   EPUBReaderContainerView.swift, PDFReaderContainerView.swift
+//   EPUBReaderContainerView.swift, PDFReaderContainerView.swift,
+//   AnnotationAnchor.swift
 
 import Foundation
+import CoreGraphics
 
 extension Notification.Name {
     /// Posted by reader bridges when the user taps the content area.
@@ -27,6 +29,16 @@ extension Notification.Name {
     /// Posted by reader ViewModels at the end of close(), after recomputeStats completes.
     /// LibraryView observes this to refresh with guaranteed up-to-date stats (bug #45).
     static let readerDidClose = Notification.Name("vreader.readerDidClose")
+    /// Posted by SearchViewModel when the search query changes (including clear).
+    /// Reader bridges observe this to dismiss any temporary search highlight.
+    static let searchHighlightClear = Notification.Name("vreader.searchHighlightClear")
+    /// Posted by format-specific readers when the user selects text for annotation.
+    /// The notification's `object` is a `ReaderSelectionEvent` carrying the anchor and rect.
+    static let readerTextSelected = Notification.Name("vreader.readerTextSelected")
+    /// Posted by format-specific containers when the reading position changes.
+    /// The notification's `object` is the current `Locator`.
+    /// ReaderContainerView observes this to pass the live locator to the AI panel.
+    static let readerPositionDidChange = Notification.Name("vreader.readerPositionDidChange")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.
@@ -34,4 +46,23 @@ struct TextSelectionInfo {
     let selectedText: String
     let startUTF16: Int
     let endUTF16: Int
+}
+
+/// Cross-format selection event for the annotation pipeline.
+/// Posted via `.readerTextSelected` notification when the user selects text
+/// in any reader format (EPUB, PDF, TXT/MD).
+struct ReaderSelectionEvent: Sendable {
+    /// The selected text content.
+    let selectedText: String
+    /// Format-specific anchor identifying the exact location of the selection.
+    let anchor: AnnotationAnchor
+    /// Screen rect of the selection, for popup positioning.
+    let sourceRect: CGRect
+}
+
+/// Carries a PDF highlight anchor and color for creating a visible annotation.
+/// Used by PDFReaderContainerView to pass data to PDFViewBridge via state.
+struct PDFHighlightNotificationPayload {
+    let anchor: AnnotationAnchor
+    let color: String
 }

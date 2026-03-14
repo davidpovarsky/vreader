@@ -92,6 +92,9 @@ struct TXTTextViewBridge: UIViewRepresentable {
         tapRecognizer.delegate = context.coordinator
         textView.addGestureRecognizer(tapRecognizer)
 
+        // Keep a weak ref for notification-driven highlight clear
+        context.coordinator.activeTextView = textView
+
         // Store base text in coordinator, set source text + highlight ranges separately.
         context.coordinator.baseAttributedText = buildBaseAttributedText()
         context.coordinator.persistedHighlights = persistedHighlights
@@ -264,6 +267,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
         var currentHighlightRange: NSRange?
         /// Timer to auto-clear temporary highlight after 3s (bug #54).
         var highlightClearTimer: Timer?
+        /// Weak reference to the text view, used by notification-based highlight clear.
+        weak var activeTextView: UITextView?
+        /// Observation token for searchHighlightClear notification.
+        nonisolated(unsafe) var highlightClearObserver: NSObjectProtocol?
 
         var hasRestoredPosition = false
         private var lastScrollCallbackTime: CFTimeInterval = 0
@@ -276,6 +283,36 @@ struct TXTTextViewBridge: UIViewRepresentable {
         init(delegate: TXTTextViewBridgeDelegate?, config: TXTViewConfig = TXTViewConfig()) {
             self.delegate = delegate
             self.lastConfig = config
+            super.init()
+
+            // Observe searchHighlightClear to dismiss temporary highlights on new search
+            highlightClearObserver = NotificationCenter.default.addObserver(
+                forName: .searchHighlightClear, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.clearSearchHighlightIfTemporary()
+                if let tv = self?.activeTextView {
+                    self?.rebuildHighlights(in: tv)
+                }
+            }
+        }
+
+        deinit {
+            // Coordinator is @MainActor-isolated via UITextViewDelegate; deinit is nonisolated.
+            // Use assumeIsolated to satisfy strict concurrency for non-Sendable property access.
+            MainActor.assumeIsolated {
+                if let observer = highlightClearObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                highlightClearTimer?.invalidate()
+                highlightClearTimer = nil
+            }
+        }
+
+        /// Clears the current temporary search highlight and cancels any auto-clear timer.
+        func clearSearchHighlightIfTemporary() {
+            highlightClearTimer?.invalidate()
+            highlightClearTimer = nil
+            currentHighlightRange = nil
         }
 
         /// Rebuilds highlight visualization from coordinator state (for timer callback).
@@ -312,6 +349,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // MARK: - Content Tap (Toolbar Toggle)
 
         @objc func handleContentTap(_ gesture: UITapGestureRecognizer) {
+            clearSearchHighlightIfTemporary()
+            if let tv = gesture.view as? UITextView {
+                rebuildHighlights(in: tv)
+            }
             TXTBridgeShared.postContentTappedNotification()
         }
 
@@ -363,6 +404,12 @@ struct TXTTextViewBridge: UIViewRepresentable {
             guard !suppressScrollCallbacks else { return }
             if let htv = scrollView as? HighlightableTextView, htv.isReplacingText { return }
             guard let textView = scrollView as? UITextView else { return }
+
+            // Clear temporary search highlight on user scroll
+            if currentHighlightRange != nil {
+                clearSearchHighlightIfTemporary()
+                rebuildHighlights(in: textView)
+            }
 
             // Throttle: skip if called within the throttle interval
             let now = CACurrentMediaTime()

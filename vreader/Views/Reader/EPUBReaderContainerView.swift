@@ -1,16 +1,24 @@
 // Purpose: SwiftUI container for the EPUB reader. Composes the EPUBWebViewBridge
-// with loading/error overlays, chapter navigation, and reading session chrome.
+// with loading/error overlays, chapter navigation, reading progress bar, reading session chrome,
+// and text selection action dialog with highlight persistence and restore.
 //
 // Key decisions:
 // - Owns EPUBReaderViewModel lifecycle (open on appear, close on disappear).
 // - Fetches resourceBaseURL from parser for content URL resolution (hrefs relative to opfDir).
 // - Fetches extractedRootURL from parser for WKWebView allowingReadAccessTo (wider access).
-// - Bottom overlay shows chapter progress and navigation controls.
+// - Bottom overlay shows chapter navigation buttons, reading progress bar, and session time.
+// - ReadingProgressBar wired via EPUBProgressCalculator for spine-aware progress (WI-004d).
 // - Scroll progress from WKWebView feeds back to ViewModel.updatePosition.
 // - WKWebView load errors surfaced via webViewError state.
+// - Text selection triggers confirmationDialog with Highlight/Note/Copy actions.
+// - "Add Note" opens a TextEditor sheet and persists highlight with note text.
+// - Highlight action persists via PersistenceActor and injects CSS highlight JS.
+// - Saved highlights are restored on page load via onPageDidFinishLoad callback.
+// - Posts .readerPositionDidChange notification for AI panel live locator.
 //
 // @coordinates-with: EPUBReaderViewModel.swift, EPUBWebViewBridge.swift,
-//   EPUBParserProtocol.swift
+//   EPUBParserProtocol.swift, EPUBProgressCalculator.swift, ReadingProgressBar.swift,
+//   EPUBHighlightBridge.swift, EPUBHighlightActions.swift, HighlightPersisting.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -36,6 +44,20 @@ struct EPUBReaderContainerView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
     @State private var isChromeVisible = true
+    /// Overall reading progress (0.0-1.0) computed from spine index + scroll fraction.
+    @State private var readingProgress: Double = 0
+    /// Scroll fraction to pass to EPUBWebViewBridge for intra-chapter seeking.
+    @State private var seekScrollFraction: Double?
+    /// Pending text selection event for the highlight action dialog.
+    @State private var pendingSelectionEvent: ReaderSelectionEvent?
+    /// Whether the highlight action sheet is visible.
+    @State private var showHighlightSheet = false
+    /// JavaScript to inject into WKWebView (e.g., highlight CSS after persist).
+    @State private var pendingHighlightJS: String?
+    /// Whether the note input sheet is visible.
+    @State private var showNoteSheet = false
+    /// Text input for the note being added.
+    @State private var noteText = ""
 
     var body: some View {
         ZStack {
@@ -54,9 +76,9 @@ struct EPUBReaderContainerView: View {
                 Color.clear
             }
 
-            // Bottom navigation overlay
+            // Bottom navigation overlay (Issue 9: spacing: 0 to match PDF/TXT containers)
             if viewModel.metadata != nil, !viewModel.isLoading, isChromeVisible {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
                     bottomOverlay
                 }
@@ -75,6 +97,13 @@ struct EPUBReaderContainerView: View {
                     guard !Task.isCancelled else { return }
                     resourceBase = base
                     extractedRoot = root
+                    // Restore intra-chapter scroll position (bug #58).
+                    // The restored position includes progression (0.0-1.0)
+                    // which must be passed to EPUBWebViewBridge as seekScrollFraction
+                    // so the bridge scrolls to the saved offset after loading.
+                    if firstItem.progression > 0 {
+                        seekScrollFraction = firstItem.progression
+                    }
                     contentURL = base.appendingPathComponent(firstItem.href)
                 } catch {
                     if !Task.isCancelled {
@@ -135,8 +164,53 @@ struct EPUBReaderContainerView: View {
             if let spineIndex = meta.spineItems.firstIndex(where: { $0.href == href }) {
                 viewModel.navigateToSpine(index: spineIndex)
                 webViewError = nil
+                // Issue 3: Use locator.progression to scroll within the chapter.
+                // This reuses the existing WI-004d scroll-to-fraction mechanism so
+                // the WebView lands at the correct position, not chapter top.
+                if let progression = locator.progression, progression > 0 {
+                    seekScrollFraction = progression
+                } else {
+                    seekScrollFraction = nil
+                }
                 contentURL = base.appendingPathComponent(href)
+                // Inject search highlight JS after page loads (bug #43)
+                // Issue 4: Pass progression so JS scrolls before find()
+                if let textQuote = locator.textQuote {
+                    let js = EPUBHighlightBridge.searchHighlightJS(
+                        textQuote: textQuote,
+                        progression: locator.progression
+                    )
+                    if !js.isEmpty {
+                        pendingHighlightJS = js
+                    }
+                }
             }
+        }
+        .confirmationDialog(
+            "Text Selection",
+            isPresented: $showHighlightSheet,
+            titleVisibility: .visible
+        ) {
+            Button("Highlight") {
+                guard let event = pendingSelectionEvent,
+                      let container = modelContainer else { return }
+                handleHighlightAction(event: event, container: container)
+            }
+            Button("Add Note") {
+                noteText = ""
+                showNoteSheet = true
+            }
+            Button("Copy") {
+                guard let event = pendingSelectionEvent else { return }
+                UIPasteboard.general.string = event.selectedText
+                pendingSelectionEvent = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSelectionEvent = nil
+            }
+        }
+        .sheet(isPresented: $showNoteSheet) {
+            noteInputSheet
         }
         .accessibilityIdentifier("epubReaderContainer")
     }
@@ -177,25 +251,47 @@ struct EPUBReaderContainerView: View {
             themeCSS: settingsStore.map {
                 $0.theme.epubOverrideCSS(fontSize: $0.typography.fontSize)
             },
-            onProgressChange: { progress in
+            scrollFraction: seekScrollFraction,
+            currentHref: viewModel.currentPosition?.href,
+            onProgressChange: { scrollFraction in
                 guard let position = viewModel.currentPosition,
                       let metadata = viewModel.metadata else { return }
                 let spineIndex = metadata.spineItems.firstIndex(
                     where: { $0.href == position.href }
                 ) ?? 0
-                let totalProg = metadata.spineCount > 1
-                    ? (Double(spineIndex) + progress) / Double(metadata.spineCount)
-                    : progress
+                let totalProg = EPUBProgressCalculator.progress(
+                    spineIndex: spineIndex,
+                    scrollFraction: scrollFraction,
+                    totalSpineItems: metadata.spineCount
+                )
+                readingProgress = totalProg
                 let newPosition = EPUBPosition(
                     href: position.href,
-                    progression: progress,
+                    progression: scrollFraction,
                     totalProgression: totalProg,
                     cfi: nil
                 )
                 viewModel.updatePosition(newPosition)
+                // Notify ReaderContainerView of the live position for AI panel.
+                if let locator = viewModel.makeCurrentLocator() {
+                    NotificationCenter.default.post(
+                        name: .readerPositionDidChange, object: locator
+                    )
+                }
             },
             onLoadError: { error in
                 webViewError = error
+            },
+            onSelectionEvent: { event in
+                pendingSelectionEvent = event
+                showHighlightSheet = true
+            },
+            onPageDidFinishLoad: { evaluateJS in
+                restoreHighlightsOnLoad(evaluateJS: evaluateJS)
+            },
+            pendingJS: pendingHighlightJS,
+            onPendingJSCompleted: {
+                pendingHighlightJS = nil
             }
         )
         .ignoresSafeArea(edges: .bottom)
@@ -204,64 +300,82 @@ struct EPUBReaderContainerView: View {
 
     @ViewBuilder
     private var bottomOverlay: some View {
-        HStack {
-            Button {
-                navigateChapter(offset: -1)
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            .disabled(viewModel.currentSpineIndex <= 0)
-            .accessibilityLabel("Previous chapter")
-            .accessibilityIdentifier("epubPrevChapter")
+        VStack(spacing: 0) {
+            // Reading progress scrubber bar
+            ReadingProgressBar(
+                progress: $readingProgress,
+                onSeek: { handleProgressSeek($0) },
+                discreteSteps: epubDiscreteSteps,
+                isVisible: true,
+                label: epubProgressLabel,
+                settingsStore: settingsStore
+            )
 
-            Spacer()
-
-            VStack(spacing: 2) {
-                if let meta = viewModel.metadata {
-                    let current = viewModel.currentSpineIndex + 1
-                    Text("\(current) of \(meta.spineCount)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .accessibilityLabel(
-                            "Chapter \(current) of \(meta.spineCount)"
-                        )
-                        .accessibilityIdentifier("epubChapterIndicator")
+            // Navigation controls row
+            HStack {
+                Button {
+                    navigateChapter(offset: -1)
+                } label: {
+                    Image(systemName: "chevron.left")
                 }
+                .disabled(viewModel.currentSpineIndex <= 0)
+                .accessibilityLabel("Previous chapter")
+                .accessibilityIdentifier("epubPrevChapter")
+
+                Spacer()
+
                 if let title = currentChapterTitle {
                     Text(title)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
+                Spacer()
+
+                if let sessionTime = viewModel.sessionTimeDisplay {
+                    Text(sessionTime)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("epubSessionTime")
+                }
+
+                Spacer()
+
+                Button {
+                    navigateChapter(offset: 1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(
+                    viewModel.currentSpineIndex >= (viewModel.metadata?.spineCount ?? 1) - 1
+                )
+                .accessibilityLabel("Next chapter")
+                .accessibilityIdentifier("epubNextChapter")
             }
-
-            Spacer()
-
-            if let sessionTime = viewModel.sessionTimeDisplay {
-                Text(sessionTime)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("epubSessionTime")
-            }
-
-            Spacer()
-
-            Button {
-                navigateChapter(offset: 1)
-            } label: {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(
-                viewModel.currentSpineIndex >= (viewModel.metadata?.spineCount ?? 1) - 1
-            )
-            .accessibilityLabel("Next chapter")
-            .accessibilityIdentifier("epubNextChapter")
+            .foregroundColor(Color(settingsStore?.theme.secondaryTextColor ?? ReaderTheme.default.secondaryTextColor))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .foregroundColor(Color(settingsStore?.theme.secondaryTextColor ?? ReaderTheme.default.secondaryTextColor))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
         .background(Color(settingsStore?.theme.backgroundColor ?? ReaderTheme.default.backgroundColor).opacity(0.92))
         .accessibilityIdentifier("epubBottomOverlay")
+    }
+
+    // MARK: - Progress Bar
+
+    /// Discrete steps for the progress bar: spine count for multi-chapter, nil for single/empty.
+    private var epubDiscreteSteps: Int? {
+        guard let meta = viewModel.metadata else { return nil }
+        return EPUBProgressCalculator.discreteSteps(totalSpineItems: meta.spineCount)
+    }
+
+    /// "Chapter X of Y" label for the progress bar, or nil if no metadata.
+    private var epubProgressLabel: String? {
+        guard let meta = viewModel.metadata else { return nil }
+        return EPUBProgressCalculator.label(
+            spineIndex: viewModel.currentSpineIndex,
+            totalSpineItems: meta.spineCount
+        )
     }
 
     // MARK: - Navigation
@@ -279,6 +393,8 @@ struct EPUBReaderContainerView: View {
 
         // Clear any previous web view error on navigation
         webViewError = nil
+        // Chapter navigation always starts at the top
+        seekScrollFraction = nil
 
         // Update the WKWebView content URL
         if let meta = viewModel.metadata,
@@ -286,6 +402,177 @@ struct EPUBReaderContainerView: View {
            newIndex >= 0, newIndex < meta.spineItems.count {
             let href = meta.spineItems[newIndex].href
             contentURL = base.appendingPathComponent(href)
+            // Update progress bar to reflect new chapter position
+            readingProgress = EPUBProgressCalculator.progress(
+                spineIndex: newIndex,
+                scrollFraction: 0.0,
+                totalSpineItems: meta.spineCount
+            )
+        }
+    }
+
+    /// Handles seeking from the progress bar scrubber.
+    /// Maps the seek value to a spine index and scroll fraction, then navigates there.
+    private func handleProgressSeek(_ seekValue: Double) {
+        guard let meta = viewModel.metadata,
+              let base = resourceBase,
+              meta.spineCount > 0 else { return }
+        let target = EPUBProgressCalculator.seekTarget(
+            seekValue: seekValue,
+            totalSpineItems: meta.spineCount
+        )
+        let targetIndex = target.spineIndex
+        guard targetIndex >= 0, targetIndex < meta.spineItems.count else { return }
+
+        viewModel.navigateToSpine(index: targetIndex)
+        webViewError = nil
+
+        let href = meta.spineItems[targetIndex].href
+        // Apply scrollFraction so EPUBWebViewBridge scrolls within the chapter
+        seekScrollFraction = target.scrollFraction
+        contentURL = base.appendingPathComponent(href)
+        readingProgress = seekValue
+    }
+
+    // MARK: - Highlight Actions
+
+    /// Persists a highlight and injects the CSS highlight into the WKWebView.
+    private func handleHighlightAction(
+        event: ReaderSelectionEvent,
+        container: ModelContainer
+    ) {
+        guard let locator = viewModel.makeCurrentLocator() else {
+            pendingSelectionEvent = nil
+            return
+        }
+        let persistence = PersistenceActor(modelContainer: container)
+        let bookKey = viewModel.bookFingerprintKey
+
+        Task {
+            do {
+                let record = try await EPUBHighlightActions.persistHighlight(
+                    event: event,
+                    locator: locator,
+                    persistence: persistence,
+                    bookKey: bookKey
+                )
+                // Inject CSS highlight via JS
+                if let js = EPUBHighlightActions.createHighlightJS(for: record) {
+                    pendingHighlightJS = js
+                }
+            } catch {
+                // Non-fatal: highlight not saved, user can retry
+            }
+        }
+        pendingSelectionEvent = nil
+    }
+
+    // MARK: - Note Input Sheet
+
+    @ViewBuilder
+    private var noteInputSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                if let event = pendingSelectionEvent {
+                    Text(event.selectedText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                }
+                TextEditor(text: $noteText)
+                    .frame(minHeight: 100)
+                    .padding(.horizontal)
+                    .accessibilityIdentifier("epubNoteTextEditor")
+                Spacer()
+            }
+            .padding(.top)
+            .navigationTitle("Add Note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        showNoteSheet = false
+                        pendingSelectionEvent = nil
+                    }
+                    .accessibilityIdentifier("epubNoteCancelButton")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        guard let event = pendingSelectionEvent,
+                              let container = modelContainer else {
+                            showNoteSheet = false
+                            return
+                        }
+                        handleHighlightWithNote(
+                            event: event,
+                            container: container,
+                            note: noteText.isEmpty ? nil : noteText
+                        )
+                        showNoteSheet = false
+                    }
+                    .accessibilityIdentifier("epubNoteSaveButton")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Persists a highlight with an attached note.
+    private func handleHighlightWithNote(
+        event: ReaderSelectionEvent,
+        container: ModelContainer,
+        note: String?
+    ) {
+        guard let locator = viewModel.makeCurrentLocator() else {
+            pendingSelectionEvent = nil
+            return
+        }
+        let persistence = PersistenceActor(modelContainer: container)
+        let bookKey = viewModel.bookFingerprintKey
+
+        Task {
+            do {
+                let record = try await persistence.addHighlight(
+                    locator: locator,
+                    anchor: event.anchor,
+                    selectedText: event.selectedText,
+                    color: "yellow",
+                    note: note,
+                    toBookWithKey: bookKey
+                )
+                if let js = EPUBHighlightActions.createHighlightJS(for: record) {
+                    pendingHighlightJS = js
+                }
+            } catch {
+                // Non-fatal: highlight+note not saved, user can retry
+            }
+        }
+        pendingSelectionEvent = nil
+    }
+
+    /// Restores saved highlights for the current chapter after a page finishes loading.
+    private func restoreHighlightsOnLoad(evaluateJS: @escaping (String) -> Void) {
+        guard let container = modelContainer,
+              let href = viewModel.currentPosition?.href else { return }
+        let persistence = PersistenceActor(modelContainer: container)
+        let bookKey = viewModel.bookFingerprintKey
+
+        Task {
+            do {
+                let highlights = try await persistence.fetchHighlights(forBookWithKey: bookKey)
+                let js = EPUBHighlightActions.restoreHighlightsJS(
+                    highlights: highlights,
+                    currentHref: href
+                )
+                if !js.isEmpty {
+                    evaluateJS(js)
+                }
+            } catch {
+                // Non-fatal: highlights not restored, user can still read
+            }
         }
     }
 }

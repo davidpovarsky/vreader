@@ -168,6 +168,68 @@ struct EPUBFileLoaderTests {
         }
     }
 
+    // MARK: - Bug #58: Intra-chapter position restore
+
+    @Test("load restores intra-chapter progression from saved locator")
+    func loadRestoresIntraChapterProgression() async throws {
+        // Bug #58: saved progression was only chapter-level (0.0), not intra-chapter.
+        // The loader must restore the exact saved progression fraction.
+        let parser = MockEPUBParser()
+        await parser.setMetadata(testMeta)
+        let store = MockPositionStore()
+
+        guard let savedLocator = LocatorFactory.epub(
+            fingerprint: testFP,
+            href: "chapter2.xhtml",
+            progression: 0.73,
+            totalProgression: 0.55
+        ) else {
+            Issue.record("Failed to create test locator")
+            return
+        }
+        await store.seed(bookFingerprintKey: testFP.canonicalKey, locator: savedLocator)
+
+        let result = try await EPUBFileLoader.load(
+            url: testURL,
+            parser: parser,
+            positionStore: store,
+            bookFingerprintKey: testFP.canonicalKey
+        )
+
+        #expect(result.initialPosition?.href == "chapter2.xhtml")
+        #expect(result.initialPosition?.progression == 0.73, "Progression within chapter must be preserved")
+        #expect(result.initialPosition?.totalProgression == 0.55, "Total progression must be preserved")
+    }
+
+    @Test("load preserves zero progression when saved at chapter start")
+    func loadPreservesZeroProgression() async throws {
+        let parser = MockEPUBParser()
+        await parser.setMetadata(testMeta)
+        let store = MockPositionStore()
+
+        guard let savedLocator = LocatorFactory.epub(
+            fingerprint: testFP,
+            href: "chapter3.xhtml",
+            progression: 0.0,
+            totalProgression: 0.67
+        ) else {
+            Issue.record("Failed to create test locator")
+            return
+        }
+        await store.seed(bookFingerprintKey: testFP.canonicalKey, locator: savedLocator)
+
+        let result = try await EPUBFileLoader.load(
+            url: testURL,
+            parser: parser,
+            positionStore: store,
+            bookFingerprintKey: testFP.canonicalKey
+        )
+
+        #expect(result.initialPosition?.href == "chapter3.xhtml")
+        #expect(result.initialPosition?.progression == 0.0)
+        #expect(result.initialPosition?.totalProgression == 0.67)
+    }
+
     @Test("load returns nil position for empty spine")
     func loadEmptySpine() async throws {
         let emptyMeta = EPUBMetadata(

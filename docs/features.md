@@ -52,19 +52,21 @@ Before setting a feature to `PLANNED`, fill in these fields in a sub-section und
 | 2  | Highlight search result at destination | Search/* | Medium | DONE | Resolved by bug #43 — yellow background highlight, auto-clears after 3s |
 | 3  | Manual text highlighting | Reader/* | High | DONE | Resolved by bug #44 — Highlight action added to UITextView edit menu |
 | 4  | Add notes/annotations to text | Reader/* | Medium | DONE | Resolved by bug #44 — Add Note action added to UITextView edit menu |
-| 5  | Search highlight auto-dismiss on next action | Search/* | Low | PLANNED | WI-003. Clear highlight on scroll, tap, or new search |
-| 6  | Persist library view preferences across app restarts | Library/* | Medium | PLANNED | WI-001. PreferenceStore wrapping UserDefaults for sortOrder + viewMode |
-| 7  | Visual feedback when adding a bookmark | Reader/* | Low | PLANNED | WI-002. UIImpactFeedbackGenerator(.light) on successful toggle |
-| 8  | Reading position scrubber/progress bar | Reader/* | Medium | PLANNED | WI-004. UISlider overlay at bottom of reader |
-| 9  | Comprehensive book context menu in library | Library/* | Medium | PLANNED | WI-006. Add Info, Share alongside Delete |
-| 10 | iCloud backup and restore | Settings/* | Medium | PLANNED | WI-015 (design only). Deferred to V2 |
-| 11 | EPUB text highlighting and note-taking | EPUB/* | High | PLANNED | WI-C00 (anchor schema) → WI-007. JS injection for WKWebView selection |
-| 12 | Auto-generate TOC for MD files | Reader/* | Medium | PLANNED | WI-005. MD heading extraction via regex (skip fenced code blocks). TXT deferred indefinitely — too fragile |
-| 13 | AI book/chapter summarization | AI/* | High | PLANNED | WI-D00 (AI foundation) → WI-009 (settings) → WI-010. Wire AIAssistantViewModel to reader toolbar |
-| 14 | AI chat — talk to the book | AI/* | High | PLANNED | WI-D00 → WI-009 → WI-010 → WI-011. Multi-turn chat with book context. Shares AIChatViewModel with #15 |
-| 15 | AI chat interface (general) | AI/* | Medium | PLANNED | WI-D00 → WI-009 → WI-010 → WI-011 → WI-013. General chat (nil bookFingerprint). Separate entry point from library, shared ViewModel with #14 |
-| 16 | Remote server integration (claude CLI / directory management) | Server/* | High | PLANNED | WI-014 (design only). Deferred to V2 |
-| 17 | PDF text highlighting, annotation, and theming | PDF/* | High | PLANNED | WI-C00 (anchor schema) → WI-008. PDFAnnotation API for highlights |
-| 18 | AI-powered contextual translation with bilingual view | AI/* | High | PLANNED | WI-D00 → WI-009 → WI-010 → WI-012. Bilingual side-by-side display |
+| 5  | Search highlight auto-dismiss on next action | Search/* | Low | DONE | WI-003. Clear on scroll, tap, or new search. Per-format ownership. 15 tests |
+| 6  | Persist library view preferences across app restarts | Library/* | Medium | DONE | WI-001. PreferenceStore + UserDefaults. 10 tests |
+| 7  | Visual feedback when adding a bookmark | Reader/* | Low | DONE | WI-002. UIImpactFeedbackGenerator(.light). 5 tests |
+| 8  | Reading position scrubber/progress bar | Reader/* | Medium | DONE | WI-004a-d. ReadingProgressBar + per-format wiring (TXT/MD/PDF/EPUB). 108 tests |
+| 9  | Comprehensive book context menu in library | Library/* | Medium | DONE | WI-006. Info/Share/Delete + BookInfoSheet. 24 tests |
+| 10 | iCloud backup and restore | Settings/* | Medium | DEFERRED | WI-015 (design only). Design doc at docs/codex-plans/icloud-backup-design.md |
+| 11 | EPUB text highlighting and note-taking | EPUB/* | High | DONE | WI-C00 → WI-007. CSS Highlight API + EPUBHighlightBridge + persist/restore. 37 tests |
+| 12 | Auto-generate TOC for MD files | Reader/* | Medium | DONE | WI-005. Regex heading extraction, fenced code block skip, correct UTF-16 offsets. 25 tests |
+| 13 | AI book/chapter summarization | AI/* | High | DONE | WI-D00 → WI-009 → WI-010. AIReaderPanel + toolbar button. 18 tests |
+| 14 | AI chat — talk to the book | AI/* | High | DONE | WI-D00 → WI-009 → WI-010 → WI-011. Multi-turn chat with book context via AIChatViewModel. Chat tab in AIReaderPanel |
+| 15 | AI chat interface (general) | AI/* | Medium | DONE | WI-013. General chat (nil bookFingerprint). Entry point in LibraryView toolbar. 8 tests |
+| 16 | Remote server integration (claude CLI / directory management) | Server/* | High | DEFERRED | WI-014 (design only). Design doc at docs/codex-plans/remote-server-design.md |
+| 17 | PDF text highlighting, annotation, and theming | PDF/* | High | DONE | WI-C00 → WI-008. PDFAnnotationBridge + selection detection + persist/restore. 44 tests |
+| 18 | AI-powered contextual translation with bilingual view | AI/* | High | DONE | WI-D00 → WI-009 → WI-010 → WI-012. BilingualView + TranslationPanel. 14 tests |
 | 19 | ~~Merged into feature #6~~ | Library/* | — | DUPLICATE | Display mode persistence merged into feature #6 (library view preferences) |
-| 20 | Sort order reset/revert to default | Library/* | Low | PLANNED | WI-001 (bundled with #6). Add "Default" option in sort picker |
+| 20 | Sort order reset/revert to default | Library/* | Low | DONE | WI-001 (bundled with #6). "Default" option in sort picker |
+| 21 | Paginated reading mode with turnable pages | Reader/* | Medium | TODO | Scroll-only currently. User wants page-turn mode like iBooks |
+| 22 | Highlight matching text in search result list | Search/* | Low | TODO | Result rows show plain text snippets. Should bold/highlight the matching query term |

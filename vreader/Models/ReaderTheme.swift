@@ -68,6 +68,10 @@ enum ReaderTheme: String, Codable, CaseIterable, Sendable {
 
     /// Generates a `<style>` tag with CSS overrides for EPUB content rendering.
     /// Injected into WKWebView to apply the reader theme to XHTML content.
+    ///
+    /// Issue 10: Uses `body *` wildcard instead of a hard-coded tag allowlist so that
+    /// all elements (including `pre`, `code`, etc.) inherit the user-chosen font size.
+    /// Headings (`h1`-`h6`) are excluded via `revert` so they keep their relative sizing.
     func epubOverrideCSS(fontSize: CGFloat) -> String {
         let bg = cssColor(backgroundColor)
         let fg = cssColor(textColor)
@@ -76,6 +80,8 @@ enum ReaderTheme: String, Codable, CaseIterable, Sendable {
         return """
         <style id="vreader-theme">\
         html, body { background-color: \(bg) !important; color: \(fg) !important; font-size: \(size)px !important; }\
+        body * { font-size: inherit !important; }\
+        h1,h2,h3,h4,h5,h6 { font-size: revert !important; }\
         a { color: \(secondary) !important; }\
         </style>
         """

@@ -1,4 +1,5 @@
-// Purpose: Tests for FeatureFlags — defaults per environment, runtime overrides.
+// Purpose: Tests for FeatureFlags — defaults per environment, runtime overrides,
+// shared singleton behavior, UserDefaults persistence.
 
 import Testing
 import Foundation
@@ -11,103 +12,103 @@ struct FeatureFlagsTests {
 
     @Test func aiAssistantDefaultOffInProd() {
         let flags = FeatureFlags(environment: .prod)
-        #expect(flags.aiAssistant == false)
+        #expect(flags.isEnabled(.aiAssistant) == false)
     }
 
     @Test func syncDefaultOffInProd() {
         let flags = FeatureFlags(environment: .prod)
-        #expect(flags.sync == false)
+        #expect(flags.isEnabled(.sync) == false)
     }
 
     @Test func searchIndexingVerboseLogsDefaultOffInProd() {
         let flags = FeatureFlags(environment: .prod)
-        #expect(flags.searchIndexingVerboseLogs == false)
+        #expect(flags.isEnabled(.searchIndexingVerboseLogs) == false)
     }
 
     // MARK: - Default Values in Dev
 
     @Test func aiAssistantDefaultOffInDev() {
         let flags = FeatureFlags(environment: .dev)
-        #expect(flags.aiAssistant == false)
+        #expect(flags.isEnabled(.aiAssistant) == false)
     }
 
     @Test func syncDefaultOffInDev() {
         let flags = FeatureFlags(environment: .dev)
-        #expect(flags.sync == false)
+        #expect(flags.isEnabled(.sync) == false)
     }
 
     @Test func searchIndexingVerboseLogsDefaultOnInDev() {
         let flags = FeatureFlags(environment: .dev)
-        #expect(flags.searchIndexingVerboseLogs == true)
+        #expect(flags.isEnabled(.searchIndexingVerboseLogs) == true)
     }
 
     // MARK: - Default Values in Staging
 
     @Test func searchIndexingVerboseLogsDefaultOnInStaging() {
         let flags = FeatureFlags(environment: .staging)
-        #expect(flags.searchIndexingVerboseLogs == true)
+        #expect(flags.isEnabled(.searchIndexingVerboseLogs) == true)
     }
 
     // MARK: - Runtime Overrides
 
     @Test func overrideAIAssistantOn() {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
-        #expect(flags.aiAssistant == true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        #expect(flags.isEnabled(.aiAssistant) == true)
     }
 
     @Test func overrideSyncOn() {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
-        #expect(flags.sync == true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
+        #expect(flags.isEnabled(.sync) == true)
     }
 
     @Test func overrideSearchIndexingVerboseLogsOff() {
-        var flags = FeatureFlags(environment: .dev)
-        flags.setOverride(.searchIndexingVerboseLogs, value: false)
-        #expect(flags.searchIndexingVerboseLogs == false)
+        let flags = FeatureFlags(environment: .dev)
+        flags.setOverride(false, for: .searchIndexingVerboseLogs)
+        #expect(flags.isEnabled(.searchIndexingVerboseLogs) == false)
     }
 
     @Test func removeOverrideRestoresDefault() {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
-        #expect(flags.aiAssistant == true)
-        flags.removeOverride(.aiAssistant)
-        #expect(flags.aiAssistant == false)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        #expect(flags.isEnabled(.aiAssistant) == true)
+        flags.removeOverride(for: .aiAssistant)
+        #expect(flags.isEnabled(.aiAssistant) == false)
     }
 
     @Test func removeOverrideForNonexistentKey() {
         // Should not crash
-        var flags = FeatureFlags(environment: .prod)
-        flags.removeOverride(.aiAssistant)
-        #expect(flags.aiAssistant == false)
+        let flags = FeatureFlags(environment: .prod)
+        flags.removeOverride(for: .aiAssistant)
+        #expect(flags.isEnabled(.aiAssistant) == false)
     }
 
     @Test func clearAllOverrides() {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        flags.setOverride(true, for: .sync)
         flags.clearAllOverrides()
-        #expect(flags.aiAssistant == false)
-        #expect(flags.sync == false)
+        #expect(flags.isEnabled(.aiAssistant) == false)
+        #expect(flags.isEnabled(.sync) == false)
     }
 
     // MARK: - Multiple Overrides
 
     @Test func multipleOverridesIndependent() {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
-        flags.setOverride(.sync, value: false)
-        #expect(flags.aiAssistant == true)
-        #expect(flags.sync == false)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        flags.setOverride(false, for: .sync)
+        #expect(flags.isEnabled(.aiAssistant) == true)
+        #expect(flags.isEnabled(.sync) == false)
     }
 
     @Test func overrideCanBeToggled() {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
-        #expect(flags.aiAssistant == true)
-        flags.setOverride(.aiAssistant, value: false)
-        #expect(flags.aiAssistant == false)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        #expect(flags.isEnabled(.aiAssistant) == true)
+        flags.setOverride(false, for: .aiAssistant)
+        #expect(flags.isEnabled(.aiAssistant) == false)
     }
 
     // MARK: - Sendable
@@ -124,5 +125,75 @@ struct FeatureFlagsTests {
         #expect(FeatureFlagKey.allCases.contains(.aiAssistant))
         #expect(FeatureFlagKey.allCases.contains(.sync))
         #expect(FeatureFlagKey.allCases.contains(.searchIndexingVerboseLogs))
+    }
+
+    // MARK: - Shared Singleton (Issue 1)
+
+    @Test func sharedInstanceReflectsOverride() {
+        // Configure shared for test
+        FeatureFlags.shared.configure(environment: .prod)
+        FeatureFlags.shared.clearAllOverrides()
+
+        // Set override on shared
+        FeatureFlags.shared.setOverride(true, for: .aiAssistant)
+
+        // Read from the same shared — should see the change
+        #expect(FeatureFlags.shared.isEnabled(.aiAssistant) == true)
+
+        // Clean up
+        FeatureFlags.shared.clearAllOverrides()
+    }
+
+    @Test func defaultValuesPreserved() {
+        let flags = FeatureFlags(environment: .prod)
+        #expect(flags.isEnabled(.aiAssistant) == false)
+        #expect(flags.isEnabled(.sync) == false)
+        #expect(flags.isEnabled(.searchIndexingVerboseLogs) == false)
+
+        let devFlags = FeatureFlags(environment: .dev)
+        #expect(devFlags.isEnabled(.searchIndexingVerboseLogs) == true)
+    }
+
+    @Test func aiAssistantOverridePersistsToUserDefaults() {
+        let suiteName = "com.vreader.test.featureflags.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+
+        let flags = FeatureFlags(environment: .prod, persistenceDefaults: defaults)
+        flags.setOverride(true, for: .aiAssistant)
+
+        // Check that UserDefaults has the value
+        #expect(defaults.bool(forKey: "com.vreader.featureFlags.aiAssistant") == true)
+
+        // Another instance with same defaults should see the persisted value
+        let flags2 = FeatureFlags(environment: .prod, persistenceDefaults: defaults)
+        #expect(flags2.isEnabled(.aiAssistant) == true)
+
+        // Clean up
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    @Test func nonPersistedFlagDoesNotWriteToDefaults() {
+        let suiteName = "com.vreader.test.featureflags.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+
+        let flags = FeatureFlags(environment: .prod, persistenceDefaults: defaults)
+        flags.setOverride(true, for: .sync)
+
+        // sync flag should NOT be persisted to UserDefaults
+        #expect(defaults.object(forKey: "com.vreader.featureFlags.sync") == nil)
+
+        // Clean up
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    // MARK: - Convenience Accessors
+
+    @Test func convenienceAccessorsMatchIsEnabled() {
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        flags.setOverride(true, for: .sync)
+        #expect(flags.aiAssistant == flags.isEnabled(.aiAssistant))
+        #expect(flags.sync == flags.isEnabled(.sync))
+        #expect(flags.searchIndexingVerboseLogs == flags.isEnabled(.searchIndexingVerboseLogs))
     }
 }

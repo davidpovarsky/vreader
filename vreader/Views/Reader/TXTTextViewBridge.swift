@@ -92,6 +92,9 @@ struct TXTTextViewBridge: UIViewRepresentable {
         tapRecognizer.delegate = context.coordinator
         textView.addGestureRecognizer(tapRecognizer)
 
+        // Keep a weak ref for notification-driven highlight clear
+        context.coordinator.activeTextView = textView
+
         // Store base text in coordinator, set source text + highlight ranges separately.
         context.coordinator.baseAttributedText = buildBaseAttributedText()
         context.coordinator.persistedHighlights = persistedHighlights
@@ -200,12 +203,20 @@ struct TXTTextViewBridge: UIViewRepresentable {
         if let target = scrollToOffset,
            target != context.coordinator.lastScrollToTarget {
             context.coordinator.lastScrollToTarget = target
+            // Guard highlight from being cleared by the programmatic scroll (bug #43).
+            // Issue 8: Use counter so overlapping scrolls don't clear guard too early.
+            context.coordinator.programmaticScrollCount += 1
             let textLength = (textView.text as NSString?)?.length ?? 0
             if textLength > 0 {
                 let rangeEnd = min(textLength, target + 4096)
                 textView.layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: rangeEnd))
             }
             context.coordinator.attemptScrollRestore(in: textView, toCharOffset: target)
+            // Decrement the counter after scroll settles so user scrolls can dismiss normally
+            let coordinator = context.coordinator
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                coordinator.programmaticScrollCount = max(0, coordinator.programmaticScrollCount - 1)
+            }
         }
 
         // Scroll position restore is one-shot only (handled in makeUIView).
@@ -264,6 +275,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
         var currentHighlightRange: NSRange?
         /// Timer to auto-clear temporary highlight after 3s (bug #54).
         var highlightClearTimer: Timer?
+        /// Weak reference to the text view, used by notification-based highlight clear.
+        weak var activeTextView: UITextView?
+        /// Observation token for searchHighlightClear notification.
+        nonisolated(unsafe) var highlightClearObserver: NSObjectProtocol?
 
         var hasRestoredPosition = false
         private var lastScrollCallbackTime: CFTimeInterval = 0
@@ -272,10 +287,49 @@ struct TXTTextViewBridge: UIViewRepresentable {
         private static let maxRestoreRetries = 5
         var suppressScrollCallbacks = false
         var lastScrollToTarget: Int?
+        /// Guards search highlight from being cleared by programmatic scroll (bug #43 regression).
+        /// Uses a counter instead of a boolean (Issue 8) so overlapping programmatic scrolls
+        /// don't clear the guard prematurely — each scroll increments the counter, and
+        /// the guard is only lowered when all scrolls have settled (counter reaches 0).
+        var programmaticScrollCount = 0
 
         init(delegate: TXTTextViewBridgeDelegate?, config: TXTViewConfig = TXTViewConfig()) {
             self.delegate = delegate
             self.lastConfig = config
+            super.init()
+
+            // Observe searchHighlightClear to dismiss temporary highlights on new search
+            highlightClearObserver = NotificationCenter.default.addObserver(
+                forName: .searchHighlightClear, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.clearSearchHighlightIfTemporary()
+                if let tv = self?.activeTextView {
+                    self?.rebuildHighlights(in: tv)
+                }
+            }
+        }
+
+        deinit {
+            // Coordinator is @MainActor-isolated via UITextViewDelegate; deinit is nonisolated.
+            // Use assumeIsolated to satisfy strict concurrency for non-Sendable property access.
+            MainActor.assumeIsolated {
+                if let observer = highlightClearObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                highlightClearTimer?.invalidate()
+                highlightClearTimer = nil
+            }
+        }
+
+        /// Clears the current temporary search highlight and cancels any auto-clear timer.
+        /// Skips clearing when `programmaticScrollCount > 0` (bug #43 regression fix,
+        /// Issue 8: counter-based guard) so that search navigation scroll doesn't
+        /// immediately dismiss the highlight.
+        func clearSearchHighlightIfTemporary() {
+            guard programmaticScrollCount <= 0 else { return }
+            highlightClearTimer?.invalidate()
+            highlightClearTimer = nil
+            currentHighlightRange = nil
         }
 
         /// Rebuilds highlight visualization from coordinator state (for timer callback).
@@ -312,6 +366,10 @@ struct TXTTextViewBridge: UIViewRepresentable {
         // MARK: - Content Tap (Toolbar Toggle)
 
         @objc func handleContentTap(_ gesture: UITapGestureRecognizer) {
+            clearSearchHighlightIfTemporary()
+            if let tv = gesture.view as? UITextView {
+                rebuildHighlights(in: tv)
+            }
             TXTBridgeShared.postContentTappedNotification()
         }
 
@@ -363,6 +421,12 @@ struct TXTTextViewBridge: UIViewRepresentable {
             guard !suppressScrollCallbacks else { return }
             if let htv = scrollView as? HighlightableTextView, htv.isReplacingText { return }
             guard let textView = scrollView as? UITextView else { return }
+
+            // Clear temporary search highlight on user scroll
+            if currentHighlightRange != nil {
+                clearSearchHighlightIfTemporary()
+                rebuildHighlights(in: textView)
+            }
 
             // Throttle: skip if called within the throttle interval
             let now = CACurrentMediaTime()

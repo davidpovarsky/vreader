@@ -119,6 +119,7 @@ final class HighlightListViewModel {
                 let old = highlights[idx]
                 highlights[idx] = HighlightRecord(
                     highlightId: old.highlightId, locator: old.locator,
+                    anchor: old.anchor,
                     profileKey: old.profileKey, selectedText: old.selectedText,
                     color: old.color, note: note,
                     createdAt: old.createdAt, updatedAt: Date()
@@ -138,6 +139,7 @@ final class HighlightListViewModel {
                 let old = highlights[idx]
                 highlights[idx] = HighlightRecord(
                     highlightId: old.highlightId, locator: old.locator,
+                    anchor: old.anchor,
                     profileKey: old.profileKey, selectedText: old.selectedText,
                     color: color, note: old.note,
                     createdAt: old.createdAt, updatedAt: Date()

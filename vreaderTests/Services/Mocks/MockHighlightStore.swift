@@ -27,13 +27,50 @@ actor MockHighlightStore: HighlightPersisting {
         note: String?,
         toBookWithKey key: String
     ) async throws -> HighlightRecord {
+        try await addHighlight(
+            locator: locator,
+            anchor: nil,
+            selectedText: selectedText,
+            color: color,
+            note: note,
+            toBookWithKey: key
+        )
+    }
+
+    func addHighlight(
+        locator: Locator,
+        anchor: AnnotationAnchor?,
+        selectedText: String,
+        color: String,
+        note: String?,
+        toBookWithKey key: String
+    ) async throws -> HighlightRecord {
         addCallCount += 1
         if let error = addError { throw error }
+
+        let profileKey = "\(locator.bookFingerprint.canonicalKey):\(locator.canonicalHash)"
+
+        // Dedupe: match profileKey AND anchor (mirrors PersistenceActor logic)
+        let ids = bookIndex[key] ?? []
+        if let existingId = ids.first(where: { id in
+            guard let existing = highlights[id], existing.profileKey == profileKey else { return false }
+            switch (existing.anchor, anchor) {
+            case (nil, nil):
+                return true
+            case let (existingAnchor?, newAnchor?):
+                return existingAnchor.anchorHash == newAnchor.anchorHash
+            default:
+                return false
+            }
+        }), let existingRecord = highlights[existingId] {
+            return existingRecord
+        }
 
         let record = HighlightRecord(
             highlightId: UUID(),
             locator: locator,
-            profileKey: "\(locator.bookFingerprint.canonicalKey):\(locator.canonicalHash)",
+            anchor: anchor,
+            profileKey: profileKey,
             selectedText: selectedText,
             color: color,
             note: note,
@@ -61,6 +98,7 @@ actor MockHighlightStore: HighlightPersisting {
         let updated = HighlightRecord(
             highlightId: record.highlightId,
             locator: record.locator,
+            anchor: record.anchor,
             profileKey: record.profileKey,
             selectedText: record.selectedText,
             color: record.color,
@@ -77,6 +115,7 @@ actor MockHighlightStore: HighlightPersisting {
         let updated = HighlightRecord(
             highlightId: record.highlightId,
             locator: record.locator,
+            anchor: record.anchor,
             profileKey: record.profileKey,
             selectedText: record.selectedText,
             color: color,

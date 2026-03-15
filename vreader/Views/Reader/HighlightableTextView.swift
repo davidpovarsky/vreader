@@ -76,6 +76,8 @@ final class HighlightableTextView: UITextView {
 
     /// Guard flag to suppress delegate callbacks during source text replacement.
     var isReplacingText = false
+    /// Stores the most recently set persisted highlight ranges (separate from active).
+    private var storedPersistedRanges: [NSRange] = []
 
     /// Creates a text view with HighlightingLayoutManager for safe highlight drawing.
     convenience init() {
@@ -98,10 +100,17 @@ final class HighlightableTextView: UITextView {
         contentOffset = savedOffset
     }
 
+    /// Clears the active search highlight, preserving persisted highlights.
+    /// Called by scroll/tap handlers to dismiss temporary search navigation highlights.
+    func clearSearchHighlight() {
+        setHighlightRanges(persisted: storedPersistedRanges, active: nil)
+    }
+
     /// Updates highlight visualization via the layout manager's drawing layer.
     /// NEVER modifies text storage — completely avoids the crash chain (bug #47 v12).
     func setHighlightRanges(persisted: [NSRange], active: NSRange?) {
         guard let lm = layoutManager as? HighlightingLayoutManager else { return }
+        storedPersistedRanges = persisted
         var ranges = persisted
         if let active, active.length > 0,
            !ranges.contains(active) {

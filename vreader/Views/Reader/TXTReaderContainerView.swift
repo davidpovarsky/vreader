@@ -13,7 +13,8 @@
 //   (UITableView) to avoid TextKit 1 glyph storage blowup.
 //
 // @coordinates-with: TXTReaderViewModel.swift, TXTTextViewBridge.swift,
-//   TXTChunkedReaderBridge.swift, TXTTextChunker.swift, TXTAttributedStringBuilder.swift
+//   TXTChunkedReaderBridge.swift, TXTTextChunker.swift, TXTAttributedStringBuilder.swift,
+//   ReadingProgressBar.swift, ScrollProgressHelper.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -61,6 +62,10 @@ struct TXTReaderContainerView: View {
     /// Persisted highlight ranges loaded from DB on file open (bug #55).
     @State private var persistedHighlightRanges: [NSRange] = []
 
+    /// Current reading progress for the scrubber bar (0.0-1.0).
+    /// Synced from viewModel.totalProgression via onChange.
+    @State private var readingProgress: Double = 0
+
     /// Whether the loaded text exceeds the large file threshold.
     private var isLargeFile: Bool {
         viewModel.totalTextLengthUTF16 > Self.largeFileThreshold
@@ -101,10 +106,23 @@ struct TXTReaderContainerView: View {
                 Color.clear
             }
 
-            // Bottom overlay for session time and progress (bug #33)
+            // Bottom overlay for session time, progress, and scrubber (bug #33, WI-004b)
             if viewModel.textContent != nil && !viewModel.isLoading && isChromeVisible {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
+                    ReadingProgressBar(
+                        progress: $readingProgress,
+                        onSeek: { seekValue in
+                            let charOffset = ScrollProgressHelper.charOffsetFromProgress(
+                                progress: seekValue,
+                                totalLengthUTF16: viewModel.totalTextLengthUTF16
+                            )
+                            scrollToOffset = charOffset
+                        },
+                        isVisible: viewModel.totalTextLengthUTF16 > 0,
+                        label: ScrollProgressHelper.percentageLabel(readingProgress),
+                        settingsStore: settingsStore
+                    )
                     ReaderBottomOverlay(
                         progress: viewModel.totalProgression,
                         sessionTime: viewModel.sessionTimeDisplay,
@@ -196,6 +214,14 @@ struct TXTReaderContainerView: View {
                 break
             }
         }
+        .onChange(of: viewModel.totalProgression) { _, newValue in
+            readingProgress = newValue ?? 0
+            // Notify ReaderContainerView of the live position for AI panel.
+            let locator = viewModel.makeLocator()
+            NotificationCenter.default.post(
+                name: .readerPositionDidChange, object: locator
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
         }
@@ -227,7 +253,8 @@ struct TXTReaderContainerView: View {
             },
             sourceText: { [viewModel] in viewModel.textContent },
             makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
-            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) }
+            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) },
+            hapticFeedback: HapticFeedbackProvider()
         )
     }
 

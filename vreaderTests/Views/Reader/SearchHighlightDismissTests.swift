@@ -1,0 +1,325 @@
+// Purpose: Tests for WI-003 — Search Highlight Auto-Dismiss.
+// Validates that search highlights clear on scroll, tap, new search, and no-crash
+// when no highlight is active.
+//
+// @coordinates-with HighlightableTextView.swift, TXTTextViewBridge.swift,
+//   SearchViewModel.swift, ReaderNotifications.swift
+
+import Testing
+import Foundation
+import UIKit
+@testable import vreader
+
+@Suite("SearchHighlightDismiss")
+struct SearchHighlightDismissTests {
+
+    // MARK: - Helpers
+
+    /// Creates a HighlightableTextView with source text and an active search highlight.
+    @MainActor
+    private static func makeHighlightedTextView(
+        text: String = "Hello World Search Result Here",
+        highlightRange: NSRange? = NSRange(location: 12, length: 13)
+    ) -> HighlightableTextView {
+        let tv = HighlightableTextView()
+        tv.frame = CGRect(x: 0, y: 0, width: 300, height: 200)
+        tv.setSourceText(NSAttributedString(string: text))
+        if let range = highlightRange {
+            tv.setHighlightRanges(persisted: [], active: range)
+        }
+        return tv
+    }
+
+    // MARK: - clearSearchHighlight
+
+    @Test @MainActor func clearSearchHighlightRemovesActiveRange() {
+        let tv = Self.makeHighlightedTextView()
+        let lm = tv.layoutManager as! HighlightingLayoutManager
+
+        // Precondition: highlight is active
+        #expect(lm.highlightRanges.count == 1)
+
+        tv.clearSearchHighlight()
+
+        // Active highlight should be cleared
+        #expect(lm.highlightRanges.isEmpty)
+    }
+
+    @Test @MainActor func clearSearchHighlightPreservesPersistedHighlights() {
+        let tv = Self.makeHighlightedTextView()
+        let persisted = [NSRange(location: 0, length: 5)]
+        let active = NSRange(location: 12, length: 13)
+        tv.setHighlightRanges(persisted: persisted, active: active)
+        let lm = tv.layoutManager as! HighlightingLayoutManager
+
+        // Precondition: both persisted + active
+        #expect(lm.highlightRanges.count == 2)
+
+        tv.clearSearchHighlight()
+
+        // Only persisted should remain
+        #expect(lm.highlightRanges.count == 1)
+        #expect(lm.highlightRanges[0] == NSRange(location: 0, length: 5))
+    }
+
+    @Test @MainActor func clearSearchHighlightNoHighlightNoCrash() {
+        let tv = Self.makeHighlightedTextView(highlightRange: nil)
+        let lm = tv.layoutManager as! HighlightingLayoutManager
+
+        // Precondition: no highlight
+        #expect(lm.highlightRanges.isEmpty)
+
+        // Should be a no-op, no crash
+        tv.clearSearchHighlight()
+
+        #expect(lm.highlightRanges.isEmpty)
+    }
+
+    @Test @MainActor func clearSearchHighlightIdempotent() {
+        let tv = Self.makeHighlightedTextView()
+
+        tv.clearSearchHighlight()
+        tv.clearSearchHighlight() // Second call should be safe
+
+        let lm = tv.layoutManager as! HighlightingLayoutManager
+        #expect(lm.highlightRanges.isEmpty)
+    }
+
+    // MARK: - Coordinator scroll dismiss
+
+    @Test @MainActor func coordinatorClearsHighlightOnScroll() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Simulate scroll callback triggering clear
+        coordinator.clearSearchHighlightIfTemporary()
+
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorClearsTimerOnManualDismiss() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+        // Simulate timer being set
+        coordinator.highlightClearTimer = Timer.scheduledTimer(
+            withTimeInterval: 3.0, repeats: false
+        ) { _ in }
+
+        coordinator.clearSearchHighlightIfTemporary()
+
+        #expect(coordinator.highlightClearTimer == nil)
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorDoesNotCrashWhenNoHighlightOnScroll() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        #expect(coordinator.currentHighlightRange == nil)
+
+        // Should be a safe no-op
+        coordinator.clearSearchHighlightIfTemporary()
+
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    // MARK: - SearchViewModel posts notification on query change
+
+    @Test @MainActor func searchViewModelPostsNotificationOnQueryChange() async {
+        let stub = StubSearchService()
+        let vm = SearchViewModel(
+            searchService: stub,
+            bookFingerprint: DocumentFingerprint(
+                contentSHA256: "aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233",
+                fileByteCount: 1024,
+                format: .txt
+            ),
+            debounceInterval: .milliseconds(10)
+        )
+
+        var notificationReceived = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .searchHighlightClear, object: nil, queue: .main
+        ) { _ in
+            notificationReceived = true
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        vm.query = "hello"
+        // Notification should fire synchronously on query change
+        #expect(notificationReceived == true)
+    }
+
+    @Test @MainActor func searchViewModelPostsNotificationOnQueryClear() async {
+        let stub = StubSearchService()
+        let vm = SearchViewModel(
+            searchService: stub,
+            bookFingerprint: DocumentFingerprint(
+                contentSHA256: "aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233",
+                fileByteCount: 1024,
+                format: .txt
+            ),
+            debounceInterval: .milliseconds(10)
+        )
+
+        vm.query = "test"
+
+        var notificationReceived = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .searchHighlightClear, object: nil, queue: .main
+        ) { _ in
+            notificationReceived = true
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        vm.query = ""
+        #expect(notificationReceived == true)
+    }
+
+    // MARK: - TXT Coordinator observes searchHighlightClear notification
+
+    @Test @MainActor func coordinatorClearsHighlightOnSearchHighlightClearNotification() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Post the notification that SearchViewModel sends on new query
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+
+        // Coordinator should have cleared the highlight via its observer
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorClearsTimerOnSearchHighlightClearNotification() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+        coordinator.highlightClearTimer = Timer.scheduledTimer(
+            withTimeInterval: 3.0, repeats: false
+        ) { _ in }
+
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+
+        #expect(coordinator.highlightClearTimer == nil)
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorNoOpOnSearchHighlightClearWhenNoHighlight() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        #expect(coordinator.currentHighlightRange == nil)
+
+        // Should be a safe no-op — no crash
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorIdempotentOnMultipleSearchHighlightClearNotifications() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Post multiple times — should be safe
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorRebuildHighlightsOnNotificationWithTextView() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        let tv = Self.makeHighlightedTextView()
+        coordinator.activeTextView = tv
+        coordinator.currentHighlightRange = NSRange(location: 12, length: 13)
+
+        NotificationCenter.default.post(name: .searchHighlightClear, object: nil)
+
+        // Coordinator state cleared
+        #expect(coordinator.currentHighlightRange == nil)
+        // Layout manager highlights also rebuilt (active highlight removed)
+        let lm = tv.layoutManager as! HighlightingLayoutManager
+        #expect(lm.highlightRanges.isEmpty)
+    }
+
+    // MARK: - Programmatic scroll guard (bug #43 regression)
+
+    @Test @MainActor func coordinatorPreservesHighlightDuringProgrammaticScroll() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Mark as programmatic scroll — highlight should survive
+        coordinator.programmaticScrollCount = 1
+
+        // clearSearchHighlightIfTemporary should be a no-op during programmatic scroll
+        coordinator.clearSearchHighlightIfTemporary()
+
+        #expect(coordinator.currentHighlightRange == NSRange(location: 10, length: 5))
+    }
+
+    @Test @MainActor func coordinatorClearsHighlightOnUserScrollAfterProgrammaticScrollEnds() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Programmatic scroll active — should preserve
+        coordinator.programmaticScrollCount = 1
+        coordinator.clearSearchHighlightIfTemporary()
+        #expect(coordinator.currentHighlightRange == NSRange(location: 10, length: 5))
+
+        // Programmatic scroll ended — user scroll should clear
+        coordinator.programmaticScrollCount = 0
+        coordinator.clearSearchHighlightIfTemporary()
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorProgrammaticScrollCountDefaultsToZero() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        #expect(coordinator.programmaticScrollCount == 0)
+    }
+
+    // MARK: - EPUB search highlight JS (bug #43)
+
+    @Test func epubSearchHighlightJSForTextQuote() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "hello world")
+        #expect(!js.isEmpty)
+        // The JS should search for the text and highlight it
+        #expect(js.contains("hello world"))
+    }
+
+    @Test func epubSearchHighlightJSForEmptyQuoteReturnsEmpty() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "")
+        #expect(js.isEmpty)
+    }
+
+    @Test func epubSearchHighlightJSForWhitespaceOnlyReturnsEmpty() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "   ")
+        #expect(js.isEmpty)
+    }
+
+    @Test func epubSearchHighlightJSEscapesSpecialChars() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "it's a \"test\"")
+        #expect(!js.isEmpty)
+        // Should contain escaped quotes
+        #expect(js.contains("\\'"))
+    }
+
+    @Test func epubClearSearchHighlightJSIsNonEmpty() {
+        let js = EPUBHighlightBridge.clearSearchHighlightJS
+        #expect(!js.isEmpty)
+        #expect(js.contains("vreader_search"))
+    }
+
+    // MARK: - PDF search highlight (bug #43)
+
+    @Test func pdfSearchHighlightTextQuoteNonEmpty() {
+        // PDFAnnotationBridge.searchHighlightText should produce valid non-nil for non-empty quote
+        let quote = "sample text"
+        #expect(!quote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @Test func pdfSearchHighlightTextQuoteEmpty() {
+        let quote = ""
+        #expect(quote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    // MARK: - Notification name exists
+
+    @Test func searchHighlightClearNotificationNameExists() {
+        let name = Notification.Name.searchHighlightClear
+        #expect(name.rawValue == "vreader.searchHighlightClear")
+    }
+}

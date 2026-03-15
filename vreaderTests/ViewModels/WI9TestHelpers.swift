@@ -100,6 +100,7 @@ func makeHighlightRecord(
     return HighlightRecord(
         highlightId: UUID(),
         locator: loc,
+        anchor: nil,
         profileKey: "\(loc.bookFingerprint.canonicalKey):\(loc.canonicalHash)",
         selectedText: selectedText,
         color: color,

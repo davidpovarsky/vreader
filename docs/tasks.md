@@ -38,6 +38,15 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-03-15 | bug #56 | PDF crash after adding highlight and reopening — WI-008 restore flow may crash on reopen. Needs repro + crash log
+2026-03-15 | bug #57 | EPUB and TXT font sizes render differently at same setting value — font size settings implemented but inconsistent cross-format
+2026-03-15 | bug #58 | EPUB reading position only chapter-level, not intra-chapter — position save exists but loses scroll offset within chapter on reopen
+2026-03-15 | bug #59 | Gap between progress bar (WI-004) and bottom bar — layout/spacing UI bug
+2026-03-15 | feature #21 | Paginated reading mode with turnable pages — never implemented, currently scroll-only
+2026-03-15 | REOPENED bug #43 + feature #22 | "No highlighting in search results" — Two issues: (a) highlight at destination not working in TXT/EPUB/PDF = regression of bug #43; (b) search result list doesn't highlight matching text = new feature #22
+> 2026-03-15 | DUPLICATE OF feature #6 (DONE) | Library display format/sorting not remembered — Feature #6 implemented in WI-001 with PreferenceStore. If still broken after latest build, this is a regression — please retest
+> 2026-03-15 | DUPLICATE OF feature #12 (DONE, MD only) | TXT TOC generation — D3 decision: TXT TOC deferred indefinitely (no reliable heading structure). MD TOC works via WI-005
+
 2026-03-10 | feature #17 + DUPLICATE OF features #11, #13, #14 | EPUB/PDF text-like display — EPUB: highlighting/notes = feature #11 (TODO), theme/font = already works (bug #9), search = works, AI = features #13/#14 (TODO). PDF: highlighting/notes/theming = NEW feature #17 (PDFKit is read-only). Search = works
 2026-03-10 | feature #18 | AI-powered contextual translation with bilingual view — never implemented. AIService.translate() exists but not wired. Needs translation UI, bilingual layout, toggle switch, API integration (claude -p or DeepL)
 2026-03-10 | DUPLICATE OF feature #6 (expanded) | Library view persistence — sort order + display mode (grid/list) both covered by feature #6 (updated to include both)

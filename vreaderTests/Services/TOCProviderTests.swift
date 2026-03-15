@@ -166,9 +166,14 @@ struct TOCEntryTests {
         #expect(entries.isEmpty)
     }
 
-    @Test("MD TOC returns empty in V1")
-    func mdTOCEmpty() {
-        let entries = TOCBuilder.forMD()
+    @Test("MD TOC returns empty for text without headings")
+    func mdTOCEmptyWithoutHeadings() {
+        let fp = DocumentFingerprint(
+            contentSHA256: "toc_test_sha256_0000000000000000000000000000000000000000000000000",
+            fileByteCount: 1000,
+            format: .md
+        )
+        let entries = TOCBuilder.forMD(text: "No headings here.", fingerprint: fp)
         #expect(entries.isEmpty)
     }
 }

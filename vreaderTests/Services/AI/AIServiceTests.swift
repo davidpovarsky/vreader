@@ -11,7 +11,7 @@ struct AIServiceTests {
     // MARK: - Gate 1: Feature Flag
 
     @Test func featureFlagOffReturnsDisabled() async throws {
-        var flags = FeatureFlags(environment: .prod)
+        let flags = FeatureFlags(environment: .prod)
         // AI is off by default in prod
         #expect(flags.aiAssistant == false)
 
@@ -20,7 +20,6 @@ struct AIServiceTests {
             consentManager: WI11TestHelpers.makeConsentManager(hasConsent: true),
             keychainService: WI11TestHelpers.makeKeychainService()
         )
-        _ = flags // suppress mutation warning
 
         do {
             _ = try await service.sendRequest(WI11TestHelpers.makeRequest())
@@ -33,8 +32,8 @@ struct AIServiceTests {
     // MARK: - Gate 2: Consent
 
     @Test func noConsentReturnsConsentRequired() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let service = AIService(
             featureFlags: flags,
@@ -53,8 +52,8 @@ struct AIServiceTests {
     // MARK: - Gate 3: API Key
 
     @Test func noApiKeyReturnsApiKeyMissing() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let keychain = WI11TestHelpers.makeKeychainService()
         // No API key stored
@@ -76,8 +75,8 @@ struct AIServiceTests {
     // MARK: - Gate 4: Cache Hit
 
     @Test func cachedResponseReturnedWithoutProviderCall() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let stub = StubAIProvider()
         stub.stubbedResponse = WI11TestHelpers.makeResponse(content: "fresh response")
@@ -103,8 +102,8 @@ struct AIServiceTests {
     // MARK: - Gate 5: Provider Call
 
     @Test func cacheMissTriggersProviderCall() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let stub = StubAIProvider()
         stub.stubbedResponse = WI11TestHelpers.makeResponse(content: "provider response")
@@ -122,8 +121,8 @@ struct AIServiceTests {
     }
 
     @Test func providerResponseIsCached() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let stub = StubAIProvider()
         stub.stubbedResponse = WI11TestHelpers.makeResponse(content: "will be cached")
@@ -149,8 +148,8 @@ struct AIServiceTests {
     // MARK: - Provider Error Propagation
 
     @Test func providerErrorPropagated() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let stub = StubAIProvider()
         stub.stubbedError = AIError.providerError("Server error")
@@ -171,8 +170,8 @@ struct AIServiceTests {
     }
 
     @Test func rateLimitedErrorPropagated() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let stub = StubAIProvider()
         stub.stubbedError = AIError.rateLimited(retryAfterSeconds: 30)
@@ -234,8 +233,8 @@ struct AIServiceTests {
     }
 
     @Test func streamNoConsentThrows() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let service = AIService(
             featureFlags: flags,
@@ -254,8 +253,8 @@ struct AIServiceTests {
     // MARK: - Clear Cache
 
     @Test func clearCacheRemovesEntries() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let stub = StubAIProvider()
         stub.stubbedResponse = WI11TestHelpers.makeResponse(content: "response")
@@ -299,8 +298,8 @@ struct AIServiceTests {
     }
 
     @Test func consentCheckedBeforeApiKey() async throws {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.aiAssistant, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
 
         let keychain = WI11TestHelpers.makeKeychainService()
         // No API key, but also no consent
@@ -317,5 +316,36 @@ struct AIServiceTests {
         } catch let error as AIError {
             #expect(error == .consentRequired, "Consent should be checked before API key")
         }
+    }
+
+    // MARK: - Live Feature Flag (Issue 1)
+
+    @Test func featureFlagToggleLiveReflectsInService() async throws {
+        let flags = FeatureFlags(environment: .prod)
+        // Start with AI disabled
+        let stub = StubAIProvider()
+        stub.stubbedResponse = WI11TestHelpers.makeResponse(content: "response")
+
+        let service = AIService(
+            featureFlags: flags,
+            consentManager: WI11TestHelpers.makeConsentManager(hasConsent: true),
+            keychainService: WI11TestHelpers.makeKeychainService(),
+            provider: stub
+        )
+
+        // Should fail with featureDisabled
+        do {
+            _ = try await service.sendRequest(WI11TestHelpers.makeRequest())
+            #expect(Bool(false))
+        } catch let error as AIError {
+            #expect(error == .featureDisabled)
+        }
+
+        // Now enable AI on the same flags instance
+        flags.setOverride(true, for: .aiAssistant)
+
+        // Should now succeed because service reads live from the reference
+        let result = try await service.sendRequest(WI11TestHelpers.makeRequest())
+        #expect(result.content == "response")
     }
 }

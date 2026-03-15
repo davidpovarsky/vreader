@@ -9,8 +9,6 @@ struct VReaderApp: App {
     private let contentView: ContentView?
     /// App configuration resolved from build settings.
     private let appConfig: AppConfiguration
-    /// Runtime feature flags based on environment.
-    private let featureFlags: FeatureFlags
 
     #if DEBUG
     /// Parsed launch argument overrides for UI testing.
@@ -20,7 +18,7 @@ struct VReaderApp: App {
     init() {
         let resolvedConfig = AppConfiguration()
         self.appConfig = resolvedConfig
-        self.featureFlags = FeatureFlags(environment: resolvedConfig.environment)
+        FeatureFlags.shared.configure(environment: resolvedConfig.environment)
 
         #if DEBUG
         let config = TestLaunchConfig.parse(ProcessInfo.processInfo.arguments)
@@ -36,7 +34,7 @@ struct VReaderApp: App {
         #endif
 
         do {
-            let schema = Schema(SchemaV1.models)
+            let schema = Schema(SchemaV2.models)
 
             #if DEBUG
             // Use in-memory store for UI testing to ensure clean state

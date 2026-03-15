@@ -4,10 +4,12 @@
 // Key decisions:
 // - Actor-based for thread safety with cache and provider.
 // - Gate order is strict: disabled flag short-circuits before consent check, etc.
+// - Feature flags are read from FeatureFlags instance (live reference, not a copy).
 // - Cache is checked before making any network call.
 // - Successful provider responses are cached automatically.
 // - Streaming bypasses cache (streams cannot be cached mid-flight).
 // - Provider is injected for testability.
+// - AIConfigurationStore provides model/temperature/endpoint for provider creation.
 //
 // @coordinates-with: AIProvider.swift, AIResponseCache.swift, AIConsentManager.swift
 
@@ -21,7 +23,8 @@ actor AIService {
     private let keychainService: KeychainService
     private let cache: AIResponseCache
     private let provider: (any AIProvider)?
-    private let providerFactory: (@Sendable (String) -> any AIProvider)?
+    private let providerFactory: (@Sendable (String, AIConfiguration) -> any AIProvider)?
+    private let configurationStore: AIConfigurationStore
 
     /// Keychain account name for the AI API key.
     static let apiKeyAccount = "com.vreader.ai.apiKey"
@@ -29,19 +32,21 @@ actor AIService {
     /// Creates an AIService with explicit dependencies.
     ///
     /// - Parameters:
-    ///   - featureFlags: Feature flags to check AI enablement.
+    ///   - featureFlags: Feature flags to check AI enablement. Uses live reference.
     ///   - consentManager: Manages user consent state.
     ///   - keychainService: Provides API key storage.
     ///   - cache: Response cache.
     ///   - provider: Optional pre-built provider (for testing). If nil, providerFactory is used.
-    ///   - providerFactory: Creates a provider from an API key. Used when provider is nil.
+    ///   - providerFactory: Creates a provider from an API key and configuration.
+    ///   - configurationStore: Provides model/temperature/endpoint configuration.
     init(
         featureFlags: FeatureFlags,
         consentManager: AIConsentManager,
         keychainService: KeychainService,
         cache: AIResponseCache = AIResponseCache(),
         provider: (any AIProvider)? = nil,
-        providerFactory: (@Sendable (String) -> any AIProvider)? = nil
+        providerFactory: (@Sendable (String, AIConfiguration) -> any AIProvider)? = nil,
+        configurationStore: AIConfigurationStore = AIConfigurationStore()
     ) {
         self.featureFlags = featureFlags
         self.consentManager = consentManager
@@ -49,6 +54,7 @@ actor AIService {
         self.cache = cache
         self.provider = provider
         self.providerFactory = providerFactory
+        self.configurationStore = configurationStore
     }
 
     /// Sends a non-streaming AI request through all gates.
@@ -64,7 +70,7 @@ actor AIService {
     /// - Returns: The AI response (from cache or provider).
     /// - Throws: `AIError` at any failed gate.
     func sendRequest(_ request: AIRequest) async throws -> AIResponse {
-        // Gate 1: Feature flag
+        // Gate 1: Feature flag (live read from reference type)
         guard featureFlags.aiAssistant else {
             throw AIError.featureDisabled
         }
@@ -94,7 +100,7 @@ actor AIService {
     /// - Returns: An async stream of response chunks.
     /// - Throws: `AIError` at any failed gate (before streaming begins).
     func streamRequest(_ request: AIRequest) throws -> AsyncThrowingStream<AIStreamChunk, Error> {
-        // Gate 1: Feature flag
+        // Gate 1: Feature flag (live read from reference type)
         guard featureFlags.aiAssistant else {
             throw AIError.featureDisabled
         }
@@ -131,6 +137,7 @@ actor AIService {
             throw AIError.providerError("No AI provider configured.")
         }
 
-        return factory(apiKey)
+        let config = configurationStore.load()
+        return factory(apiKey, config)
     }
 }

@@ -37,16 +37,16 @@ struct SyncServiceTests {
     // MARK: - Feature Flag Enabled
 
     @Test func syncMetadataReturnsIdleWhenEnabled() async {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
         let service = SyncService(featureFlags: flags)
         let result = await service.syncMetadata(for: SyncTestHelpers.fingerprintA.canonicalKey)
         #expect(result == .success)
     }
 
     @Test func requestFileDownloadReturnsQueuedWhenEnabled() async {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
         let service = SyncService(featureFlags: flags)
         let result = await service.requestFileDownload(
             bookFingerprintKey: SyncTestHelpers.fingerprintA.canonicalKey
@@ -55,8 +55,8 @@ struct SyncServiceTests {
     }
 
     @Test func syncStatusIsIdleWhenEnabled() async {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
         let service = SyncService(featureFlags: flags)
         let status = await service.syncStatus
         #expect(status == .idle)
@@ -101,8 +101,8 @@ struct SyncServiceTests {
     // MARK: - File Availability in SyncService
 
     @Test func fileAvailabilityDefaultIsMetadataOnly() async {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
         let service = SyncService(featureFlags: flags)
         let state = await service.fileAvailability(
             for: SyncTestHelpers.fingerprintA.canonicalKey
@@ -111,8 +111,8 @@ struct SyncServiceTests {
     }
 
     @Test func fileAvailabilityTransitionsOnDownloadRequest() async {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
         let service = SyncService(featureFlags: flags)
         _ = await service.requestFileDownload(
             bookFingerprintKey: SyncTestHelpers.fingerprintA.canonicalKey
@@ -126,8 +126,8 @@ struct SyncServiceTests {
     // MARK: - Empty/Edge inputs
 
     @Test func syncMetadataWithEmptyKeyStillWorks() async {
-        var flags = FeatureFlags(environment: .prod)
-        flags.setOverride(.sync, value: true)
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .sync)
         let service = SyncService(featureFlags: flags)
         let result = await service.syncMetadata(for: "")
         #expect(result == .success)

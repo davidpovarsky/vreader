@@ -16,9 +16,9 @@ struct AIAssistantViewModelTests {
         hasConsent: Bool = true,
         provider: StubAIProvider? = nil
     ) -> (AIAssistantViewModel, StubAIProvider) {
-        var flags = FeatureFlags(environment: .prod)
+        let flags = FeatureFlags(environment: .prod)
         if featureEnabled {
-            flags.setOverride(.aiAssistant, value: true)
+            flags.setOverride(true, for: .aiAssistant)
         }
 
         let stub = provider ?? StubAIProvider()

@@ -33,6 +33,7 @@ extension PersistenceActor: LibraryPersisting {
                 author: book.author,
                 coverImagePath: book.coverImagePath,
                 format: book.format,
+                fileByteCount: book.fileByteCount,
                 addedAt: book.addedAt,
                 lastOpenedAt: book.lastOpenedAt,
                 isFavorite: book.isFavorite,

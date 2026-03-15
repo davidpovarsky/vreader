@@ -1,15 +1,19 @@
 // Purpose: Main library view displaying the user's book collection.
 // Supports grid/list toggle, sorting, pull-to-refresh, swipe-to-delete,
-// and empty state with onboarding CTA.
+// context menu with Info/Share/Delete, empty state with onboarding CTA,
+// and general AI chat entry point (WI-013).
 //
 // Key decisions:
 // - Uses .refreshable for pull-to-refresh (delegates to ViewModel throttle).
 // - Grid uses adaptive columns for responsive layout.
 // - Sort picker and view mode toggle in toolbar.
 // - Empty state shown when library is empty.
+// - Context menu provides Info, Share, and Delete actions.
 // - Delete via context menu (grid) and swipe actions (list).
+// - AI chat button shown conditionally (feature flag + API key).
 //
-// @coordinates-with: LibraryViewModel.swift, BookCardView.swift, BookRowView.swift, ReaderContainerView.swift
+// @coordinates-with: LibraryViewModel.swift, BookCardView.swift, BookRowView.swift,
+//   ReaderContainerView.swift, BookInfoSheet.swift, SettingsView.swift, AIChatView.swift
 
 import SwiftUI
 import Combine
@@ -19,7 +23,11 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @State private var viewModel: LibraryViewModel
     @State private var bookToDelete: LibraryBookItem?
+    @State private var bookForInfo: LibraryBookItem?
+    @State private var bookToShare: LibraryBookItem?
     @State private var isShowingImporter = false
+    @State private var isShowingSettings = false
+    @State private var isShowingAIChat = false
     let syncMonitor: SyncStatusMonitor?
 
     init(viewModel: LibraryViewModel, syncMonitor: SyncStatusMonitor? = nil) {
@@ -88,6 +96,30 @@ struct LibraryView: View {
                     Text("Are you sure you want to delete \"\(book.title)\"? This cannot be undone.")
                 }
             }
+            .sheet(item: $bookForInfo) { book in
+                BookInfoSheet(book: book)
+            }
+            .sheet(item: $bookToShare) { book in
+                ShareSheet(book: book)
+            }
+            .sheet(isPresented: $isShowingSettings) {
+                SettingsView()
+            }
+            .sheet(isPresented: $isShowingAIChat) {
+                NavigationStack {
+                    AIChatView(viewModel: makeGeneralChatViewModel())
+                        .navigationTitle("AI Chat")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Done") {
+                                    isShowingAIChat = false
+                                }
+                                .accessibilityIdentifier("aiChatDoneButton")
+                            }
+                        }
+                }
+            }
             .fileImporter(
                 isPresented: $isShowingImporter,
                 allowedContentTypes: Self.importableTypes,
@@ -137,7 +169,7 @@ struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        deleteButton(for: book)
+                        bookContextMenu(for: book)
                     }
                     .accessibilityIdentifier("bookCard_\(book.fingerprintKey)")
                     .accessibilityLabel(AccessibilityFormatters.accessibleBookDescription(
@@ -158,6 +190,9 @@ struct LibraryView: View {
             ForEach(viewModel.books) { book in
                 NavigationLink(value: book) {
                     BookRowView(book: book)
+                }
+                .contextMenu {
+                    bookContextMenu(for: book)
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     deleteButton(for: book)
@@ -208,9 +243,31 @@ struct LibraryView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                isShowingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("Settings")
+            .accessibilityIdentifier("settingsToolbarButton")
+        }
+
         if let syncMonitor {
             ToolbarItem(placement: .topBarLeading) {
                 SyncStatusView(monitor: syncMonitor)
+            }
+        }
+
+        if isAIChatAvailable {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isShowingAIChat = true
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                }
+                .accessibilityLabel("AI Chat")
+                .accessibilityIdentifier("aiChatToolbarButton")
             }
         }
 
@@ -253,7 +310,26 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: - Delete Actions
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private func bookContextMenu(for book: LibraryBookItem) -> some View {
+        Button {
+            bookForInfo = book
+        } label: {
+            Label("Info", systemImage: "info.circle")
+        }
+
+        Button {
+            bookToShare = book
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+
+        Divider()
+
+        deleteButton(for: book)
+    }
 
     private func deleteButton(for book: LibraryBookItem) -> some View {
         Button(role: .destructive) {
@@ -261,6 +337,33 @@ struct LibraryView: View {
         } label: {
             Label("Delete", systemImage: "trash")
         }
+    }
+
+    // MARK: - AI Chat
+
+    /// Whether the AI chat button should be visible in the toolbar.
+    private var isAIChatAvailable: Bool {
+        AIReaderAvailability.isAvailable(
+            featureFlags: FeatureFlags.shared,
+            keychainService: KeychainService()
+        )
+    }
+
+    /// Creates an AIChatViewModel for general (non-book) chat.
+    private func makeGeneralChatViewModel() -> AIChatViewModel {
+        let service = AIService(
+            featureFlags: FeatureFlags.shared,
+            consentManager: AIConsentManager(),
+            keychainService: KeychainService(),
+            providerFactory: { apiKey, config in
+                OpenAICompatibleProvider(
+                    baseURL: config.endpoint,
+                    apiKey: apiKey,
+                    model: config.model
+                )
+            }
+        )
+        return AIChatViewModel(aiService: service, bookFingerprint: nil)
     }
 
     // MARK: - Helpers

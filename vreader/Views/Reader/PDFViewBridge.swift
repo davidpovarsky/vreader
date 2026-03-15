@@ -35,6 +35,9 @@ struct PDFViewBridge: UIViewRepresentable {
     var pendingHighlight: PDFHighlightNotificationPayload?
     /// Incremented each time a new highlight is created, to trigger processing in updateUIView.
     var pendingHighlightId: Int = 0
+    /// Temporary search highlight text to find and select on the current page (bug #43).
+    /// When set, updateUIView uses PDFDocument.findString to locate and select the text.
+    var searchHighlightText: String?
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -128,6 +131,47 @@ struct PDFViewBridge: UIViewRepresentable {
                 highlight.anchor, color: highlight.color, in: document
             )
         }
+
+        // Temporary search highlight via text selection (bug #43)
+        if let searchText = searchHighlightText,
+           searchText != context.coordinator.lastSearchHighlightText,
+           let document = pdfView.document,
+           !document.isLocked {
+            context.coordinator.lastSearchHighlightText = searchText
+            // Issue 7: Cancel any previous clear timer to prevent stale timer
+            // from clearing the wrong selection during fast navigation.
+            context.coordinator.clearSearchWorkItem?.cancel()
+            // Delay slightly to allow page navigation to complete before searching
+            let pdfViewRef = pdfView
+            let coordinator = context.coordinator
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let selections = document.findString(searchText, withOptions: .caseInsensitive)
+                // Issue 1: Filter selections to the current (target) page.
+                // findString returns matches across the entire document. For duplicate
+                // quotes, pick the match on the page we just navigated to.
+                let targetPage = pdfViewRef.currentPage
+                let match = selections.first(where: { sel in
+                    guard let targetPage else { return true }
+                    return sel.pages.contains(targetPage)
+                }) ?? selections.first
+                if let match {
+                    // Issue 2: Suppress selectionDidChange while setting search selection.
+                    coordinator.isSearchHighlighting = true
+                    pdfViewRef.setCurrentSelection(match, animate: true)
+                    coordinator.isSearchHighlighting = false
+                    // Issue 7: Use cancellable DispatchWorkItem for auto-clear.
+                    let clearItem = DispatchWorkItem { [weak pdfViewRef, weak coordinator] in
+                        pdfViewRef?.clearSelection()
+                        // Issue 6: Reset lastSearchHighlightText so the same quote
+                        // can be navigated to again after the highlight clears.
+                        coordinator?.lastSearchHighlightText = nil
+                        coordinator?.clearSearchWorkItem = nil
+                    }
+                    coordinator.clearSearchWorkItem = clearItem
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: clearItem)
+                }
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -187,6 +231,17 @@ struct PDFViewBridge: UIViewRepresentable {
         var didRestoreHighlights: Bool = false
         /// Tracks the last processed pending highlight ID to avoid re-creating.
         var lastPendingHighlightId: Int = 0
+        /// Tracks the last search highlight text to avoid re-processing (bug #43).
+        /// Reset to nil when the auto-clear timer fires so the same quote can be
+        /// navigated to again (Issue 6).
+        var lastSearchHighlightText: String?
+        /// When true, suppresses selectionDidChange from posting .readerTextSelected
+        /// (prevents search highlight from opening the highlight action sheet).
+        var isSearchHighlighting: Bool = false
+        /// Cancellable work item for the selection auto-clear timer (Issue 7).
+        /// Stored so a new search highlight can cancel the previous timer, preventing
+        /// a stale timer from clearing the wrong selection.
+        var clearSearchWorkItem: DispatchWorkItem?
 
         @objc func pageDidChange(_ notification: Notification) {
             guard let pdfView,
@@ -199,6 +254,10 @@ struct PDFViewBridge: UIViewRepresentable {
         }
 
         @objc func selectionDidChange(_ notification: Notification) {
+            // Skip posting the text selection notification when a search highlight
+            // is being programmatically applied (Issue 2 — avoids opening highlight sheet).
+            guard !isSearchHighlighting else { return }
+
             guard let pdfView,
                   let selection = pdfView.currentSelection,
                   let selectedText = selection.string,
@@ -272,6 +331,10 @@ struct PDFViewBridge: UIViewRepresentable {
         }
 
         deinit {
+            MainActor.assumeIsolated {
+                clearSearchWorkItem?.cancel()
+                clearSearchWorkItem = nil
+            }
             NotificationCenter.default.removeObserver(self)
         }
     }

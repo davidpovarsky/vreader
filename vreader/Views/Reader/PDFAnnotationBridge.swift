@@ -24,6 +24,7 @@ enum PDFAnnotationBridge {
     // MARK: - Highlight Creation
 
     /// Creates PDFAnnotation highlights on a page, one per rect.
+    /// Filters out rects with non-finite or negative dimensions to prevent PDFKit crashes.
     /// Returns the created annotations (already added to the page).
     @discardableResult
     static func createHighlight(
@@ -31,10 +32,11 @@ enum PDFAnnotationBridge {
         rects: [CGRect],
         color: UIColor
     ) -> [PDFAnnotation] {
-        guard !rects.isEmpty else { return [] }
+        let validRects = rects.filter { isValidRect($0) }
+        guard !validRects.isEmpty else { return [] }
 
         var annotations: [PDFAnnotation] = []
-        for rect in rects {
+        for rect in validRects {
             let annotation = PDFAnnotation(bounds: rect, forType: .highlight, withProperties: nil)
             annotation.color = color
             page.addAnnotation(annotation)
@@ -69,14 +71,33 @@ enum PDFAnnotationBridge {
     }
 
     /// Denormalizes 0-1 rects back to page-space using page bounds.
+    /// Returns empty array if page bounds have zero dimensions.
+    /// Filters out input rects with non-finite or negative values (bug #56).
     static func denormalizeRects(_ rects: [CGRect], pageBounds: CGRect) -> [CGRect] {
-        return rects.map { rect in
+        guard pageBounds.width > 0, pageBounds.height > 0 else { return [] }
+
+        return rects.compactMap { rect in
+            guard isValidRect(rect) else { return nil }
             let x = pageBounds.origin.x + rect.origin.x * pageBounds.width
             let y = pageBounds.origin.y + rect.origin.y * pageBounds.height
             let w = rect.width * pageBounds.width
             let h = rect.height * pageBounds.height
-            return CGRect(x: x, y: y, width: w, height: h)
+            let result = CGRect(x: x, y: y, width: w, height: h)
+            // Double-check: multiplication could produce non-finite if pageBounds is extreme
+            guard isValidRect(result) else { return nil }
+            return result
         }
+    }
+
+    // MARK: - Rect Validation
+
+    /// Returns true if the rect has finite origin and non-negative finite size.
+    /// Uses `size.width`/`size.height` because `CGRect.width` auto-normalizes negatives.
+    /// Used to filter out malformed rects before creating PDF annotations (bug #56).
+    private static func isValidRect(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite && rect.origin.y.isFinite
+            && rect.size.width.isFinite && rect.size.height.isFinite
+            && rect.size.width >= 0 && rect.size.height >= 0
     }
 
     // MARK: - Color Mapping

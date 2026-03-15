@@ -56,6 +56,9 @@ struct PDFReaderContainerView: View {
     @State private var showNoteSheet = false
     /// Text input for the note being added.
     @State private var noteText = ""
+    /// Temporary search highlight text quote for navigating to search results (bug #43).
+    /// Set when receiving .readerNavigateToLocator with textQuote, cleared after display.
+    @State private var searchHighlightText: String?
 
     var body: some View {
         ZStack {
@@ -68,7 +71,8 @@ struct PDFReaderContainerView: View {
                 viewModel: viewModel,
                 highlightRecords: savedHighlightRecords,
                 pendingHighlight: pendingHighlightPayload,
-                pendingHighlightId: pendingHighlightId
+                pendingHighlightId: pendingHighlightId,
+                searchHighlightText: searchHighlightText
             )
             .ignoresSafeArea(edges: .bottom)
             .accessibilityIdentifier("pdfReaderContent")
@@ -88,7 +92,7 @@ struct PDFReaderContainerView: View {
 
             // Bottom overlay for progress bar, page indicator, and session time
             if viewModel.isDocumentLoaded && isChromeVisible {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
                     progressBar
                     bottomOverlay
@@ -160,6 +164,11 @@ struct PDFReaderContainerView: View {
                   let page = locator.page else { return }
             restoredPage = page
             viewModel.pageDidChange(to: page)
+            // Show search highlight at the match location (bug #43)
+            if let textQuote = locator.textQuote,
+               !textQuote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                searchHighlightText = textQuote
+            }
         }
         .onChange(of: viewModel.currentPageIndex) { _, _ in
             readingProgress = PDFProgressHelper.progressForPage(

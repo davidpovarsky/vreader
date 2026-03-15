@@ -68,3 +68,5 @@ Before setting a feature to `PLANNED`, fill in these fields in a sub-section und
 | 18 | AI-powered contextual translation with bilingual view | AI/* | High | DONE | WI-D00 → WI-009 → WI-010 → WI-012. BilingualView + TranslationPanel. 14 tests |
 | 19 | ~~Merged into feature #6~~ | Library/* | — | DUPLICATE | Display mode persistence merged into feature #6 (library view preferences) |
 | 20 | Sort order reset/revert to default | Library/* | Low | DONE | WI-001 (bundled with #6). "Default" option in sort picker |
+| 21 | Paginated reading mode with turnable pages | Reader/* | Medium | TODO | Scroll-only currently. User wants page-turn mode like iBooks |
+| 22 | Highlight matching text in search result list | Search/* | Low | TODO | Result rows show plain text snippets. Should bold/highlight the matching query term |

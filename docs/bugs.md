@@ -46,7 +46,20 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
-<!-- No open bugs -->
+### Bug #57 — EPUB and TXT font sizes render differently
+- **Repro**: Set font size to same value in settings, open EPUB and TXT side by side
+- **Expected**: Same visual text size
+- **Actual**: Text appears different sizes despite same setting
+
+### Bug #58 — EPUB reading position only chapter-level
+- **Repro**: Read to middle of a long EPUB chapter → close → reopen
+- **Expected**: Resumes at exact scroll position within chapter
+- **Actual**: Resumes at beginning of chapter
+
+### Bug #59 — Gap between progress bar and bottom bar
+- **Repro**: Open any book with progress bar visible
+- **Expected**: Progress bar flush with bottom bar
+- **Actual**: Visible gap between them
 
 ## Summary
 
@@ -94,7 +107,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 40 | Search navigation jumps to wrong location                                                             | Reader/*  | High     | FIXED    | Missing ensureLayout in search scroll path + missing match range in Locator; added ensureLayout + populated charRangeStart/End in resolver          |
 | 41 | Slow position restore after reopening file (regression of #38)                                        | TXT/*     | Low      | FIXED    | Phase 2 delay 0.15s + fade-in 0.15s; reduced Phase 2 to 0.05s, removed animation                                                                    |
 | 42 | Bookmarks cannot be edited or navigated                                                               | Reader/*  | High     | FIXED    | No-op onNavigate in annotations panel; wired all tabs + added bookmark rename via context menu + alert                                              |
-| 43 | Search result not highlighted when navigated                                                          | Reader/*  | Medium   | FIXED    | No visual indicator at match; added highlightRange to bridge with yellow background attribute, auto-clears after 3s                                 |
+| 43 | Search result not highlighted when navigated                                                          | Reader/*  | Medium   | FIXED    | v2: TXT scrollViewDidScroll cleared highlight during programmatic scroll — added isProgrammaticScroll guard. EPUB/PDF: added search highlight via JS injection and PDFKit findString respectively. |
 | 44 | Cannot manually highlight or add notes                                                                | Reader/*  | High     | FIXED    | No edit menu for text selection; added Highlight/Add Note to UITextView edit menu via editMenuForTextIn + NotificationCenter to container views     |
 | 45 | Books sorted by "Last Read" shows stale order                                                         | Library/* | Medium   | FIXED    | v5: recomputeStats() now always sets lastReadAt=Date() — sessions <5s were discarded leaving nil; DB now correct on refresh/restart                 |
 | 46 | Manual highlight saves record but content not highlighted                                             | Reader/*  | Medium   | FIXED    | No visual feedback on save; added immediate highlightRange set in .readerHighlightRequested handler (3s auto-clear)                                 |
@@ -107,4 +120,8 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 53 | Highlight visual not applied in large CJK TXT (chunked reader)                                        | TXT/*     | Medium   | FIXED    | Added highlightRange to chunked bridge + applyHighlight with global-to-local range conversion + 3s auto-clear timer                                 |
 | 54 | Highlight disappears in large CJK TXT after selecting other text and canceling                        | TXT/*     | Medium   | FIXED    | v2: Distinguish temporary (search) vs persistent (user) highlights — only auto-clear temporary; persistent keeps activeHighlight state indefinitely |
 | 55 | Highlights not visible when file is reopened                                                          | Reader/*  | Medium   | FIXED    | Fetch highlights from DB on file open; pass as persistedHighlights to bridges; baked into attributed string via buildHighlightedString               |
+| 56 | PDF crash after adding highlight and reopening                                                        | PDF/*     | High     | FIXED    | NaN/Inf/negative rects passed to PDFKit; added isValidRect guard in denormalizeRects + createHighlight |
+| 57 | EPUB and TXT font sizes render differently at same setting value                                      | Reader/*  | Medium   | TODO     | Font size settings exist but produce different visual sizes across formats |
+| 58 | EPUB reading position only chapter-level, not intra-chapter scroll offset                             | EPUB/*    | Medium   | TODO     | Position save loses scroll fraction within chapter on reopen |
+| 59 | Gap between progress bar and bottom bar                                                               | Reader/*  | Low      | TODO     | WI-004 progress bar has layout spacing issue |
 

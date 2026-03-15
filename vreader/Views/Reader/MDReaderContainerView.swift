@@ -61,7 +61,7 @@ struct MDReaderContainerView: View {
 
             // Bottom overlay for progress, scrubber, and session time (WI-004b)
             if viewModel.renderedText != nil && !viewModel.isLoading && isChromeVisible {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
                     ReadingProgressBar(
                         progress: $readingProgress,

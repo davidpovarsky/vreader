@@ -534,5 +534,185 @@ struct PDFAnnotationBridgeTests {
         // Zero-width rects are passed through — PDFKit handles display
         #expect(annotations.count == 1)
     }
+
+    // MARK: - Bug #56: Invalid Rect Guards
+
+    @Test("denormalizeRects filters out rects with NaN values")
+    func denormalizeFiltersNaN() {
+        let pageBounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let rects = [
+            CGRect(x: CGFloat.nan, y: 0.2, width: 0.5, height: 0.03),
+            CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.03),
+        ]
+
+        let denormalized = PDFAnnotationBridge.denormalizeRects(rects, pageBounds: pageBounds)
+
+        // NaN rect should be filtered out
+        #expect(denormalized.count == 1)
+        #expect(denormalized[0].origin.x.isFinite)
+    }
+
+    @Test("denormalizeRects filters out rects with infinite values")
+    func denormalizeFiltersInfinity() {
+        let pageBounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let rects = [
+            CGRect(x: 0.1, y: CGFloat.infinity, width: 0.5, height: 0.03),
+        ]
+
+        let denormalized = PDFAnnotationBridge.denormalizeRects(rects, pageBounds: pageBounds)
+
+        #expect(denormalized.isEmpty)
+    }
+
+    @Test("denormalizeRects filters out rects with negative width")
+    func denormalizeFiltersNegativeWidth() {
+        let pageBounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let rects = [
+            CGRect(x: 0.1, y: 0.2, width: -0.5, height: 0.03),
+        ]
+
+        let denormalized = PDFAnnotationBridge.denormalizeRects(rects, pageBounds: pageBounds)
+
+        #expect(denormalized.isEmpty)
+    }
+
+    @Test("denormalizeRects filters out rects with negative height")
+    func denormalizeFiltersNegativeHeight() {
+        let pageBounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let rects = [
+            CGRect(x: 0.1, y: 0.2, width: 0.5, height: -0.03),
+        ]
+
+        let denormalized = PDFAnnotationBridge.denormalizeRects(rects, pageBounds: pageBounds)
+
+        #expect(denormalized.isEmpty)
+    }
+
+    @Test("denormalizeRects with zero-dimension pageBounds returns empty")
+    func denormalizeZeroBoundsReturnsEmpty() {
+        let zeroBounds = CGRect(x: 0, y: 0, width: 0, height: 0)
+        let rects = [CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.03)]
+
+        let denormalized = PDFAnnotationBridge.denormalizeRects(rects, pageBounds: zeroBounds)
+
+        #expect(denormalized.isEmpty)
+    }
+
+    @Test("createHighlight filters out rects with non-finite bounds")
+    func createHighlightFiltersInvalidRects() {
+        let (_, page) = makeSinglePageDocument()
+        let rects = [
+            CGRect(x: CGFloat.nan, y: 600, width: 200, height: 20),
+            CGRect(x: 100, y: 600, width: 200, height: 20),
+        ]
+
+        let annotations = PDFAnnotationBridge.createHighlight(
+            on: page, rects: rects, color: .yellow
+        )
+
+        // Only the valid rect should produce an annotation
+        #expect(annotations.count == 1)
+        #expect(page.annotations.count == 1)
+    }
+
+    @Test("createHighlight filters out rects with negative dimensions")
+    func createHighlightFiltersNegativeDimensions() {
+        let (_, page) = makeSinglePageDocument()
+        let rects = [
+            CGRect(x: 100, y: 600, width: -200, height: 20),
+            CGRect(x: 100, y: 600, width: 200, height: -20),
+        ]
+
+        let annotations = PDFAnnotationBridge.createHighlight(
+            on: page, rects: rects, color: .yellow
+        )
+
+        #expect(annotations.isEmpty)
+        #expect(page.annotations.isEmpty)
+    }
+
+    @Test("restoreHighlights handles records with NaN rects gracefully")
+    func restoreHighlightsHandlesNaNRects() {
+        let doc = makeMultiPageDocument(pageCount: 3)
+        let record = HighlightRecord(
+            highlightId: UUID(),
+            locator: makePDFLocator(page: 0),
+            anchor: .pdf(page: 0, rects: [
+                CGRect(x: CGFloat.nan, y: 0.2, width: 0.5, height: 0.03)
+            ]),
+            profileKey: "test",
+            selectedText: "Some text",
+            color: "yellow",
+            note: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        let result = PDFAnnotationBridge.restoreHighlights(
+            for: doc, from: [record]
+        )
+
+        // Should not crash; NaN rects should be filtered out
+        #expect(result.isEmpty)
+    }
+
+    @Test("restoreHighlights with mixed valid and invalid rects restores valid ones")
+    func restoreHighlightsWithMixedRects() {
+        let doc = makeMultiPageDocument(pageCount: 3)
+        let validId = UUID()
+        let invalidId = UUID()
+        let records = [
+            HighlightRecord(
+                highlightId: validId,
+                locator: makePDFLocator(page: 0),
+                anchor: .pdf(page: 0, rects: [
+                    CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.03)
+                ]),
+                profileKey: "test",
+                selectedText: "Valid",
+                color: "yellow",
+                note: nil,
+                createdAt: Date(),
+                updatedAt: Date()
+            ),
+            HighlightRecord(
+                highlightId: invalidId,
+                locator: makePDFLocator(page: 0),
+                anchor: .pdf(page: 0, rects: [
+                    CGRect(x: CGFloat.nan, y: 0.2, width: 0.5, height: 0.03)
+                ]),
+                profileKey: "test",
+                selectedText: "Invalid",
+                color: "yellow",
+                note: nil,
+                createdAt: Date(),
+                updatedAt: Date()
+            ),
+        ]
+
+        let result = PDFAnnotationBridge.restoreHighlights(
+            for: doc, from: records
+        )
+
+        // Only the valid record should produce annotations
+        #expect(result.count == 1)
+        #expect(result[validId] != nil)
+        #expect(result[invalidId] == nil)
+    }
+
+    @Test("createHighlightFromAnchor with NaN rects returns empty")
+    func createFromAnchorWithNaNRects() {
+        let doc = makeMultiPageDocument(pageCount: 3)
+        let anchor = AnnotationAnchor.pdf(
+            page: 0,
+            rects: [CGRect(x: CGFloat.nan, y: 0.2, width: 0.5, height: 0.03)]
+        )
+
+        let annotations = PDFAnnotationBridge.createHighlightFromAnchor(
+            anchor, color: "yellow", in: doc
+        )
+
+        #expect(annotations.isEmpty)
+    }
 }
 #endif

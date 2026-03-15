@@ -108,7 +108,7 @@ struct TXTReaderContainerView: View {
 
             // Bottom overlay for session time, progress, and scrubber (bug #33, WI-004b)
             if viewModel.textContent != nil && !viewModel.isLoading && isChromeVisible {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
                     ReadingProgressBar(
                         progress: $readingProgress,

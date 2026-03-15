@@ -203,12 +203,20 @@ struct TXTTextViewBridge: UIViewRepresentable {
         if let target = scrollToOffset,
            target != context.coordinator.lastScrollToTarget {
             context.coordinator.lastScrollToTarget = target
+            // Guard highlight from being cleared by the programmatic scroll (bug #43).
+            // Issue 8: Use counter so overlapping scrolls don't clear guard too early.
+            context.coordinator.programmaticScrollCount += 1
             let textLength = (textView.text as NSString?)?.length ?? 0
             if textLength > 0 {
                 let rangeEnd = min(textLength, target + 4096)
                 textView.layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: rangeEnd))
             }
             context.coordinator.attemptScrollRestore(in: textView, toCharOffset: target)
+            // Decrement the counter after scroll settles so user scrolls can dismiss normally
+            let coordinator = context.coordinator
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                coordinator.programmaticScrollCount = max(0, coordinator.programmaticScrollCount - 1)
+            }
         }
 
         // Scroll position restore is one-shot only (handled in makeUIView).
@@ -279,6 +287,11 @@ struct TXTTextViewBridge: UIViewRepresentable {
         private static let maxRestoreRetries = 5
         var suppressScrollCallbacks = false
         var lastScrollToTarget: Int?
+        /// Guards search highlight from being cleared by programmatic scroll (bug #43 regression).
+        /// Uses a counter instead of a boolean (Issue 8) so overlapping programmatic scrolls
+        /// don't clear the guard prematurely — each scroll increments the counter, and
+        /// the guard is only lowered when all scrolls have settled (counter reaches 0).
+        var programmaticScrollCount = 0
 
         init(delegate: TXTTextViewBridgeDelegate?, config: TXTViewConfig = TXTViewConfig()) {
             self.delegate = delegate
@@ -309,7 +322,11 @@ struct TXTTextViewBridge: UIViewRepresentable {
         }
 
         /// Clears the current temporary search highlight and cancels any auto-clear timer.
+        /// Skips clearing when `programmaticScrollCount > 0` (bug #43 regression fix,
+        /// Issue 8: counter-based guard) so that search navigation scroll doesn't
+        /// immediately dismiss the highlight.
         func clearSearchHighlightIfTemporary() {
+            guard programmaticScrollCount <= 0 else { return }
             highlightClearTimer?.invalidate()
             highlightClearTimer = nil
             currentHighlightRange = nil

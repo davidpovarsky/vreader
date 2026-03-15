@@ -115,4 +115,62 @@ struct ReaderThemeTests {
     @Test func defaultThemeIsLight() {
         #expect(ReaderTheme.default == .light)
     }
+
+    // MARK: - EPUB CSS Generation
+
+    #if canImport(UIKit)
+    @Test func epubCSSIncludesExactFontSize() {
+        let css = ReaderTheme.light.epubOverrideCSS(fontSize: 22)
+        #expect(css.contains("font-size: 22.0px"), "CSS must include the exact requested font size")
+    }
+
+    @Test func epubCSSIsValidStyleTag() {
+        let css = ReaderTheme.light.epubOverrideCSS(fontSize: 18)
+        #expect(css.contains("<style id=\"vreader-theme\">"), "CSS should have an id'd style tag")
+        #expect(css.hasSuffix("</style>"), "CSS should end with </style>")
+    }
+
+    @Test func epubCSSAllThemesProduceNonEmpty() {
+        for theme in ReaderTheme.allCases {
+            let css = theme.epubOverrideCSS(fontSize: 18)
+            #expect(!css.isEmpty, "\(theme.rawValue) theme should produce non-empty CSS")
+            #expect(css.contains("background-color:"), "\(theme.rawValue) must set background-color")
+            #expect(css.contains("font-size:"), "\(theme.rawValue) must set font-size")
+        }
+    }
+
+    @Test func epubCSSContainsLinkColor() {
+        for theme in ReaderTheme.allCases {
+            let css = theme.epubOverrideCSS(fontSize: 18)
+            #expect(css.contains("a { color:"), "\(theme.rawValue) must style link color")
+        }
+    }
+
+    // Bug #57: EPUB font-size must override descendant text elements
+
+    @Test func epubCSSOverridesBodyTextElements() {
+        // EPUB stylesheets often set font-size on p, div, li etc.
+        // Our override must force these to inherit from body so the user's
+        // chosen font size actually takes effect (matching TXT behavior).
+        let css = ReaderTheme.light.epubOverrideCSS(fontSize: 20)
+        #expect(css.contains("font-size: inherit !important"), "CSS must force text elements to inherit body font-size")
+    }
+
+    @Test func epubCSSBodyTextOverrideCoversAllElements() {
+        // Issue 10: The override uses a broad "body *" selector instead of a
+        // hard-coded tag allowlist, so all descendant elements inherit the
+        // user-chosen font size. Headings get a revert rule to keep relative sizing.
+        let css = ReaderTheme.light.epubOverrideCSS(fontSize: 18)
+        #expect(css.contains("body *"), "CSS must use wildcard 'body *' for broad font-size coverage")
+        #expect(css.contains("h1,h2,h3,h4,h5,h6"), "CSS must have heading revert rule")
+        #expect(css.contains("revert"), "Headings must use 'revert' to preserve relative sizing")
+    }
+
+    @Test func epubCSSBodyTextOverrideAllThemes() {
+        for theme in ReaderTheme.allCases {
+            let css = theme.epubOverrideCSS(fontSize: 18)
+            #expect(css.contains("font-size: inherit !important"), "\(theme.rawValue) must override descendant text elements")
+        }
+    }
+    #endif
 }

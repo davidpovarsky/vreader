@@ -178,6 +178,90 @@ enum EPUBHighlightBridge {
     })();
     """
 
+    // MARK: - Search Highlight (Bug #43)
+
+    /// Generates JavaScript to find and temporarily highlight a search match in the EPUB page.
+    /// Uses window.find() to locate the text, then wraps the selection in a styled span.
+    /// The highlight auto-clears after 3 seconds.
+    /// Returns an empty string if textQuote is empty or whitespace-only.
+    ///
+    /// - Parameters:
+    ///   - textQuote: The text to search for and highlight.
+    ///   - progression: Optional scroll fraction (0.0-1.0). When provided and > 0,
+    ///     the JS scrolls to that position and clears any selection first, so
+    ///     `window.find()` starts searching from near the target location instead
+    ///     of always finding the first occurrence (Issue 4).
+    static func searchHighlightJS(textQuote: String, progression: Double? = nil) -> String {
+        let trimmed = textQuote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let escaped = jsEscape(trimmed)
+
+        // Build optional scroll-before-find block
+        let scrollBlock: String
+        if let progression, progression > 0 {
+            scrollBlock = """
+                // Issue 4: Scroll to approximate position so window.find starts near target
+                window.getSelection().removeAllRanges();
+                var docHeight = document.documentElement.scrollHeight || document.body.scrollHeight;
+                window.scrollTo(0, \(progression) * docHeight);
+            """
+        } else {
+            scrollBlock = ""
+        }
+
+        return """
+        (function() {
+            // Remove any previous search highlight
+            var existing = document.querySelectorAll('.vreader_search_highlight');
+            existing.forEach(function(el) {
+                var parent = el.parentNode;
+                while (el.firstChild) parent.insertBefore(el.firstChild, el);
+                parent.removeChild(el);
+            });
+
+            \(scrollBlock)
+            // Use window.find to locate text, then wrap selection
+            var found = window.find('\(escaped)', false, false, true);
+            if (found) {
+                var sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    var range = sel.getRangeAt(0);
+                    var span = document.createElement('span');
+                    span.className = 'vreader_search_highlight';
+                    span.style.backgroundColor = 'rgba(255, 230, 0, 0.45)';
+                    span.style.borderRadius = '2px';
+                    var contents = range.extractContents();
+                    span.appendChild(contents);
+                    range.insertNode(span);
+                    sel.removeAllRanges();
+                    span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Auto-clear after 3s
+                    setTimeout(function() {
+                        var hl = document.querySelector('.vreader_search_highlight');
+                        if (hl) {
+                            var p = hl.parentNode;
+                            while (hl.firstChild) p.insertBefore(hl.firstChild, hl);
+                            p.removeChild(hl);
+                        }
+                    }, 3000);
+                }
+            }
+        })();
+        """
+    }
+
+    /// JavaScript to clear any temporary search highlight from the EPUB page.
+    static let clearSearchHighlightJS = """
+    (function() {
+        var highlights = document.querySelectorAll('.vreader_search_highlight');
+        highlights.forEach(function(el) {
+            var parent = el.parentNode;
+            while (el.firstChild) parent.insertBefore(el.firstChild, el);
+            parent.removeChild(el);
+        });
+    })();
+    """
+
     // MARK: - Private Helpers
 
     /// Escapes a string for safe inclusion in single-quoted JS string literals.

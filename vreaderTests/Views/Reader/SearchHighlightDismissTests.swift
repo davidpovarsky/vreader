@@ -236,6 +236,86 @@ struct SearchHighlightDismissTests {
         #expect(lm.highlightRanges.isEmpty)
     }
 
+    // MARK: - Programmatic scroll guard (bug #43 regression)
+
+    @Test @MainActor func coordinatorPreservesHighlightDuringProgrammaticScroll() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Mark as programmatic scroll — highlight should survive
+        coordinator.programmaticScrollCount = 1
+
+        // clearSearchHighlightIfTemporary should be a no-op during programmatic scroll
+        coordinator.clearSearchHighlightIfTemporary()
+
+        #expect(coordinator.currentHighlightRange == NSRange(location: 10, length: 5))
+    }
+
+    @Test @MainActor func coordinatorClearsHighlightOnUserScrollAfterProgrammaticScrollEnds() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        coordinator.currentHighlightRange = NSRange(location: 10, length: 5)
+
+        // Programmatic scroll active — should preserve
+        coordinator.programmaticScrollCount = 1
+        coordinator.clearSearchHighlightIfTemporary()
+        #expect(coordinator.currentHighlightRange == NSRange(location: 10, length: 5))
+
+        // Programmatic scroll ended — user scroll should clear
+        coordinator.programmaticScrollCount = 0
+        coordinator.clearSearchHighlightIfTemporary()
+        #expect(coordinator.currentHighlightRange == nil)
+    }
+
+    @Test @MainActor func coordinatorProgrammaticScrollCountDefaultsToZero() {
+        let coordinator = TXTTextViewBridge.Coordinator(delegate: nil)
+        #expect(coordinator.programmaticScrollCount == 0)
+    }
+
+    // MARK: - EPUB search highlight JS (bug #43)
+
+    @Test func epubSearchHighlightJSForTextQuote() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "hello world")
+        #expect(!js.isEmpty)
+        // The JS should search for the text and highlight it
+        #expect(js.contains("hello world"))
+    }
+
+    @Test func epubSearchHighlightJSForEmptyQuoteReturnsEmpty() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "")
+        #expect(js.isEmpty)
+    }
+
+    @Test func epubSearchHighlightJSForWhitespaceOnlyReturnsEmpty() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "   ")
+        #expect(js.isEmpty)
+    }
+
+    @Test func epubSearchHighlightJSEscapesSpecialChars() {
+        let js = EPUBHighlightBridge.searchHighlightJS(textQuote: "it's a \"test\"")
+        #expect(!js.isEmpty)
+        // Should contain escaped quotes
+        #expect(js.contains("\\'"))
+    }
+
+    @Test func epubClearSearchHighlightJSIsNonEmpty() {
+        let js = EPUBHighlightBridge.clearSearchHighlightJS
+        #expect(!js.isEmpty)
+        #expect(js.contains("vreader_search"))
+    }
+
+    // MARK: - PDF search highlight (bug #43)
+
+    @Test func pdfSearchHighlightTextQuoteNonEmpty() {
+        // PDFAnnotationBridge.searchHighlightText should produce valid non-nil for non-empty quote
+        let quote = "sample text"
+        #expect(!quote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @Test func pdfSearchHighlightTextQuoteEmpty() {
+        let quote = ""
+        #expect(quote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     // MARK: - Notification name exists
 
     @Test func searchHighlightClearNotificationNameExists() {

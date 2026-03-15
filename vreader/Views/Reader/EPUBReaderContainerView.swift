@@ -76,9 +76,9 @@ struct EPUBReaderContainerView: View {
                 Color.clear
             }
 
-            // Bottom navigation overlay
+            // Bottom navigation overlay (Issue 9: spacing: 0 to match PDF/TXT containers)
             if viewModel.metadata != nil, !viewModel.isLoading, isChromeVisible {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
                     bottomOverlay
                 }
@@ -97,6 +97,13 @@ struct EPUBReaderContainerView: View {
                     guard !Task.isCancelled else { return }
                     resourceBase = base
                     extractedRoot = root
+                    // Restore intra-chapter scroll position (bug #58).
+                    // The restored position includes progression (0.0-1.0)
+                    // which must be passed to EPUBWebViewBridge as seekScrollFraction
+                    // so the bridge scrolls to the saved offset after loading.
+                    if firstItem.progression > 0 {
+                        seekScrollFraction = firstItem.progression
+                    }
                     contentURL = base.appendingPathComponent(firstItem.href)
                 } catch {
                     if !Task.isCancelled {
@@ -157,7 +164,26 @@ struct EPUBReaderContainerView: View {
             if let spineIndex = meta.spineItems.firstIndex(where: { $0.href == href }) {
                 viewModel.navigateToSpine(index: spineIndex)
                 webViewError = nil
+                // Issue 3: Use locator.progression to scroll within the chapter.
+                // This reuses the existing WI-004d scroll-to-fraction mechanism so
+                // the WebView lands at the correct position, not chapter top.
+                if let progression = locator.progression, progression > 0 {
+                    seekScrollFraction = progression
+                } else {
+                    seekScrollFraction = nil
+                }
                 contentURL = base.appendingPathComponent(href)
+                // Inject search highlight JS after page loads (bug #43)
+                // Issue 4: Pass progression so JS scrolls before find()
+                if let textQuote = locator.textQuote {
+                    let js = EPUBHighlightBridge.searchHighlightJS(
+                        textQuote: textQuote,
+                        progression: locator.progression
+                    )
+                    if !js.isEmpty {
+                        pendingHighlightJS = js
+                    }
+                }
             }
         }
         .confirmationDialog(

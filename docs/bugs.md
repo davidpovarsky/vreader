@@ -46,20 +46,17 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
-### Bug #57 — EPUB and TXT font sizes render differently
-- **Repro**: Set font size to same value in settings, open EPUB and TXT side by side
-- **Expected**: Same visual text size
-- **Actual**: Text appears different sizes despite same setting
+### Bug #60 — Large TXT files (~15MB) very slow to open
+- **Repro**: Open a 15MB CJK TXT file
+- **Expected**: Opens within 1-2 seconds
+- **Actual**: Long spinner, several seconds or more
+- **Root cause**: Encoding detection + full text load + FTS5 indexing all happen synchronously before UI
 
-### Bug #58 — EPUB reading position only chapter-level
-- **Repro**: Read to middle of a long EPUB chapter → close → reopen
-- **Expected**: Resumes at exact scroll position within chapter
-- **Actual**: Resumes at beginning of chapter
-
-### Bug #59 — Gap between progress bar and bottom bar
-- **Repro**: Open any book with progress bar visible
-- **Expected**: Progress bar flush with bottom bar
-- **Actual**: Visible gap between them
+### Bug #61 — Search is slow in large TXT files
+- **Repro**: Open search panel in a 15MB TXT file
+- **Expected**: Search results appear quickly
+- **Actual**: Significant delay before results
+- **Root cause**: FTS5 index built on every open, not persisted. BackgroundIndexingCoordinator exists but isn't used by reader
 
 ## Summary
 
@@ -120,8 +117,10 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 53 | Highlight visual not applied in large CJK TXT (chunked reader)                                        | TXT/*     | Medium   | FIXED    | Added highlightRange to chunked bridge + applyHighlight with global-to-local range conversion + 3s auto-clear timer                                 |
 | 54 | Highlight disappears in large CJK TXT after selecting other text and canceling                        | TXT/*     | Medium   | FIXED    | v2: Distinguish temporary (search) vs persistent (user) highlights — only auto-clear temporary; persistent keeps activeHighlight state indefinitely |
 | 55 | Highlights not visible when file is reopened                                                          | Reader/*  | Medium   | FIXED    | Fetch highlights from DB on file open; pass as persistedHighlights to bridges; baked into attributed string via buildHighlightedString               |
-| 56 | PDF crash after adding highlight and reopening                                                        | PDF/*     | High     | FIXED    | NaN/Inf/negative rects passed to PDFKit; added isValidRect guard in denormalizeRects + createHighlight |
-| 57 | EPUB and TXT font sizes render differently at same setting value                                      | Reader/*  | Medium   | TODO     | Font size settings exist but produce different visual sizes across formats |
-| 58 | EPUB reading position only chapter-level, not intra-chapter scroll offset                             | EPUB/*    | Medium   | TODO     | Position save loses scroll fraction within chapter on reopen |
-| 59 | Gap between progress bar and bottom bar                                                               | Reader/*  | Low      | TODO     | WI-004 progress bar has layout spacing issue |
+| 56 | PDF crash after adding highlight and reopening                                                        | PDF/*     | High     | FIXED    | v1: isValidRect guard. v2: SchemaV2 migration crash — changed `anchor: AnnotationAnchor?` to `anchorData: Data?` with safe @Transient getter |
+| 57 | EPUB and TXT font sizes render differently at same setting value                                      | Reader/*  | Medium   | FIXED    | EPUB CSS: `body * { font-size: inherit !important }` with `h1-h6 { font-size: revert !important }` |
+| 58 | EPUB reading position only chapter-level, not intra-chapter scroll offset                             | EPUB/*    | Medium   | FIXED    | Pass restored progression as seekScrollFraction on EPUB load |
+| 59 | Gap between progress bar and bottom bar                                                               | Reader/*  | Low      | FIXED    | VStack(spacing: 0) on all 4 format containers |
+| 60 | Large TXT files (~15MB) very slow to open                                                             | TXT/*     | High     | TODO     | Opening requires encoding detection + full text loading + FTS5 indexing. 15MB CJK = ~7.5M chars, ~470 chunks. User sees long spinner |
+| 61 | Search is slow in large TXT files (~15MB)                                                             | Search/*  | High     | TODO     | FTS5 indexing on 15MB text is expensive. Index built on every open, not persisted across sessions |
 

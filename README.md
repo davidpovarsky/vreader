@@ -12,11 +12,15 @@ VReader is a modern reading app designed for iPhone and iPad. It provides a unif
 - **Reading position persistence** — Automatically saves and restores your scroll position per book, surviving app backgrounding, kills, and relaunches
 - **CJK & encoding support** — Automatic encoding detection for GBK, Big5, Shift-JIS, EUC-KR, and other non-UTF-8 files
 - **Large file performance** — Chunked rendering (UITableView) for TXT files over 500K characters; no glyph storage blowup
-- **Bookmarks & highlights** — Save your place and annotate passages with color-coded highlights
-- **Full-text search** — Search across your entire library with SQLite FTS5 and CJK-aware tokenization
+- **Bookmarks & highlights** — Save your place and annotate passages with color-coded highlights and notes
+- **EPUB/PDF annotation** — Text selection + highlight/note actions in EPUB (CSS Highlight API) and PDF (PDFAnnotation). Persists across sessions via unified AnnotationAnchor schema
+- **Full-text search** — Search across your entire library with SQLite FTS5 and CJK-aware tokenization. Highlights match at destination
+- **Reading progress bar** — Draggable scrubber in all 4 formats: continuous for TXT/MD, page-based for PDF, chapter-based for EPUB
+- **Table of contents** — Auto-generated for Markdown (heading extraction), built-in for EPUB/PDF
+- **AI assistant** — Summarize sections, multi-turn chat with book context, bilingual translation (9 languages), general AI chat. OpenAI-compatible API
 - **Reading time tracking** — Automatic session tracking with per-book statistics and reading speed calculations
 - **Reader settings** — Configurable font size, font family, line spacing, letter spacing, and theme
-- **iCloud sync** — Library, bookmarks, highlights, and reading progress sync across devices via SwiftData + CloudKit
+- **Library management** — Grid/list view with persistent preferences, book info sheet, share, context menu
 - **Import from anywhere** — Open files via Share Sheet, Files app, or direct download
 
 ## Tech Stack
@@ -25,11 +29,12 @@ VReader is a modern reading app designed for iPhone and iPad. It provides a unif
 | ----------- | -------------------------------------------------- |
 | UI          | SwiftUI                                            |
 | Persistence | SwiftData + CloudKit                               |
-| EPUB        | WKWebView bridge with CSS theme injection          |
-| PDF         | PDFKit                                             |
+| EPUB        | WKWebView bridge with CSS theme injection + JS highlight API |
+| PDF         | PDFKit + PDFAnnotation for highlights              |
 | TXT         | TextKit 1 (UITextView) + chunked UITableView       |
 | Markdown    | NSAttributedString rendering via MDParser           |
 | Search      | SQLite FTS5 with CJK tokenization                  |
+| AI          | OpenAI-compatible API (summarize, chat, translate) |
 | Encoding    | ICU + heuristic detection (UTF-8/GBK/Big5/Shift-JIS) |
 | Concurrency | Swift 6 strict concurrency                         |
 | Project gen | XcodeGen                                           |
@@ -60,17 +65,20 @@ vreader/
 ├── Models/              # SwiftData models (Book, ReadingPosition, Bookmark, etc.)
 ├── Views/
 │   ├── Reader/          # Reader views per format (EPUB, PDF, TXT, MD)
-│   └── ...              # Library, settings, annotations
+│   ├── Library/          # Library views, book info, context menu
+│   ├── Settings/         # AI settings, preferences
+│   └── AI/               # Chat view
 ├── ViewModels/          # Per-reader and per-feature view models
 ├── Services/
 │   ├── EPUB/            # EPUB parsing and rendering
 │   ├── TXT/             # TXT service, chunker, attributed string builder
 │   ├── MD/              # Markdown parser and renderer
 │   ├── Search/          # FTS5 indexing, text extraction, tokenization
+│   ├── AI/              # AI service, configuration, context extraction
 │   ├── Sync/            # iCloud sync coordination
 │   └── Locator/         # Reading position model (Readium-inspired)
 └── Utils/               # Helpers, extensions, encoding detection
-vreaderTests/            # Unit tests (1400+ test cases)
+vreaderTests/            # Unit tests (2040+ test cases)
 vreaderUITests/          # UI tests (XCTest)
 ```
 

@@ -329,6 +329,7 @@
 		SPIKEC003A1B2C3D4E5F60003 /* SchemaV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPIKEC004A1B2C3D4E5F60004 /* SchemaV2.swift */; };
 		SPIKEC005A1B2C3D4E5F60005 /* V1toV2Migration.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPIKEC006A1B2C3D4E5F60006 /* V1toV2Migration.swift */; };
 		SPIKEC007A1B2C3D4E5F60007 /* AnnotationAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPIKEC008A1B2C3D4E5F60008 /* AnnotationAnchorTests.swift */; };
+		58CD1569690CE7C356C1EB08 /* HighlightAnchorStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A794708164DDDF9736D5FE7 /* HighlightAnchorStorageTests.swift */; };
 		SPIKEC009A1B2C3D4E5F60009 /* V1toV2MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPIKEC00AA1B2C3D4E5F6000A /* V1toV2MigrationTests.swift */; };
 		SPIKEC00BA1B2C3D4E5F6000B /* ReaderSelectionEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPIKEC00CA1B2C3D4E5F6000C /* ReaderSelectionEventTests.swift */; };
 		SPIKEC00DA1B2C3D4E5F6000D /* HighlightRecordAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPIKEC00EA1B2C3D4E5F6000E /* HighlightRecordAnchorTests.swift */; };
@@ -711,6 +712,7 @@
 		SPIKEC004A1B2C3D4E5F60004 /* SchemaV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaV2.swift; sourceTree = "<group>"; };
 		SPIKEC006A1B2C3D4E5F60006 /* V1toV2Migration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V1toV2Migration.swift; sourceTree = "<group>"; };
 		SPIKEC008A1B2C3D4E5F60008 /* AnnotationAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationAnchorTests.swift; sourceTree = "<group>"; };
+		6A794708164DDDF9736D5FE7 /* HighlightAnchorStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightAnchorStorageTests.swift; sourceTree = "<group>"; };
 		SPIKEC00AA1B2C3D4E5F6000A /* V1toV2MigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V1toV2MigrationTests.swift; sourceTree = "<group>"; };
 		SPIKEC00CA1B2C3D4E5F6000C /* ReaderSelectionEventTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSelectionEventTests.swift; sourceTree = "<group>"; };
 		SPIKEC00EA1B2C3D4E5F6000E /* HighlightRecordAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightRecordAnchorTests.swift; sourceTree = "<group>"; };
@@ -1559,6 +1561,7 @@
 		SPIKEC010A1B2C3D4E5F60010 /* Migration */ = {
 			isa = PBXGroup;
 			children = (
+				6A794708164DDDF9736D5FE7 /* HighlightAnchorStorageTests.swift */,
 				SPIKEC00AA1B2C3D4E5F6000A /* V1toV2MigrationTests.swift */,
 			);
 			path = Migration;
@@ -1721,6 +1724,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				SPIKEC007A1B2C3D4E5F60007 /* AnnotationAnchorTests.swift in Sources */,
+				58CD1569690CE7C356C1EB08 /* HighlightAnchorStorageTests.swift in Sources */,
 				SPIKEC009A1B2C3D4E5F60009 /* V1toV2MigrationTests.swift in Sources */,
 				SPIKEC00BA1B2C3D4E5F6000B /* ReaderSelectionEventTests.swift in Sources */,
 				WI008003A1B2C3D4E5F60003 /* PDFAnnotationBridgeTests.swift in Sources */,

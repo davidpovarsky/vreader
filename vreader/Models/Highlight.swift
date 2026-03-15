@@ -3,6 +3,11 @@
 // or href+CFI for EPUB. Optionally carries an AnnotationAnchor for
 // format-specific precise range restoration (SchemaV2).
 //
+// Key decisions:
+// - anchorData is stored as raw Data? to avoid SwiftData Codable enum decode
+//   crashes on legacy rows that lack the column. The computed `anchor` property
+//   decodes with try?, returning nil on failure (corrupted or missing data).
+//
 // @coordinates-with: AnnotationAnchor.swift, HighlightRecord.swift,
 //   PersistenceActor+Highlights.swift
 
@@ -20,10 +25,11 @@ final class Highlight {
     /// Mutate via `updateLocator(_:)` — SwiftData `didSet` is unreliable.
     private(set) var locator: Locator
 
-    /// Format-specific anchor for precise range restoration.
-    /// Optional — nil for pre-SchemaV2 highlights (backward compatibility).
-    /// Stored as a JSON blob by SwiftData via Codable conformance.
-    private(set) var anchor: AnnotationAnchor?
+    /// Raw JSON bytes for the format-specific anchor.
+    /// SwiftData stores/reads this as a simple Data? column, avoiding Codable
+    /// enum decode crashes on legacy rows. Use the computed `anchor` property
+    /// for typed access.
+    var anchorData: Data?
 
     /// The highlighted text content.
     var selectedText: String
@@ -34,6 +40,15 @@ final class Highlight {
     var note: String?
     var createdAt: Date
     var updatedAt: Date
+
+    // MARK: - Computed Anchor
+
+    /// Decoded anchor from `anchorData`. Returns nil when data is missing,
+    /// empty, or corrupted — never crashes.
+    @Transient var anchor: AnnotationAnchor? {
+        guard let data = anchorData, !data.isEmpty else { return nil }
+        return try? JSONDecoder().decode(AnnotationAnchor.self, from: data)
+    }
 
     // MARK: - Explicit Sync
 
@@ -46,9 +61,13 @@ final class Highlight {
     }
 
     /// Updates the anchor for precise range restoration.
-    /// Use this instead of setting `anchor` directly — SwiftData `didSet` is unreliable.
+    /// Encodes the anchor to JSON bytes for safe SwiftData storage.
     func updateAnchor(_ newAnchor: AnnotationAnchor?) {
-        anchor = newAnchor
+        if let newAnchor {
+            anchorData = try? JSONEncoder().encode(newAnchor)
+        } else {
+            anchorData = nil
+        }
         updatedAt = Date()
     }
 
@@ -70,7 +89,11 @@ final class Highlight {
         self.highlightId = highlightId
         self.profileKey = "\(locator.bookFingerprint.canonicalKey):\(locator.canonicalHash)"
         self.locator = locator
-        self.anchor = anchor
+        if let anchor {
+            self.anchorData = try? JSONEncoder().encode(anchor)
+        } else {
+            self.anchorData = nil
+        }
         self.selectedText = selectedText
         self.color = color
         self.note = note

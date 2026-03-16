@@ -39,6 +39,10 @@ extension Notification.Name {
     /// The notification's `object` is the current `Locator`.
     /// ReaderContainerView observes this to pass the live locator to the AI panel.
     static let readerPositionDidChange = Notification.Name("vreader.readerPositionDidChange")
+    /// Posted by TapZoneOverlay when the user taps the "previous page" zone.
+    static let readerPreviousPage = Notification.Name("vreader.readerPreviousPage")
+    /// Posted by TapZoneOverlay when the user taps the "next page" zone.
+    static let readerNextPage = Notification.Name("vreader.readerNextPage")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

@@ -43,6 +43,12 @@ extension Notification.Name {
     static let readerPreviousPage = Notification.Name("vreader.readerPreviousPage")
     /// Posted by TapZoneOverlay when the user taps the "next page" zone.
     static let readerNextPage = Notification.Name("vreader.readerNextPage")
+    /// Posted by text view bridges when the user selects "Define" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerDefineRequested = Notification.Name("vreader.readerDefineRequested")
+    /// Posted by text view bridges when the user selects "Translate" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerTranslateRequested = Notification.Name("vreader.readerTranslateRequested")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

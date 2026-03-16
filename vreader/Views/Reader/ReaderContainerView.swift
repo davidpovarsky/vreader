@@ -10,7 +10,7 @@
 // - Format host views (TXTReaderHost, etc.) extracted to ReaderFormatHosts.swift (WI-004).
 // - AnnotationsPanelView extracted to AnnotationsPanelView.swift (WI-004).
 // - Provides navigation bar with back button, search, bookmark, annotations, AI, settings.
-// - TOC entries computed per format: EPUB from spine items, PDF from outline tree.
+// - TOC entries computed per format: EPUB from spine items, PDF from outline tree, TXT from Legado rules.
 // - Search sheet wired with SearchService, SearchViewModel, and SearchView.
 // - Book content is indexed for search on first open using format-specific extractors.
 // - AI button conditionally shown when feature flag is ON and API key exists (WI-010).
@@ -51,6 +51,8 @@ struct ReaderContainerView: View {
     @State private var showAnnotationsPanel = false
     @State private var showSearch = false
     @State private var showAIPanel = false
+    @State private var showDictionary = false
+    @State private var dictionaryWord: String = ""
     @State private var searchViewModel: SearchViewModel?
     @State private var searchService: SearchService?
     @State private var aiViewModel: AIAssistantViewModel?
@@ -179,6 +181,24 @@ struct ReaderContainerView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerDefineRequested)) { notification in
+            guard let info = notification.object as? TextSelectionInfo else { return }
+            if let word = DictionaryLookup.extractWord(from: info.selectedText) {
+                dictionaryWord = word
+                showDictionary = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerTranslateRequested)) { notification in
+            guard let info = notification.object as? TextSelectionInfo else { return }
+            setupAIViewModelIfNeeded()
+            if let transVM = translationViewModel {
+                transVM.originalText = info.selectedText
+            }
+            showAIPanel = true
+        }
+        .sheet(isPresented: $showDictionary) {
+            DictionarySheet(word: dictionaryWord)
         }
         .task {
             setupAIViewModelIfNeeded()
@@ -625,7 +645,12 @@ struct ReaderContainerView: View {
             }.value
 
         case "txt":
-            return []
+            do {
+                let text = try String(contentsOf: fileURL, encoding: .utf8)
+                return TOCBuilder.forTXT(text: text, fingerprint: fingerprint)
+            } catch {
+                return []
+            }
 
         case "md":
             do {

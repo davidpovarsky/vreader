@@ -61,6 +61,10 @@ struct ReaderContainerView: View {
     var body: some View {
         Group {
             if let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+                // TODO: Phase B12 — EPUB classifier will set isComplexEPUB at runtime.
+                // Currently BookFormat.capabilities always returns simple EPUB capabilities,
+                // so complex EPUBs get .unifiedReflow when they shouldn't. Acceptable for
+                // Phase 0 since Unified mode shows a placeholder anyway.
                 if settingsStore.readingMode == .unified
                     && resolvedBookFormat.capabilities.contains(.unifiedReflow) {
                     UnifiedPlaceholderView(settingsStore: settingsStore)

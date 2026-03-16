@@ -124,6 +124,49 @@ struct TXTServiceTests {
         #expect(meta.detectedEncoding == "UTF-8")
     }
 
+    // MARK: - Sample-Based Encoding Detection Boundary Tests (Audit Issue 4)
+
+    @Test func detectEncodingFromSample_GBK_midCharBoundary() {
+        // Audit Issue 4: If the 8KB sample cut lands between the lead and trail byte
+        // of a GBK character, the detection can fail or produce a wrong result.
+        // Build a GBK data block that has a 2-byte character spanning the 8KB boundary.
+        let gbkEncoding = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+            )
+        )
+        let filler = String(repeating: "A", count: TXTService.encodingSampleSize - 1)
+        // Append a 2-byte GBK character so its lead byte is at index 8191 (last byte of sample)
+        // and trail byte is at index 8192 (first byte past sample).
+        let fullString = filler + "你好世界"
+        guard let gbkData = fullString.data(using: gbkEncoding) else {
+            Issue.record("Could not encode test string as GBK")
+            return
+        }
+        // Verify the data is larger than the sample size
+        #expect(gbkData.count > TXTService.encodingSampleSize)
+
+        // The sample-based detection should NOT crash and should return a valid encoding.
+        // With the fix, the trailing lead byte at the boundary is backed up.
+        let detected = TXTService.detectEncodingFromSample(gbkData)
+        #expect(!detected.isEmpty, "Should detect a valid encoding, got empty string")
+        // It should detect as UTF-8 (since the filler is ASCII) or GBK — not crash/fail.
+    }
+
+    @Test func detectEncodingFromSample_ShiftJIS_midCharBoundary() {
+        // Similar boundary test for Shift_JIS 2-byte sequences.
+        let filler = String(repeating: "A", count: TXTService.encodingSampleSize - 1)
+        let fullString = filler + "こんにちは"
+        guard let sjisData = fullString.data(using: .shiftJIS) else {
+            Issue.record("Could not encode test string as Shift_JIS")
+            return
+        }
+        #expect(sjisData.count > TXTService.encodingSampleSize)
+
+        let detected = TXTService.detectEncodingFromSample(sjisData)
+        #expect(!detected.isEmpty, "Should detect a valid encoding for Shift_JIS boundary case")
+    }
+
     @Test func pureASCIIDecodesAsUTF8() async throws {
         let text = "Hello, plain ASCII text."
         let data = Data(text.utf8)

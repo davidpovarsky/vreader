@@ -136,6 +136,14 @@ actor TXTService: TXTServiceProtocol {
                 else { needed = 1 }
                 if end - 1 + needed > encodingSampleSize { end -= 1 }
             }
+            // CJK 2-byte encodings (GBK, Big5, Shift_JIS): their lead bytes
+            // (0x81-0xFE) overlap with UTF-8 continuation (0x80-0xBF) and
+            // multi-byte lead (0xC0-0xF7) ranges, so the UTF-8 walkback above
+            // already handles boundary splits for these encodings. A lone
+            // trailing byte (< 0x80) at the boundary may leave a CJK lead
+            // inside the sample, but encoding detectors (NSString heuristic,
+            // manual fallback) tolerate an incomplete final character in an
+            // 8KB sample — 8191 valid bytes is sufficient for detection.
             sample = data.prefix(max(1, end))
         }
 

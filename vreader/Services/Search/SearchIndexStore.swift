@@ -204,37 +204,43 @@ final class SearchIndexStore: @unchecked Sendable {
 
     /// Checks whether a book has been indexed (has a metadata row).
     func isBookIndexed(fingerprintKey: String) -> Bool {
-        do {
-            let rows = try core.query(
-                "SELECT 1 FROM search_metadata WHERE fingerprint_key = ? LIMIT 1",
-                params: [fingerprintKey]
-            ) { _ in true }
-            return !rows.isEmpty
-        } catch {
-            return false
+        core.withLock {
+            do {
+                let rows = try core.query(
+                    "SELECT 1 FROM search_metadata WHERE fingerprint_key = ? LIMIT 1",
+                    params: [fingerprintKey]
+                ) { _ in true }
+                return !rows.isEmpty
+            } catch {
+                return false
+            }
         }
     }
 
     /// Sets the content hash for a fingerprint key (skip-reindex optimization).
     func setContentHash(fingerprintKey: String, contentHash: String) {
-        try? core.execBind(
-            "UPDATE search_metadata SET content_hash = ? WHERE fingerprint_key = ?",
-            params: [contentHash, fingerprintKey]
-        )
+        core.withLock {
+            try? core.execBind(
+                "UPDATE search_metadata SET content_hash = ? WHERE fingerprint_key = ?",
+                params: [contentHash, fingerprintKey]
+            )
+        }
     }
 
     /// Checks if the stored content hash matches the provided one.
     func contentHashMatches(
         fingerprintKey: String, contentHash: String
     ) -> Bool {
-        do {
-            let rows = try core.query(
-                "SELECT content_hash FROM search_metadata WHERE fingerprint_key = ?",
-                params: [fingerprintKey]
-            ) { row in row.text(0) }
-            return rows.first == contentHash
-        } catch {
-            return false
+        core.withLock {
+            do {
+                let rows = try core.query(
+                    "SELECT content_hash FROM search_metadata WHERE fingerprint_key = ?",
+                    params: [fingerprintKey]
+                ) { row in row.text(0) }
+                return rows.first == contentHash
+            } catch {
+                return false
+            }
         }
     }
 
@@ -247,31 +253,35 @@ final class SearchIndexStore: @unchecked Sendable {
         )
         guard let data = try? JSONSerialization.data(withJSONObject: stringKeyed),
               let json = String(data: data, encoding: .utf8) else { return }
-        try? core.execBind(
-            "UPDATE search_metadata SET segment_base_offsets = ? WHERE fingerprint_key = ?",
-            params: [json, fingerprintKey]
-        )
+        core.withLock {
+            try? core.execBind(
+                "UPDATE search_metadata SET segment_base_offsets = ? WHERE fingerprint_key = ?",
+                params: [json, fingerprintKey]
+            )
+        }
     }
 
     /// Retrieves stored segment base offsets, or nil if not stored.
     func getSegmentBaseOffsets(fingerprintKey: String) -> [Int: Int]? {
-        do {
-            let rows = try core.query(
-                "SELECT segment_base_offsets FROM search_metadata WHERE fingerprint_key = ?",
-                params: [fingerprintKey]
-            ) { row in row.text(0) }
-            guard let json = rows.first, !json.isEmpty,
-                  let data = json.data(using: .utf8),
-                  let dict = try? JSONSerialization.jsonObject(with: data)
-                      as? [String: Int] else {
+        core.withLock {
+            do {
+                let rows = try core.query(
+                    "SELECT segment_base_offsets FROM search_metadata WHERE fingerprint_key = ?",
+                    params: [fingerprintKey]
+                ) { row in row.text(0) }
+                guard let json = rows.first, !json.isEmpty,
+                      let data = json.data(using: .utf8),
+                      let dict = try? JSONSerialization.jsonObject(with: data)
+                          as? [String: Int] else {
+                    return nil
+                }
+                return Dictionary(uniqueKeysWithValues: dict.compactMap { key, value in
+                    guard let intKey = Int(key) else { return nil }
+                    return (intKey, value)
+                })
+            } catch {
                 return nil
             }
-            return Dictionary(uniqueKeysWithValues: dict.compactMap { key, value in
-                guard let intKey = Int(key) else { return nil }
-                return (intKey, value)
-            })
-        } catch {
-            return nil
         }
     }
 }

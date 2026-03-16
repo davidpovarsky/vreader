@@ -26,6 +26,7 @@ class BasePageNavigator: PageNavigator {
             let maxPage = max(totalPages - 1, 0)
             if currentPage > maxPage {
                 currentPage = maxPage
+                delegate?.pageNavigator(self, didNavigateToPage: currentPage)
             }
         }
     }

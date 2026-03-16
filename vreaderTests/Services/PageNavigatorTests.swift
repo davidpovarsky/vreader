@@ -226,6 +226,52 @@ struct PageNavigatorTests {
         #expect(nav.currentPage <= 4)
     }
 
+    @Test @MainActor func totalPages_reducedBelowCurrentPage_notifiesDelegate() {
+        // Audit Issue 5: When totalPages shrinks and currentPage is clamped,
+        // the delegate must be notified so the UI updates.
+        let nav = BasePageNavigator()
+        nav.totalPages = 10
+        nav.jumpToPage(8)
+        let delegate = MockPageNavigatorDelegate()
+        nav.delegate = delegate
+
+        nav.totalPages = 5  // clamps currentPage from 8 → 4
+
+        #expect(nav.currentPage == 4)
+        #expect(delegate.navigatedPages == [4],
+                "Delegate should be notified when totalPages shrink causes currentPage clamp")
+    }
+
+    @Test @MainActor func totalPages_reducedButNoClamp_doesNotNotifyDelegate() {
+        // When totalPages shrinks but currentPage is still valid, no notification needed.
+        let nav = BasePageNavigator()
+        nav.totalPages = 10
+        nav.jumpToPage(3)
+        let delegate = MockPageNavigatorDelegate()
+        nav.delegate = delegate
+
+        nav.totalPages = 8  // currentPage 3 is still valid
+
+        #expect(nav.currentPage == 3)
+        #expect(delegate.navigatedPages.isEmpty,
+                "Delegate should NOT be notified when clamp is not triggered")
+    }
+
+    @Test @MainActor func totalPages_reducedToZero_clampsAndNotifiesDelegate() {
+        // Edge: totalPages set to 0 while on page > 0.
+        let nav = BasePageNavigator()
+        nav.totalPages = 10
+        nav.jumpToPage(5)
+        let delegate = MockPageNavigatorDelegate()
+        nav.delegate = delegate
+
+        nav.totalPages = 0  // clamps currentPage from 5 → 0
+
+        #expect(nav.currentPage == 0)
+        #expect(delegate.navigatedPages == [0],
+                "Delegate should be notified when totalPages=0 forces clamp to page 0")
+    }
+
     // MARK: - Weak delegate (no retain cycle)
 
     @Test @MainActor func delegate_isWeak_noRetainCycle() {

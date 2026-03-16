@@ -146,7 +146,11 @@ final class ReaderLifecycleCoordinator {
 
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
+    /// Guards on isOpenComplete to avoid persisting a stale pre-restore locator
+    /// if the app backgrounds during open/restore (same guard as close()).
     func onBackground() async {
+        guard isOpenComplete else { return }
+
         if let delegate, delegate.hasLoadedContent {
             if let locator = delegate.makeCurrentLocator() {
                 await positionService.saveNow(locator: locator)

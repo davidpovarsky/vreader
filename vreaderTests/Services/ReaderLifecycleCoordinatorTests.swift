@@ -244,6 +244,34 @@ struct ReaderLifecycleCoordinatorBackgroundTests {
         #expect(!coordinator.hasActiveFlushTask)
     }
 
+    @Test func onBackground_skipsPositionSave_whenIsOpenCompleteIsFalse() async {
+        // Audit Issue 1: onBackground must NOT save position before open() completes
+        // position restore. Otherwise a stale pre-restore locator gets persisted.
+        let sessionStore = MockSessionStore()
+        let clock = MockClock()
+        let tracker = ReadingSessionTracker(clock: clock, store: sessionStore, deviceId: "dev-1")
+        let positionStore = MockPositionStore()
+        let delegate = MockLifecycleDelegate()
+        delegate.hasLoadedContent = true  // content is loaded...
+        delegate.locatorToReturn = makeTestLocator()
+
+        let coordinator = ReaderLifecycleCoordinator(
+            bookFingerprint: testFP,
+            positionStore: positionStore,
+            sessionTracker: tracker,
+            deviceId: "dev-1"
+        )
+        coordinator.delegate = delegate
+        // Do NOT call markContentLoaded() — isOpenComplete remains false
+        coordinator.startSession()
+
+        await coordinator.onBackground()
+
+        // Position must NOT be saved since isOpenComplete is false
+        let saveCount = await positionStore.saveCallCount
+        #expect(saveCount == 0, "onBackground should skip position save when isOpenComplete is false")
+    }
+
     @Test func onBackground_noOp_whenNoContent() async {
         let sessionStore = MockSessionStore()
         let clock = MockClock()

@@ -351,6 +351,50 @@ struct SearchIndexStoreTests {
         #expect(hits.isEmpty, "Tokens separated by >50 UTF-16 units should not match as phrase, got \(hits.count)")
     }
 
+    // MARK: - Metadata methods (Audit Issue 3: locking)
+
+    @Test func isBookIndexed_returnsTrueAfterIndexing() throws {
+        let store = try makeStore()
+        #expect(!store.isBookIndexed(fingerprintKey: "meta:test:1"))
+
+        let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "test content")]
+        try store.indexBook(fingerprintKey: "meta:test:1", textUnits: units)
+
+        #expect(store.isBookIndexed(fingerprintKey: "meta:test:1"))
+    }
+
+    @Test func contentHashMatches_worksCorrectly() throws {
+        let store = try makeStore()
+        let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "test")]
+        try store.indexBook(fingerprintKey: "meta:hash:1", textUnits: units)
+
+        store.setContentHash(fingerprintKey: "meta:hash:1", contentHash: "abc123")
+        #expect(store.contentHashMatches(fingerprintKey: "meta:hash:1", contentHash: "abc123"))
+        #expect(!store.contentHashMatches(fingerprintKey: "meta:hash:1", contentHash: "wrong"))
+    }
+
+    @Test func segmentBaseOffsets_roundTrips() throws {
+        let store = try makeStore()
+        let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "test")]
+        try store.indexBook(fingerprintKey: "meta:offsets:1", textUnits: units)
+
+        let offsets: [Int: Int] = [0: 0, 1: 500, 2: 1000]
+        store.setSegmentBaseOffsets(fingerprintKey: "meta:offsets:1", offsets: offsets)
+
+        let retrieved = store.getSegmentBaseOffsets(fingerprintKey: "meta:offsets:1")
+        #expect(retrieved == offsets)
+    }
+
+    @Test func getSegmentBaseOffsets_nilWhenNotSet() throws {
+        let store = try makeStore()
+        let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "test")]
+        try store.indexBook(fingerprintKey: "meta:nooffsets:1", textUnits: units)
+
+        // segment_base_offsets column is NULL by default after indexBook
+        let retrieved = store.getSegmentBaseOffsets(fingerprintKey: "meta:nooffsets:1")
+        #expect(retrieved == nil)
+    }
+
     @Test func searchFullWidthDigitsMixedWithCJK() throws {
         let store = try makeStore()
         let units = [TextUnit(sourceUnitId: "txt:segment:0", text: "第１章 引言")]

@@ -18,7 +18,8 @@
 //
 // @coordinates-with: EPUBReaderViewModel.swift, EPUBWebViewBridge.swift,
 //   EPUBParserProtocol.swift, EPUBProgressCalculator.swift, ReadingProgressBar.swift,
-//   EPUBHighlightBridge.swift, EPUBHighlightActions.swift, HighlightPersisting.swift
+//   EPUBHighlightBridge.swift, EPUBHighlightActions.swift, HighlightPersisting.swift,
+//   EPUBPaginationHelper.swift, BasePageNavigator.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -58,6 +59,15 @@ struct EPUBReaderContainerView: View {
     @State private var showNoteSheet = false
     /// Text input for the note being added.
     @State private var noteText = ""
+    /// Page navigator for paged layout (WI-B06).
+    @State private var pageNavigator = BasePageNavigator()
+    /// Current page in paged mode (drives bridge navigation).
+    @State private var currentPaginationPage: Int?
+
+    /// Whether paged layout is active.
+    private var isPaged: Bool {
+        settingsStore?.epubLayout == .paged
+    }
 
     var body: some View {
         ZStack {
@@ -155,6 +165,16 @@ struct EPUBReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
+            guard isPaged else { return }
+            pageNavigator.nextPage()
+            currentPaginationPage = pageNavigator.currentPage
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
+            guard isPaged else { return }
+            pageNavigator.previousPage()
+            currentPaginationPage = pageNavigator.currentPage
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
             guard let locator = notification.object as? Locator,
@@ -292,6 +312,11 @@ struct EPUBReaderContainerView: View {
             pendingJS: pendingHighlightJS,
             onPendingJSCompleted: {
                 pendingHighlightJS = nil
+            },
+            isPaged: isPaged,
+            paginationPage: currentPaginationPage,
+            onPaginationReady: { totalPages in
+                pageNavigator.totalPages = totalPages
             }
         )
         .ignoresSafeArea(edges: .bottom)

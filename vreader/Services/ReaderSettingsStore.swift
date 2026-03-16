@@ -11,8 +11,10 @@ final class ReaderSettingsStore {
     static let readingModeKey = "readerReadingMode"
     static let useCustomBackgroundKey = "readerUseCustomBackground"
     static let backgroundOpacityKey = "readerBackgroundOpacity"
+    static let epubLayoutKey = "readerEPUBLayout"
     var theme: ReaderTheme { didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) } }
     var readingMode: ReadingMode { didSet { defaults.set(readingMode.rawValue, forKey: Self.readingModeKey) } }
+    var epubLayout: EPUBLayoutPreference { didSet { defaults.set(epubLayout.rawValue, forKey: Self.epubLayoutKey) } }
     var typography: TypographySettings {
         didSet { if let data = try? JSONEncoder().encode(typography) { defaults.set(data, forKey: Self.typographyKey) } }
     }
@@ -28,6 +30,7 @@ final class ReaderSettingsStore {
         self.theme = ReaderTheme(rawValue: defaults.string(forKey: Self.themeKey) ?? "") ?? .default
         self.readingMode = ReadingMode(rawValue: defaults.string(forKey: Self.readingModeKey) ?? "") ?? .native
         if let data = defaults.data(forKey: Self.typographyKey), let d = try? JSONDecoder().decode(TypographySettings.self, from: data) { self.typography = d } else { self.typography = TypographySettings() }
+        self.epubLayout = EPUBLayoutPreference(rawValue: defaults.string(forKey: Self.epubLayoutKey) ?? "") ?? .scroll
         self.useCustomBackground = defaults.bool(forKey: Self.useCustomBackgroundKey)
         self._backgroundOpacity = min(max((defaults.object(forKey: Self.backgroundOpacityKey) as? Double) ?? 0.15, 0.0), 1.0)
     }

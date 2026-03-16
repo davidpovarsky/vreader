@@ -7,12 +7,14 @@
 // - Injects JavaScript to report scroll progress back to Swift (throttled at 100ms).
 // - Supports scroll-to-fraction via JS injection for intra-chapter seeking.
 // - Injects selection tracking and highlight API JS for text highlighting (WI-007).
+// - Supports paged layout via CSS multi-column pagination (WI-B06).
+//   In paged mode, pagination CSS is injected and navigation uses scrollLeft.
 // - Coordinator handles WKScriptMessageHandler for progress, tap, and selection callbacks.
 // - Navigation delegate reports load errors to the container via onLoadError.
 // - Only file:// URLs are allowed for all navigation types.
 //
 // @coordinates-with: EPUBReaderContainerView.swift, EPUBReaderViewModel.swift,
-//   EPUBHighlightBridge.swift
+//   EPUBHighlightBridge.swift, EPUBPaginationHelper.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -65,6 +67,12 @@ struct EPUBWebViewBridge: UIViewRepresentable {
     var pendingJS: String?
     /// Called after pendingJS has been evaluated so the container can clear state.
     var onPendingJSCompleted: (@MainActor () -> Void)?
+    /// Whether paged layout is enabled (CSS multi-column pagination).
+    var isPaged: Bool = false
+    /// Page index to navigate to in paged mode (0-based).
+    var paginationPage: Int?
+    /// Called when pagination is set up with total page count (paged mode only).
+    var onPaginationReady: (@MainActor (Int) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onProgressChange: onProgressChange, onLoadError: onLoadError)
@@ -121,9 +129,16 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         context.coordinator.currentHref = currentHref
         context.coordinator.onSelectionEvent = onSelectionEvent
         context.coordinator.onPageDidFinishLoad = onPageDidFinishLoad
+        context.coordinator.isPaged = isPaged
+        context.coordinator.onPaginationReady = onPaginationReady
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         webView.accessibilityIdentifier = "epubWebView"
+
+        // Disable vertical scrolling in paged mode
+        if isPaged {
+            webView.scrollView.isScrollEnabled = false
+        }
 
         return webView
     }
@@ -133,6 +148,11 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         context.coordinator.currentHref = currentHref
         context.coordinator.onSelectionEvent = onSelectionEvent
         context.coordinator.onPageDidFinishLoad = onPageDidFinishLoad
+        context.coordinator.isPaged = isPaged
+        context.coordinator.onPaginationReady = onPaginationReady
+
+        // Update scroll enabled state when layout mode changes
+        webView.scrollView.isScrollEnabled = !isPaged
 
         // Only reload if the URL changed
         if context.coordinator.currentURL != contentURL {
@@ -140,7 +160,19 @@ struct EPUBWebViewBridge: UIViewRepresentable {
             context.coordinator.themeCSS = themeCSS
             // Store scroll fraction to apply after the page finishes loading
             context.coordinator.pendingScrollFraction = scrollFraction
+            context.coordinator.pendingPaginationPage = paginationPage
             webView.loadFileURL(contentURL, allowingReadAccessTo: baseDirectory)
+        } else if isPaged, let page = paginationPage,
+                  page != context.coordinator.pendingPaginationPage {
+            // Paged mode: navigate to specific page
+            context.coordinator.pendingPaginationPage = page
+            let viewportWidth = webView.bounds.width
+            let js = EPUBPaginationHelper.navigateToPageJS(
+                page: page, viewportWidth: viewportWidth
+            )
+            webView.evaluateJavaScript(js) { _, error in
+                if let error { print("[EPUBWebViewBridge] page nav error: \(error)") }
+            }
         } else if let fraction = scrollFraction,
                   fraction != context.coordinator.pendingScrollFraction {
             // Same URL but scroll fraction changed — scroll immediately via JS
@@ -294,6 +326,8 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         var themeCSS: String?
         /// Scroll fraction to apply after the next page load completes.
         var pendingScrollFraction: Double?
+        /// Page index to navigate to after pagination setup (paged mode).
+        var pendingPaginationPage: Int?
         /// Allowed root directory for file:// navigation (scoped to extracted EPUB).
         var allowedRoot: URL?
         /// Current chapter href for anchor construction.
@@ -303,6 +337,10 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         /// Callback to restore highlights after page loads.
         /// Provides a JS evaluator so the container can inject restore scripts.
         var onPageDidFinishLoad: (@MainActor (@escaping (String) -> Void) -> Void)?
+        /// Whether paged layout mode is active.
+        var isPaged = false
+        /// Called when pagination is ready with total page count.
+        var onPaginationReady: (@MainActor (Int) -> Void)?
         private let onProgressChange: @MainActor (Double) -> Void
         private let onLoadError: @MainActor (String) -> Void
 
@@ -403,14 +441,18 @@ struct EPUBWebViewBridge: UIViewRepresentable {
                 }
             }
 
-            // Scroll to pending fraction after page layout (delayed to allow rendering)
-            if let fraction = pendingScrollFraction, fraction > 0 {
-                pendingScrollFraction = nil
-                let scrollJS = EPUBWebViewBridge.scrollToFractionJS(fraction)
-                // Delay slightly to ensure layout is complete before scrolling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    webView.evaluateJavaScript(scrollJS) { _, error in
-                        if let error { print("[EPUBWebViewBridge] scroll error: \(error)") }
+            if isPaged {
+                // Paged mode: inject pagination CSS, then query total pages
+                setupPagination(webView: webView)
+            } else {
+                // Scroll mode: scroll to pending fraction after page layout
+                if let fraction = pendingScrollFraction, fraction > 0 {
+                    pendingScrollFraction = nil
+                    let scrollJS = EPUBWebViewBridge.scrollToFractionJS(fraction)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        webView.evaluateJavaScript(scrollJS) { _, error in
+                            if let error { print("[EPUBWebViewBridge] scroll error: \(error)") }
+                        }
                     }
                 }
             }
@@ -423,6 +465,53 @@ struct EPUBWebViewBridge: UIViewRepresentable {
                         if let error { print("[EPUBWebViewBridge] restore error: \(error)") }
                     }
                 })
+            }
+        }
+
+        /// Injects pagination CSS and queries total page count after layout settles.
+        private func setupPagination(webView: WKWebView) {
+            let viewportWidth = webView.bounds.width
+            let viewportHeight = webView.bounds.height
+            guard viewportWidth > 0, viewportHeight > 0 else { return }
+
+            let injectJS = EPUBPaginationHelper.injectPaginationCSSJS(
+                viewportWidth: viewportWidth, viewportHeight: viewportHeight
+            )
+            webView.evaluateJavaScript(injectJS) { [weak self] _, error in
+                if let error {
+                    print("[EPUBWebViewBridge] pagination CSS error: \(error)")
+                    return
+                }
+                // Delay to allow column layout to settle before querying page count
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    guard let self else { return }
+                    let totalPagesJS = EPUBPaginationHelper.totalPagesJS(
+                        viewportWidth: viewportWidth
+                    )
+                    webView.evaluateJavaScript(totalPagesJS) { [weak self] result, error in
+                        guard let self else { return }
+                        if let error {
+                            print("[EPUBWebViewBridge] totalPages query error: \(error)")
+                            return
+                        }
+                        let totalPages = (result as? Int) ?? 1
+                        Task { @MainActor in
+                            self.onPaginationReady?(totalPages)
+                        }
+                        // Navigate to pending page if set
+                        if let page = self.pendingPaginationPage, page > 0 {
+                            self.pendingPaginationPage = nil
+                            let navJS = EPUBPaginationHelper.navigateToPageJS(
+                                page: page, viewportWidth: viewportWidth
+                            )
+                            webView.evaluateJavaScript(navJS) { _, error in
+                                if let error {
+                                    print("[EPUBWebViewBridge] page nav error: \(error)")
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

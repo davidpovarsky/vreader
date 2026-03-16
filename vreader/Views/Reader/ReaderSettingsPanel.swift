@@ -22,6 +22,7 @@ struct ReaderSettingsPanel: View {
             List {
                 themeSection
                 readingModeSection
+                epubLayoutSection
                 fontSizeSection
                 lineSpacingSection
                 fontFamilySection
@@ -89,6 +90,23 @@ struct ReaderSettingsPanel: View {
             .accessibilityLabel("Reading mode")
         } footer: {
             Text("Native uses format-specific readers. Unified reflow engine is coming in V2.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - EPUB Layout
+
+    @ViewBuilder
+    private var epubLayoutSection: some View {
+        Section {
+            Picker("EPUB Layout", selection: $store.epubLayout) {
+                Text("Scroll").tag(EPUBLayoutPreference.scroll)
+                Text("Paged").tag(EPUBLayoutPreference.paged)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("EPUB layout")
+        } footer: {
+            Text("Scroll uses continuous vertical scrolling. Paged uses horizontal page turns.")
                 .font(.caption)
         }
     }

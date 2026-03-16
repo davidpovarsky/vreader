@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		77AB8C9D0E1F2A3B4C5D6E7F /* EPUBLayoutPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BC9D0E1F2A3B4C5D6E7F8A /* EPUBLayoutPreference.swift */; };
+		AA1B2C3D4E5F6A7B8C9D0E1F /* EPUBPaginationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3D4E5F6A7B8C9D0E1F2A3B /* EPUBPaginationHelper.swift */; };
+		BB2C3D4E5F6A7B8C9D0E1F2A /* EPUBPaginationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4E5F6A7B8C9D0E1F2A3B4C /* EPUBPaginationTests.swift */; };
+		EE5F6A7B8C9D0E1F2A3B4C5D /* PDFPageNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AB2C3D4E5F6A7B8C9D0E1F /* PDFPageNavigator.swift */; };
+		FF6A7B8C9D0E1F2A3B4C5D6E /* PDFPageNavigatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22BC3D4E5F6A7B8C9D0E1F2A /* PDFPageNavigatorTests.swift */; };
+		33CD4E5F6A7B8C9D0E1F2A3B /* NativeTextPaginator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55EF6A7B8C9D0E1F2A3B4C5D /* NativeTextPaginator.swift */; };
+		44DE5F6A7B8C9D0E1F2A3B4C /* NativeTextPaginatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FA7B8C9D0E1F2A3B4C5D6E /* NativeTextPaginatorTests.swift */; };
 		00AA9871B88FE39518AC1320 /* utf16be_bom.txt in Resources */ = {isa = PBXBuildFile; fileRef = F2EFEE7A0EC5352A0BB1A994 /* utf16be_bom.txt */; };
 		01440A60BDBE08FC56500DA7 /* SearchHitToLocatorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A2CD5F8AD4DEC1A14A255A /* SearchHitToLocatorResolver.swift */; };
 		01450E848C5A2110A56DDD21 /* TXTTextChunkerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3BC126A794F2C82F782E7D /* TXTTextChunkerTests.swift */; };
@@ -440,6 +447,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		88BC9D0E1F2A3B4C5D6E7F8A /* EPUBLayoutPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBLayoutPreference.swift; sourceTree = "<group>"; };
+		CC3D4E5F6A7B8C9D0E1F2A3B /* EPUBPaginationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBPaginationHelper.swift; sourceTree = "<group>"; };
+		DD4E5F6A7B8C9D0E1F2A3B4C /* EPUBPaginationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBPaginationTests.swift; sourceTree = "<group>"; };
+		11AB2C3D4E5F6A7B8C9D0E1F /* PDFPageNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFPageNavigator.swift; sourceTree = "<group>"; };
+		22BC3D4E5F6A7B8C9D0E1F2A /* PDFPageNavigatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFPageNavigatorTests.swift; sourceTree = "<group>"; };
+		55EF6A7B8C9D0E1F2A3B4C5D /* NativeTextPaginator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextPaginator.swift; sourceTree = "<group>"; };
+		66FA7B8C9D0E1F2A3B4C5D6E /* NativeTextPaginatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextPaginatorTests.swift; sourceTree = "<group>"; };
 		0069CA3A00998B13DE06E424 /* LocatorIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocatorIntegrationTests.swift; sourceTree = "<group>"; };
 		00B189F7F32FF82BCF254923 /* TXTTextChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTTextChunker.swift; sourceTree = "<group>"; };
 		00FE0912FBC85E22DF8C637F /* ReadingTimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingTimeFormatter.swift; sourceTree = "<group>"; };
@@ -1081,10 +1095,13 @@
 				C85205257E8103AA80C08BAB /* BookmarkFeedbackTests.swift */,
 				BD9F0676ACCEE6F37D547E72 /* EPUBHighlightActionsTests.swift */,
 				5C5EC86BB06D46DC9A5A4F6B /* EPUBHighlightBridgeTests.swift */,
+				DD4E5F6A7B8C9D0E1F2A3B4C /* EPUBPaginationTests.swift */,
 				8FA15EA6877E3CA9421E1B59 /* EPUBProgressTests.swift */,
 				ABFBA14606BD14D14A8D5500 /* EPUBWebViewBridgeTests.swift */,
 				16E293CFD61A19BB48B38963 /* HighlightableTextViewTests.swift */,
+				66FA7B8C9D0E1F2A3B4C5D6E /* NativeTextPaginatorTests.swift */,
 				4B3A240BB6031B14144741FE /* PDFAnnotationBridgeTests.swift */,
+				22BC3D4E5F6A7B8C9D0E1F2A /* PDFPageNavigatorTests.swift */,
 				B849723B3079FB8F3F4A7961 /* PDFHighlightIntegrationTests.swift */,
 				775CED0704F1D6D39F873FF9 /* PDFProgressTests.swift */,
 				DD76366E51B98FEE9E53DB3C /* ReaderAuditFix2Tests.swift */,
@@ -1254,13 +1271,16 @@
 				E28AEE54347E9EC752286A2A /* EPUBHighlightActions.swift */,
 				435C00E099B7F5D7A7821FDC /* EPUBHighlightBridge.swift */,
 				44423E8976A2B27C4B14617F /* EPUBHighlightJS.swift */,
+				CC3D4E5F6A7B8C9D0E1F2A3B /* EPUBPaginationHelper.swift */,
 				DBBB555BA86F7648ACBC780F /* EPUBProgressCalculator.swift */,
 				907D934613DDAEA1F3055F82 /* EPUBReaderContainerView.swift */,
 				C0E536B950D178C97842DF52 /* EPUBWebViewBridge.swift */,
 				D9E867C06CA165E731435125 /* HighlightableTextView.swift */,
+				55EF6A7B8C9D0E1F2A3B4C5D /* NativeTextPaginator.swift */,
 				4B0EDE73D4EB702686B1326E /* MDReaderContainerView.swift */,
 				E6D45B144AFD2D20CAEACC48 /* NoOpPersistenceStores.swift */,
 				A064D62C86857484454D0BE3 /* PDFAnnotationBridge.swift */,
+				11AB2C3D4E5F6A7B8C9D0E1F /* PDFPageNavigator.swift */,
 				425829C48779CD64EB0C5A05 /* PDFPasswordPromptView.swift */,
 				5A54A2C5DE8C1631C04BB2A1 /* PDFProgressHelper.swift */,
 				5D2BA1A05E4E36D5D7B2DCFD /* PDFReaderContainerView.swift */,
@@ -1568,6 +1588,7 @@
 				3C567EE93DC61BBB63CEAC20 /* Locator.swift */,
 				4581A94B5099D15743DC02F3 /* ReaderTheme.swift */,
 				1B2B480AC630357CC08475F4 /* ReadingMode.swift */,
+				88BC9D0E1F2A3B4C5D6E7F8A /* EPUBLayoutPreference.swift */,
 				831F853E3D42A27170BB0F92 /* ReadingPosition.swift */,
 				38A104E5CBC93D0266E6C21E /* ReadingSession.swift */,
 				8A12A0D94CF17D48152929F0 /* ReadingStats.swift */,
@@ -1959,10 +1980,13 @@
 				9301FA74B29BDCD8C3FF55DB /* EPUBHighlightActionsTests.swift in Sources */,
 				D0FB5FB63B24803C9ADA5E1A /* EPUBHighlightBridgeTests.swift in Sources */,
 				EB3D180641036C8A6FA00030 /* EPUBParserTests.swift in Sources */,
+				BB2C3D4E5F6A7B8C9D0E1F2A /* EPUBPaginationTests.swift in Sources */,
 				83DAEE23928C668DA378F086 /* EPUBProgressTests.swift in Sources */,
 				C320E44AF92161F0A556FDA7 /* EPUBReaderViewModelTests.swift in Sources */,
 				1EE68B75A44789E6789BA6EB /* EPUBTextExtractorTests.swift in Sources */,
 				1D762D01C68B70790B8C2DE9 /* EPUBWebViewBridgeTests.swift in Sources */,
+				44DE5F6A7B8C9D0E1F2A3B4C /* NativeTextPaginatorTests.swift in Sources */,
+				FF6A7B8C9D0E1F2A3B4C5D6E /* PDFPageNavigatorTests.swift in Sources */,
 				7C168089FE12D0A6B34DDEA1 /* EncodingDetectorTests.swift in Sources */,
 				8CAAA8CE24E5701C76A9A55F /* EncodingFixtureTests.swift in Sources */,
 				E7493CC6D24CE5FD1922F9D0 /* ErrorMessageAuditorTests.swift in Sources */,
@@ -2154,12 +2178,16 @@
 				EE8189DAD855D15887FBBCFA /* EPUBHighlightJS.swift in Sources */,
 				F78B9D218FBB628F31479271 /* EPUBParser.swift in Sources */,
 				2F558CF136B69212E668F2D3 /* EPUBParserProtocol.swift in Sources */,
+				77AB8C9D0E1F2A3B4C5D6E7F /* EPUBLayoutPreference.swift in Sources */,
+				AA1B2C3D4E5F6A7B8C9D0E1F /* EPUBPaginationHelper.swift in Sources */,
 				06C8E85FDBC83E56C5BF3B64 /* EPUBProgressCalculator.swift in Sources */,
 				7D0D6E22B259A33A6B27BAE9 /* EPUBReaderContainerView.swift in Sources */,
 				08F6B888EBC4D1ADDA3CC360 /* EPUBReaderViewModel.swift in Sources */,
 				E1863B0320B22A4E53575FBD /* EPUBTextExtractor.swift in Sources */,
 				E8353217B517055A09014AE7 /* EPUBTypes.swift in Sources */,
 				D4332566CDFE7329E3709381 /* EPUBWebViewBridge.swift in Sources */,
+				33CD4E5F6A7B8C9D0E1F2A3B /* NativeTextPaginator.swift in Sources */,
+				EE5F6A7B8C9D0E1F2A3B4C5D /* PDFPageNavigator.swift in Sources */,
 				C731DA5F2D3885D918F1640A /* EncodingDetector.swift in Sources */,
 				C3E08FC456AC81388D905F7F /* ErrorMessageAuditor.swift in Sources */,
 				98CC47D9875A2A96F5098AF3 /* FeatureFlags.swift in Sources */,

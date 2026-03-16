@@ -4,10 +4,10 @@
 // Key decisions:
 // - EPUB: builds from EPUBSpineItem titles (skips untitled items).
 // - PDF: placeholder for outline tree traversal (not yet wired).
-// - TXT: always empty (no inherent TOC structure).
+// - TXT: auto-detects chapter patterns using Legado-ported rules (25 patterns).
 // - MD: extracts ATX headings (# through ######), skipping fenced code blocks.
 //
-// @coordinates-with: TOCProvider.swift, EPUBTypes.swift, LocatorFactory.swift
+// @coordinates-with: TOCProvider.swift, EPUBTypes.swift, LocatorFactory.swift, TXTTocRuleEngine.swift
 
 import Foundation
 
@@ -74,7 +74,27 @@ enum TOCBuilder {
 
     // MARK: - TXT
 
-    /// TXT files have no inherent table of contents.
+    /// Auto-detects chapter patterns in TXT using Legado-ported regex rules.
+    /// Falls back to empty array if no rule matches at least 2 times.
+    static func forTXT(
+        text: String,
+        fingerprint: DocumentFingerprint
+    ) -> [TOCEntry] {
+        guard !text.isEmpty else { return [] }
+
+        let rules = TXTTocRuleEngine.defaultRules
+        guard let bestRule = TXTTocRuleEngine.detectBestRule(
+            text: text, rules: rules
+        ) else {
+            return []
+        }
+
+        return TXTTocRuleEngine.extractTOC(
+            text: text, rule: bestRule, fingerprint: fingerprint
+        )
+    }
+
+    /// Legacy no-argument version for backward compatibility.
     static func forTXT() -> [TOCEntry] {
         []
     }

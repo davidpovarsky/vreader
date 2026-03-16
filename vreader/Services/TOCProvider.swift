@@ -1,9 +1,10 @@
 // Purpose: Table of contents extraction for all supported formats.
-// EPUB: from spine items (titles). PDF: from outline tree. MD: ATX headings. TXT: empty.
+// EPUB: from spine items (titles). PDF: from outline tree. MD: ATX headings.
+// TXT: auto-detected via Legado-ported chapter regex rules.
 //
 // Key decisions:
 // - TOCEntry is a flat list with level for nesting (not a recursive tree).
-// - TXT always returns empty (no TOC for plain text).
+// - TXT auto-detects chapter patterns (25 Legado rules, 8 enabled by default).
 // - MD extracts ATX headings (# through ######), skipping fenced code blocks.
 // - PDF traversal walks PDFOutline recursively.
 // - Protocol-based for testability.

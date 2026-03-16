@@ -102,6 +102,49 @@ actor TXTService: TXTServiceProtocol {
         return nil
     }
 
+    // MARK: - Sample-Based Encoding Detection (WI-F05)
+
+    /// Sample size for encoding detection. 8KB is sufficient for BOM detection
+    /// and NSString heuristic analysis -- encoding patterns appear in first few KB.
+    static let encodingSampleSize = 8192
+
+    /// Detects encoding by analyzing only the first 8KB of data.
+    /// Returns the detected encoding name (e.g., "UTF-8", "GBK").
+    /// For files smaller than 8KB, analyzes the entire data.
+    /// Avoids splitting multi-byte sequences at the sample boundary.
+    static func detectEncodingFromSample(_ data: Data) -> String {
+        if data.isEmpty { return "UTF-8" }
+
+        let sample: Data
+        if data.count <= encodingSampleSize {
+            sample = data
+        } else {
+            // Walk backwards from the cut point to avoid splitting a multi-byte
+            // UTF-8 or CJK sequence. Continuation bytes are 10xxxxxx (0x80-0xBF).
+            var end = encodingSampleSize
+            while end > 0 && data[end - 1] & 0xC0 == 0x80 {
+                end -= 1
+            }
+            // If the byte at end-1 is a multi-byte lead but has no room for
+            // all continuation bytes, step back one more.
+            if end > 0 {
+                let lead = data[end - 1]
+                let needed: Int
+                if lead & 0xE0 == 0xC0 { needed = 2 }
+                else if lead & 0xF0 == 0xE0 { needed = 3 }
+                else if lead & 0xF8 == 0xF0 { needed = 4 }
+                else { needed = 1 }
+                if end - 1 + needed > encodingSampleSize { end -= 1 }
+            }
+            sample = data.prefix(max(1, end))
+        }
+
+        guard let (_, encodingName) = decodeText(sample) else {
+            return "UTF-8" // Fallback
+        }
+        return encodingName
+    }
+
     // MARK: - NSString Heuristic Detection
 
     /// Uses NSString's built-in encoding detection heuristics.

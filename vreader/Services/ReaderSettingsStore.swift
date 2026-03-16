@@ -1,16 +1,17 @@
-// Purpose: Observable store for reader theme and typography settings.
-// Persists via @AppStorage and provides computed UIKit values for bridges.
+// Purpose: Observable store for reader theme, typography, and reading mode settings.
+// Persists via UserDefaults and provides computed UIKit values for bridges.
 //
 // Key decisions:
 // - @Observable for SwiftUI reactivity.
-// - @AppStorage for persistence across app launches.
+// - UserDefaults for persistence across app launches.
 // - Computed UIFont, UIColor, etc. derived from current settings.
 // - Provides bridge-specific config objects (MDRenderConfig, TXTViewConfig).
 // - CJK letter spacing is 0.05em equivalent when enabled.
 // - Line spacing stored as multiplier; converted to absolute points for UIKit.
+// - ReadingMode defaults to .native; .unified reserved for Phase B (V2).
 //
-// @coordinates-with: ReaderTheme.swift, TypographySettings.swift, MDTypes.swift,
-//   TXTTextViewBridge.swift
+// @coordinates-with: ReaderTheme.swift, TypographySettings.swift, ReadingMode.swift,
+//   MDTypes.swift, TXTTextViewBridge.swift
 
 import Foundation
 import SwiftUI
@@ -28,6 +29,7 @@ final class ReaderSettingsStore {
 
     static let themeKey = "readerTheme"
     static let typographyKey = "readerTypography"
+    static let readingModeKey = "readerReadingMode"
 
     // MARK: - Persisted State
 
@@ -35,6 +37,13 @@ final class ReaderSettingsStore {
     var theme: ReaderTheme {
         didSet {
             defaults.set(theme.rawValue, forKey: Self.themeKey)
+        }
+    }
+
+    /// Reading engine mode (native per-format or unified reflow).
+    var readingMode: ReadingMode {
+        didSet {
+            defaults.set(readingMode.rawValue, forKey: Self.readingModeKey)
         }
     }
 
@@ -64,6 +73,10 @@ final class ReaderSettingsStore {
         // Restore theme
         self.theme = ReaderTheme(rawValue: defaults.string(forKey: Self.themeKey) ?? "")
             ?? .default
+
+        // Restore reading mode
+        self.readingMode = ReadingMode(rawValue: defaults.string(forKey: Self.readingModeKey) ?? "")
+            ?? .native
 
         // Restore typography
         if let data = defaults.data(forKey: Self.typographyKey),

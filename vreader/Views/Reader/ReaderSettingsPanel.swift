@@ -1,6 +1,6 @@
-// Purpose: Slide-up settings panel for reader theme and typography controls.
-// Provides theme picker, font size slider, line spacing slider, font family picker,
-// CJK spacing toggle, and live-preview text.
+// Purpose: Slide-up settings panel for reader theme, reading mode, and typography controls.
+// Provides theme picker, reading mode picker, font size slider, line spacing slider,
+// font family picker, CJK spacing toggle, and live-preview text.
 //
 // Key decisions:
 // - Presented as a sheet from reader toolbar.
@@ -21,6 +21,7 @@ struct ReaderSettingsPanel: View {
         NavigationStack {
             List {
                 themeSection
+                readingModeSection
                 fontSizeSection
                 lineSpacingSection
                 fontFamilySection
@@ -73,6 +74,23 @@ struct ReaderSettingsPanel: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(theme.rawValue) theme")
         .accessibilityAddTraits(store.theme == theme ? [.isSelected] : [])
+    }
+
+    // MARK: - Reading Mode
+
+    @ViewBuilder
+    private var readingModeSection: some View {
+        Section {
+            Picker("Reading Mode", selection: $store.readingMode) {
+                Text("Native").tag(ReadingMode.native)
+                Text("Unified").tag(ReadingMode.unified)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Reading mode")
+        } footer: {
+            Text("Native uses format-specific readers. Unified reflow engine is coming in V2.")
+                .font(.caption)
+        }
     }
 
     // MARK: - Font Size

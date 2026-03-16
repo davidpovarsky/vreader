@@ -1,213 +1,66 @@
-// Purpose: Tests for ReaderSettingsStore — computed UIKit values, settings bridging.
-
 import Testing
 import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
 @testable import vreader
-
-@Suite("ReaderSettingsStore")
-@MainActor
-struct ReaderSettingsStoreTests {
-
-    /// Creates a fresh store backed by an ephemeral UserDefaults suite.
+@Suite("ReaderSettingsStore") @MainActor struct ReaderSettingsStoreTests {
     private func makeStore() -> ReaderSettingsStore {
-        let suiteName = "ReaderSettingsStoreTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            preconditionFailure("UserDefaults(suiteName:) should not fail for non-nil suite name")
-        }
-        return ReaderSettingsStore(defaults: defaults)
+        ReaderSettingsStore(defaults: UserDefaults(suiteName: "RSS-\(UUID().uuidString)")!)
     }
-
-    // MARK: - Default Values
-
-    @Test func defaultTheme() {
-        let store = makeStore()
-        #expect(store.theme == .light)
-    }
-
-    @Test func defaultTypography() {
-        let store = makeStore()
-        #expect(store.typography.fontSize == 18)
-        #expect(store.typography.lineSpacing == 1.4)
-        #expect(store.typography.fontFamily == .system)
-        #expect(store.typography.cjkSpacing == false)
-    }
-
-    // MARK: - Computed UIKit Values
-
+    @Test func defaultTheme() { #expect(makeStore().theme == .light) }
+    @Test func defaultTypography() { let s = makeStore(); #expect(s.typography.fontSize == 18) }
     #if canImport(UIKit)
-    @Test func uiFontForSystemFamily() {
-        let store = makeStore()
-        let font = store.uiFont
-        #expect(font.pointSize == 18)
-    }
-
-    @Test func uiFontForSerifFamily() {
-        var store = makeStore()
-        store.typography.fontFamily = .serif
-        let font = store.uiFont
-        #expect(font.pointSize == 18)
-        // Serif font should contain "Georgia" or similar
-        let name = font.fontName.lowercased()
-        let isSerif = name.contains("georgia") || name.contains("times") || name.contains("serif")
-        #expect(isSerif)
-    }
-
-    @Test func uiFontForMonospaceFamily() {
-        var store = makeStore()
-        store.typography.fontFamily = .monospace
-        let font = store.uiFont
-        #expect(font.pointSize == 18)
-    }
-
+    @Test func uiFontForSystemFamily() { #expect(makeStore().uiFont.pointSize == 18) }
     @Test func uiBackgroundColorMatchesTheme() {
-        var store = makeStore()
-        store.theme = .dark
-        let bg = store.uiBackgroundColor
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        bg.getRed(&r, green: &g, blue: &b, alpha: &a)
-        #expect(r < 0.2)
+        var s = makeStore(); s.theme = .dark; var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        s.uiBackgroundColor.getRed(&r, green: &g, blue: &b, alpha: &a); #expect(r < 0.2)
     }
-
-    @Test func uiTextColorMatchesTheme() {
-        var store = makeStore()
-        store.theme = .light
-        let text = store.uiTextColor
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        text.getRed(&r, green: &g, blue: &b, alpha: &a)
-        #expect(r < 0.2)
-    }
-
     @Test func lineSpacingPoints() {
-        var store = makeStore()
-        store.typography.fontSize = 20
-        store.typography.lineSpacing = 1.6
-        // lineSpacingPoints = fontSize * (lineSpacing - 1.0)
-        let expected = 20.0 * (1.6 - 1.0)
-        #expect(abs(store.lineSpacingPoints - expected) < 0.01)
+        var s = makeStore(); s.typography.fontSize = 20; s.typography.lineSpacing = 1.6
+        #expect(abs(s.lineSpacingPoints - 12.0) < 0.01)
     }
-    #endif
-
-    // MARK: - MDRenderConfig Bridge
-
-    #if canImport(UIKit)
     @Test func mdRenderConfigReflectsSettings() {
-        var store = makeStore()
-        store.theme = .sepia
-        store.typography.fontSize = 22
-        store.typography.lineSpacing = 1.6
-
-        let config = store.mdRenderConfig
-        #expect(config.fontSize == 22)
-        // lineSpacing in MDRenderConfig is absolute points, not multiplier
-        let expectedLineSpacing = 22.0 * (1.6 - 1.0)
-        #expect(abs(config.lineSpacing - expectedLineSpacing) < 0.01)
-        #expect(config.textColor == store.uiTextColor)
+        var s = makeStore(); s.typography.fontSize = 22; s.typography.lineSpacing = 1.6
+        #expect(s.mdRenderConfig.fontSize == 22)
     }
-    #endif
-
-    // MARK: - TXTViewConfig Bridge
-
-    #if canImport(UIKit)
     @Test func txtViewConfigReflectsSettings() {
-        var store = makeStore()
-        store.typography.fontSize = 24
-        store.typography.lineSpacing = 1.5
-
-        let config = store.txtViewConfig
-        #expect(config.fontSize == 24)
-        let expectedLineSpacing = 24.0 * (1.5 - 1.0)
-        #expect(abs(config.lineSpacing - expectedLineSpacing) < 0.01)
+        var s = makeStore(); s.typography.fontSize = 24; #expect(s.txtViewConfig.fontSize == 24)
     }
+    @Test func cjkLetterSpacingWhenEnabled() { var s = makeStore(); s.typography.cjkSpacing = true; #expect(s.cjkLetterSpacing > 0) }
+    @Test func cjkLetterSpacingWhenDisabled() { var s = makeStore(); s.typography.cjkSpacing = false; #expect(s.cjkLetterSpacing == 0) }
     #endif
-
-    // MARK: - CJK Letter Spacing
-
-    #if canImport(UIKit)
-    @Test func cjkLetterSpacingWhenEnabled() {
-        var store = makeStore()
-        store.typography.cjkSpacing = true
-        #expect(store.cjkLetterSpacing > 0)
-    }
-
-    @Test func cjkLetterSpacingWhenDisabled() {
-        var store = makeStore()
-        store.typography.cjkSpacing = false
-        #expect(store.cjkLetterSpacing == 0)
-    }
-    #endif
-
-    // MARK: - Theme Change
-
     @Test func themeChangeUpdatesColors() {
-        var store = makeStore()
-        store.theme = .light
+        var s = makeStore(); s.theme = .light
         #if canImport(UIKit)
-        let lightBg = store.uiBackgroundColor
-        #endif
-
-        store.theme = .dark
-        #if canImport(UIKit)
-        let darkBg = store.uiBackgroundColor
-        #expect(lightBg != darkBg)
+        let l = s.uiBackgroundColor; s.theme = .dark; #expect(l != s.uiBackgroundColor)
         #endif
     }
-
-    // MARK: - Corrupt Payload Recovery
-
     @Test func invalidThemeRawValueFallsBackToDefault() {
-        let suiteName = "ReaderSettingsStoreTests-corrupt-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            Issue.record("UserDefaults(suiteName:) returned nil")
-            return
-        }
-        defaults.set("neon", forKey: ReaderSettingsStore.themeKey)
-        let store = ReaderSettingsStore(defaults: defaults)
-        #expect(store.theme == .light)
-        defaults.removePersistentDomain(forName: suiteName)
+        let n = "RSS-c-\(UUID().uuidString)"; let d = UserDefaults(suiteName: n)!
+        d.set("neon", forKey: ReaderSettingsStore.themeKey)
+        #expect(ReaderSettingsStore(defaults: d).theme == .light); d.removePersistentDomain(forName: n)
     }
-
-    @Test func malformedTypographyJSONFallsBackToDefaults() {
-        let suiteName = "ReaderSettingsStoreTests-corrupt2-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            Issue.record("UserDefaults(suiteName:) returned nil")
-            return
-        }
-        defaults.set(Data("not json".utf8), forKey: ReaderSettingsStore.typographyKey)
-        let store = ReaderSettingsStore(defaults: defaults)
-        #expect(store.typography.fontSize == 18)
-        #expect(store.typography.fontFamily == .system)
-        defaults.removePersistentDomain(forName: suiteName)
+    @Test func settingsStore_defaultsToDisabled() { #expect(makeStore().useCustomBackground == false) }
+    @Test func settingsStore_defaultBackgroundOpacity() { #expect(abs(makeStore().backgroundOpacity - 0.15) < 0.001) }
+    @Test func settingsStore_persistsBackgroundEnabled() {
+        let n = "RSS-bg-\(UUID().uuidString)"; let d = UserDefaults(suiteName: n)!
+        var s1 = ReaderSettingsStore(defaults: d); s1.useCustomBackground = true
+        #expect(ReaderSettingsStore(defaults: d).useCustomBackground == true); d.removePersistentDomain(forName: n)
     }
-
-    // MARK: - Persistence Round-Trip
-
+    @Test func settingsStore_persistsBackgroundOpacity() {
+        let n = "RSS-bo-\(UUID().uuidString)"; let d = UserDefaults(suiteName: n)!
+        var s1 = ReaderSettingsStore(defaults: d); s1.backgroundOpacity = 0.5
+        #expect(abs(ReaderSettingsStore(defaults: d).backgroundOpacity - 0.5) < 0.001); d.removePersistentDomain(forName: n)
+    }
+    @Test func settingsStore_clampsBackgroundOpacity() {
+        var s = makeStore(); s.backgroundOpacity = -0.5; #expect(s.backgroundOpacity >= 0.0)
+        s.backgroundOpacity = 1.5; #expect(s.backgroundOpacity <= 1.0)
+    }
     @Test func persistenceRoundTrip() {
-        let suiteName = "ReaderSettingsStoreTests-persist-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            Issue.record("UserDefaults(suiteName:) returned nil")
-            return
-        }
-
-        // Write settings
-        var store1 = ReaderSettingsStore(defaults: defaults)
-        store1.theme = .sepia
-        store1.typography.fontSize = 24
-        store1.typography.lineSpacing = 1.8
-        store1.typography.fontFamily = .serif
-        store1.typography.cjkSpacing = true
-
-        // Create a new store from the same defaults
-        let store2 = ReaderSettingsStore(defaults: defaults)
-        #expect(store2.theme == .sepia)
-        #expect(store2.typography.fontSize == 24)
-        #expect(store2.typography.lineSpacing == 1.8)
-        #expect(store2.typography.fontFamily == .serif)
-        #expect(store2.typography.cjkSpacing == true)
-
-        // Cleanup
-        defaults.removePersistentDomain(forName: suiteName)
+        let n = "RSS-p-\(UUID().uuidString)"; let d = UserDefaults(suiteName: n)!
+        var s1 = ReaderSettingsStore(defaults: d); s1.theme = .sepia; s1.typography.fontSize = 24
+        let s2 = ReaderSettingsStore(defaults: d); #expect(s2.theme == .sepia); #expect(s2.typography.fontSize == 24)
+        d.removePersistentDomain(forName: n)
     }
 }

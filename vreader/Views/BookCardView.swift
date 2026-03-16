@@ -7,31 +7,41 @@
 // - Cover placeholder uses format-specific colors.
 // - Reading time label omitted for zero reading time.
 //
-// @coordinates-with: AccessibilityFormatters.swift, LibraryBookItem.swift
+// @coordinates-with: AccessibilityFormatters.swift, LibraryBookItem.swift, CustomCoverStore.swift
 
 import SwiftUI
 
 /// Grid card view for a single book in the library.
 struct BookCardView: View {
     let book: LibraryBookItem
+    /// Bumped by parent when custom cover changes, to force reload.
+    var coverVersion: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Cover placeholder
+            // Cover: custom image or format placeholder
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(coverColor)
                     .aspectRatio(0.65, contentMode: .fit)
 
-                VStack(spacing: 4) {
-                    Image(systemName: formatIcon)
-                        .font(.system(size: 32))
-                        .foregroundStyle(.white.opacity(0.8))
+                if let customCover = customCoverImage {
+                    Image(uiImage: customCover)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    VStack(spacing: 4) {
+                        Image(systemName: formatIcon)
+                            .font(.system(size: 32))
+                            .foregroundStyle(.white.opacity(0.8))
 
-                    Text(book.formatBadge)
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundStyle(.white.opacity(0.9))
+                        Text(book.formatBadge)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
                 }
             }
 
@@ -70,6 +80,13 @@ struct BookCardView: View {
     }
 
     // MARK: - Private
+
+    /// Loads the custom cover for this book (if any). `coverVersion` dependency
+    /// ensures SwiftUI re-evaluates when covers change.
+    private var customCoverImage: UIImage? {
+        _ = coverVersion // force re-evaluation when version changes
+        return CustomCoverStore.loadCover(for: book.fingerprintKey)
+    }
 
     private var coverColor: Color {
         switch book.format.lowercased() {

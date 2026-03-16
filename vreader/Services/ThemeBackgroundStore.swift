@@ -30,10 +30,13 @@ enum ThemeBackgroundStore {
     }
     #if canImport(UIKit)
     private static func resizeIfNeeded(_ image: UIImage, maxDimension maxDim: CGFloat) -> UIImage {
-        let size = image.size
-        guard size.width > maxDim || size.height > maxDim else { return image }
-        let scale = size.width > size.height ? maxDim / size.width : maxDim / size.height
-        let newSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        // Use pixel dimensions to avoid scale mismatch.
+        // image.size is in points; a 3000x3000px image at scale 3 reports 1000x1000pt.
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        guard pixelWidth > maxDim || pixelHeight > maxDim else { return image }
+        let scale = pixelWidth > pixelHeight ? maxDim / pixelWidth : maxDim / pixelHeight
+        let newSize = CGSize(width: (pixelWidth * scale).rounded(), height: (pixelHeight * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1.0
         return UIGraphicsImageRenderer(size: newSize, format: format).image { _ in

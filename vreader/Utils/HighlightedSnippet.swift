@@ -3,6 +3,7 @@
 //
 // Key decisions:
 // - Case-insensitive matching.
+// - Multi-word queries split by whitespace; each word highlighted independently.
 // - Regex special characters in query are escaped (literal matching).
 // - FTS5 <b>...</b> tags stripped before highlighting.
 // - Returns plain AttributedString when query is empty or has no matches.
@@ -31,10 +32,23 @@ enum HighlightedSnippet {
             return AttributedString(cleaned)
         }
 
-        let escaped = NSRegularExpression.escapedPattern(for: trimmedQuery)
+        // Split query into individual words and highlight each independently.
+        // This ensures "foo bar" highlights both "foo" and "bar" even when the
+        // exact phrase doesn't appear as a contiguous substring.
+        let words = trimmedQuery.split(whereSeparator: { $0.isWhitespace })
+            .map { String($0) }
+            .filter { !$0.isEmpty }
+
+        guard !words.isEmpty else {
+            return AttributedString(cleaned)
+        }
+
+        // Build alternation pattern: word1|word2|...
+        let escapedWords = words.map { NSRegularExpression.escapedPattern(for: $0) }
+        let pattern = escapedWords.joined(separator: "|")
 
         guard let regex = try? NSRegularExpression(
-            pattern: escaped,
+            pattern: pattern,
             options: .caseInsensitive
         ) else {
             return AttributedString(cleaned)

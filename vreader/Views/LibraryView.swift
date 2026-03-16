@@ -8,15 +8,18 @@
 // - Grid uses adaptive columns for responsive layout.
 // - Sort picker and view mode toggle in toolbar.
 // - Empty state shown when library is empty.
-// - Context menu provides Info, Share, and Delete actions.
+// - Context menu provides Info, Share, Set Cover, Remove Cover, and Delete actions.
+// - Custom covers via PhotosPicker; stored/loaded through CustomCoverStore.
 // - Delete via context menu (grid) and swipe actions (list).
 // - AI chat button shown conditionally (feature flag + API key).
 //
 // @coordinates-with: LibraryViewModel.swift, BookCardView.swift, BookRowView.swift,
-//   ReaderContainerView.swift, BookInfoSheet.swift, SettingsView.swift, AIChatView.swift
+//   ReaderContainerView.swift, BookInfoSheet.swift, SettingsView.swift, AIChatView.swift,
+//   CustomCoverStore.swift
 
 import SwiftUI
 import Combine
+import PhotosUI
 import UniformTypeIdentifiers
 
 /// Main library view for the book collection.
@@ -28,6 +31,10 @@ struct LibraryView: View {
     @State private var isShowingImporter = false
     @State private var isShowingSettings = false
     @State private var isShowingAIChat = false
+    @State private var coverPickerItem: PhotosPickerItem?
+    @State private var bookForCover: LibraryBookItem?
+    /// Incremented when a custom cover is set or removed, to force card/row views to reload.
+    @State private var coverVersion: Int = 0
     let syncMonitor: SyncStatusMonitor?
 
     init(viewModel: LibraryViewModel, syncMonitor: SyncStatusMonitor? = nil) {
@@ -132,6 +139,26 @@ struct LibraryView: View {
                     viewModel.setError(ErrorMessageAuditor.sanitize(error))
                 }
             }
+            .photosPicker(
+                isPresented: .init(
+                    get: { bookForCover != nil },
+                    set: { if !$0 { bookForCover = nil } }
+                ),
+                selection: $coverPickerItem,
+                matching: .images
+            )
+            .onChange(of: coverPickerItem) { _, newItem in
+                guard let item = newItem, let book = bookForCover else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        try? CustomCoverStore.saveCover(image, for: book.fingerprintKey)
+                        coverVersion += 1
+                    }
+                    coverPickerItem = nil
+                    bookForCover = nil
+                }
+            }
         }
     }
 
@@ -165,7 +192,7 @@ struct LibraryView: View {
             ) {
                 ForEach(viewModel.books) { book in
                     NavigationLink(value: book) {
-                        BookCardView(book: book)
+                        BookCardView(book: book, coverVersion: coverVersion)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -189,7 +216,7 @@ struct LibraryView: View {
         List {
             ForEach(viewModel.books) { book in
                 NavigationLink(value: book) {
-                    BookRowView(book: book)
+                    BookRowView(book: book, coverVersion: coverVersion)
                 }
                 .contextMenu {
                     bookContextMenu(for: book)
@@ -324,6 +351,23 @@ struct LibraryView: View {
             bookToShare = book
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
+        }
+
+        Divider()
+
+        Button {
+            bookForCover = book
+        } label: {
+            Label("Set Cover", systemImage: "photo")
+        }
+
+        if CustomCoverStore.hasCover(for: book.fingerprintKey) {
+            Button(role: .destructive) {
+                try? CustomCoverStore.removeCover(for: book.fingerprintKey)
+                coverVersion += 1
+            } label: {
+                Label("Remove Cover", systemImage: "photo.badge.minus")
+            }
         }
 
         Divider()

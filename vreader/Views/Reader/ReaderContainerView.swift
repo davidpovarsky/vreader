@@ -21,11 +21,13 @@
 // - EPUB text extracted via EPUBParser + EPUBTextExtractor.stripHTML (not raw ZIP read).
 // - AI panel locator uses live reader position via .readerPositionDidChange notification.
 //
+// - ThemeBackgroundView shown behind reader content when useCustomBackground is ON.
+//
 // @coordinates-with: ReaderFormatHosts.swift, AnnotationsPanelView.swift,
 //   ReaderSettingsStore.swift, ReaderSettingsPanel.swift, DocumentFingerprint.swift,
 //   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift,
 //   AIReaderPanel.swift, AIReaderAvailability.swift, AIAssistantViewModel.swift,
-//   AITranslationViewModel.swift, AIChatViewModel.swift
+//   AITranslationViewModel.swift, AIChatViewModel.swift, ThemeBackgroundView.swift
 
 import SwiftUI
 import SwiftData
@@ -60,21 +62,27 @@ struct ReaderContainerView: View {
     @State private var tocEntries: [TOCEntry] = []
 
     var body: some View {
-        Group {
-            if let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                // TODO: Phase B12 — EPUB classifier will set isComplexEPUB at runtime.
-                // Currently BookFormat.capabilities always returns simple EPUB capabilities,
-                // so complex EPUBs get .unifiedReflow when they shouldn't. Acceptable for
-                // Phase 0 since Unified mode shows a placeholder anyway.
-                if settingsStore.readingMode == .unified
-                    && resolvedBookFormat.capabilities.contains(.unifiedReflow) {
-                    UnifiedPlaceholderView(settingsStore: settingsStore)
+        ZStack {
+            if settingsStore.useCustomBackground {
+                ThemeBackgroundView(settingsStore: settingsStore)
+            }
+
+            Group {
+                if let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+                    // TODO: Phase B12 — EPUB classifier will set isComplexEPUB at runtime.
+                    // Currently BookFormat.capabilities always returns simple EPUB capabilities,
+                    // so complex EPUBs get .unifiedReflow when they shouldn't. Acceptable for
+                    // Phase 0 since Unified mode shows a placeholder anyway.
+                    if settingsStore.readingMode == .unified
+                        && resolvedBookFormat.capabilities.contains(.unifiedReflow) {
+                        UnifiedPlaceholderView(settingsStore: settingsStore)
+                    } else {
+                        nativeReaderView(fingerprint: fingerprint)
+                            .tapZoneOverlay(config: tapZoneStore.config)
+                    }
                 } else {
-                    nativeReaderView(fingerprint: fingerprint)
-                        .tapZoneOverlay(config: tapZoneStore.config)
+                    fingerprintErrorView
                 }
-            } else {
-                fingerprintErrorView
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in

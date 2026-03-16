@@ -53,6 +53,36 @@ import UIKit
         let d = try makeTempDir(); try ThemeBackgroundStore.removeBackground(for: "x", baseDirectory: d)
         try? FileManager.default.removeItem(at: d)
     }
+    @Test func saveBackground_resizesHighScaleImage() throws {
+        // A 3000x3000px image at scale 3 reports as 1000x1000pt.
+        // resizeIfNeeded must check pixel dimensions, not points.
+        let d = try makeTempDir()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3.0
+        // Render at scale 3 → 1000x1000pt but 3000x3000px
+        let highScaleImage = UIGraphicsImageRenderer(
+            size: CGSize(width: 1000, height: 1000), format: format
+        ).image { ctx in
+            UIColor.blue.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 1000, height: 1000))
+        }
+        // Verify precondition: point size is within cap but pixels exceed it
+        #expect(highScaleImage.size.width <= 1024)
+        #expect(highScaleImage.size.height <= 1024)
+        #expect(highScaleImage.scale == 3.0)
+        // Save should trigger resize because pixel dimensions exceed 1024
+        try ThemeBackgroundStore.saveBackground(highScaleImage, for: "light", baseDirectory: d)
+        let p = ThemeBackgroundStore.backgroundPath(for: "light", baseDirectory: d)
+        let data = try Data(contentsOf: p)
+        let loaded = UIImage(data: data)!
+        // The saved image (rendered at scale 1.0) must have dimensions <= 1024
+        #expect(max(loaded.size.width, loaded.size.height) <= 1024)
+        // Pixels must also be <= 1024 (scale 1.0 → pixels == points)
+        let pixelW = loaded.size.width * loaded.scale
+        let pixelH = loaded.size.height * loaded.scale
+        #expect(max(pixelW, pixelH) <= 1024)
+        try? FileManager.default.removeItem(at: d)
+    }
     @Test func saveBackground_overwritesExisting() throws {
         let d = try makeTempDir()
         try ThemeBackgroundStore.saveBackground(makeTestImage(width: 100, height: 100), for: "light", baseDirectory: d)

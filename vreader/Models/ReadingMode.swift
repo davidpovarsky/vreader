@@ -4,7 +4,7 @@
 // Key decisions:
 // - String-backed RawRepresentable for UserDefaults persistence.
 // - Default is .native (all existing readers are native).
-// - .unified is a placeholder until the unified engine ships in V2.
+// - .unified uses TextKit 2 reflow engine for TXT/MD (WI-B04). EPUB unified is placeholder.
 //
 // @coordinates-with: ReaderSettingsStore.swift, ReaderContainerView.swift
 
@@ -13,6 +13,6 @@ enum ReadingMode: String, Codable, Sendable, Hashable, CaseIterable {
     /// Per-format native reader (EPUB WebView, PDF PDFKit, TXT/MD attributed string).
     case native
     /// Unified reflow engine for reflowable formats (TXT, MD, simple EPUB).
-    /// Placeholder — actual engine ships in Phase B (V2).
+    /// TXT/MD use TextKit 2 reflow engine (WI-B04). EPUB unified is placeholder.
     case unified
 }

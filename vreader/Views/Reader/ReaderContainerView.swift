@@ -3,7 +3,7 @@
 //
 // Key decisions:
 // - Dispatches to format-specific reader based on BookFormat and ReadingMode.
-// - When readingMode == .unified and format supports .unifiedReflow, shows placeholder (Phase B).
+// - When readingMode == .unified: TXT/MD use UnifiedTextRenderer (WI-B04); EPUB shows placeholder.
 // - PDF always falls through to native (no .unifiedReflow capability).
 // - File URL resolved from fingerprintKey using the sandbox import convention.
 // - DocumentFingerprint parsed from the canonical key string.
@@ -64,6 +64,10 @@ struct ReaderContainerView: View {
     @State private var tocEntries: [TOCEntry] = []
     /// TTS service for read-aloud feature (WI-B03).
     @State private var ttsService = TTSService()
+    /// Text loaded for the unified reflow engine (WI-B04). Nil until loaded.
+    @State private var unifiedTextContent: String?
+    /// Reading progress for the unified renderer (WI-B04).
+    @State private var unifiedReadingProgress: Double = 0
 
     var body: some View {
         ZStack {
@@ -75,11 +79,11 @@ struct ReaderContainerView: View {
                 if let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
                     // TODO: Phase B12 — EPUB classifier will set isComplexEPUB at runtime.
                     // Currently BookFormat.capabilities always returns simple EPUB capabilities,
-                    // so complex EPUBs get .unifiedReflow when they shouldn't. Acceptable for
-                    // Phase 0 since Unified mode shows a placeholder anyway.
+                    // so complex EPUBs get .unifiedReflow when they shouldn't.
+                    // TXT/MD use UnifiedTextRenderer (WI-B04); EPUB unified shows placeholder.
                     if settingsStore.readingMode == .unified
                         && resolvedBookFormat.capabilities.contains(.unifiedReflow) {
-                        UnifiedPlaceholderView(settingsStore: settingsStore)
+                        unifiedReaderView(fingerprint: fingerprint)
                     } else {
                         nativeReaderView(fingerprint: fingerprint)
                             .tapZoneOverlay(config: tapZoneStore.config)
@@ -824,6 +828,46 @@ struct ReaderContainerView: View {
             )
         default:
             unsupportedFormatView(format: book.format.uppercased())
+        }
+    }
+
+    /// Dispatches to the unified reflow engine for supported formats,
+    /// or falls back to the placeholder for unsupported ones (e.g. EPUB).
+    @ViewBuilder
+    private func unifiedReaderView(fingerprint: DocumentFingerprint) -> some View {
+        switch book.format.lowercased() {
+        case "txt", "md":
+            if let text = unifiedTextContent {
+                UnifiedTextRenderer(
+                    text: text,
+                    settingsStore: settingsStore,
+                    readingProgress: $unifiedReadingProgress
+                )
+                .tapZoneOverlay(config: tapZoneStore.config)
+            } else {
+                ProgressView("Loading\u{2026}")
+                    .task { await loadUnifiedTextContent() }
+            }
+        default:
+            // EPUB unified mode not yet implemented
+            UnifiedPlaceholderView(settingsStore: settingsStore)
+        }
+    }
+
+    /// Loads text content for the unified reflow engine from the book file.
+    private func loadUnifiedTextContent() async {
+        let url = resolvedFileURL
+        let format = book.format.lowercased()
+        let text: String? = await Task.detached {
+            switch format {
+            case "txt", "md":
+                return try? String(contentsOf: url, encoding: .utf8)
+            default:
+                return nil
+            }
+        }.value
+        if let text, !text.isEmpty {
+            unifiedTextContent = text
         }
     }
 

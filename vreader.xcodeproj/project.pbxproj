@@ -427,6 +427,11 @@
 		FD253FA0CEB159E2B1299BD4 /* SchemaV1Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EA03BEFDBB65F5D7533EDE /* SchemaV1Tests.swift */; };
 		FD9B24BBE1D852DA18A23E6F /* AITypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C22F30DF9F05C20CF8DDBC /* AITypes.swift */; };
 		FE244DEB01C2A5C716D1B5C7 /* LibraryDynamicTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77D3287AEC40129E6AA379F /* LibraryDynamicTypeTests.swift */; };
+		A11B21C31D41E51F61A71B81 /* UnifiedTextRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10B20C30D40E50F60A70B80 /* UnifiedTextRendererTests.swift */; };
+		A21B21C31D41E51F61A71B81 /* UnifiedTextRendererViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20B20C30D40E50F60A70B80 /* UnifiedTextRendererViewModel.swift */; };
+		A31B31C31D41E51F61A71B81 /* UnifiedTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30B30C30D40E50F60A70B80 /* UnifiedTextRenderer.swift */; };
+		A41B41C41D41E51F61A71B81 /* UnifiedPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40B40C40D40E50F60A70B80 /* UnifiedPagedView.swift */; };
+		A51B51C51D51E51F61A71B81 /* UnifiedScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50B50C50D50E50F60A70B80 /* UnifiedScrollView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -870,6 +875,11 @@
 		FF23B1A0CC0BE35DF685C5FA /* ReaderFormatHosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderFormatHosts.swift; sourceTree = "<group>"; };
 		FFD1AE78FBFF38B3616352FF /* AIConsentManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConsentManagerTests.swift; sourceTree = "<group>"; };
 		FFE1146B1851B4122B5187A1 /* TXTServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTServiceProtocol.swift; sourceTree = "<group>"; };
+		A10B20C30D40E50F60A70B80 /* UnifiedTextRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedTextRendererTests.swift; sourceTree = "<group>"; };
+		A20B20C30D40E50F60A70B80 /* UnifiedTextRendererViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedTextRendererViewModel.swift; sourceTree = "<group>"; };
+		A30B30C30D40E50F60A70B80 /* UnifiedTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedTextRenderer.swift; sourceTree = "<group>"; };
+		A40B40C40D40E50F60A70B80 /* UnifiedPagedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedPagedView.swift; sourceTree = "<group>"; };
+		A50B50C50D50E50F60A70B80 /* UnifiedScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedScrollView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -1114,6 +1124,7 @@
 				62569DC663E2BDD2DC0155C3 /* SearchHighlightDismissTests.swift */,
 				AB8FC6D57843EAC26DB980D3 /* SearchResultHighlightTests.swift */,
 				4AC68C4B5F57B57A98D3C020 /* TapZoneTests.swift */,
+				A10B20C30D40E50F60A70B80 /* UnifiedTextRendererTests.swift */,
 				47AA8588621686E377D9D496 /* TXTBridgeSharedTests.swift */,
 				F213D0F6EFBD7D7088AAC40D /* TXTMDProgressTests.swift */,
 			);
@@ -1303,6 +1314,9 @@
 				725F9036150B858160ACFF7B /* TXTReaderContainerView.swift */,
 				43347208CA56C84F65B2DCF7 /* TXTTextViewBridge.swift */,
 				34E23954103D83A7E25CC4A4 /* UnifiedPlaceholderView.swift */,
+				A30B30C30D40E50F60A70B80 /* UnifiedTextRenderer.swift */,
+				A40B40C40D40E50F60A70B80 /* UnifiedPagedView.swift */,
+				A50B50C50D50E50F60A70B80 /* UnifiedScrollView.swift */,
 			);
 			path = Reader;
 			sourceTree = "<group>";
@@ -1361,6 +1375,7 @@
 				43D54AC9AD2556A67C96BD52 /* PDFReaderViewModel.swift */,
 				864A1B050775A46ADBE3304F /* SearchViewModel.swift */,
 				E19A1FE14FDE4829AF0F5913 /* TXTReaderViewModel.swift */,
+				A20B20C30D40E50F60A70B80 /* UnifiedTextRendererViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -2100,6 +2115,7 @@
 				E276113ABA6A03C93EE62848 /* TXTTextViewBridgeTests.swift in Sources */,
 				E9FB5CFE42A28D671A7DE83A /* TXTTocRuleEngineTests.swift in Sources */,
 				AA366A9AF508E95B64F9A5E0 /* TapZoneTests.swift in Sources */,
+				A11B21C31D41E51F61A71B81 /* UnifiedTextRendererTests.swift in Sources */,
 				7D8D8CAA59DB81F80A9BEE72 /* TextKit2PaginatorTests.swift in Sources */,
 				381D47129E7564BFBE0B26EB /* ThemeBackgroundTests.swift in Sources */,
 				49D992E6F2DAB74CCD4FDC68 /* TokenSpanTests.swift in Sources */,
@@ -2326,6 +2342,10 @@
 				3DF1A5D2E40DE8AAF521BB8C /* TranslationPanel.swift in Sources */,
 				CE3D74414B1983EB35589EFD /* TypographySettings.swift in Sources */,
 				F97F59A8465B2ABA54B91E27 /* UnifiedPlaceholderView.swift in Sources */,
+				A21B21C31D41E51F61A71B81 /* UnifiedTextRendererViewModel.swift in Sources */,
+				A31B31C31D41E51F61A71B81 /* UnifiedTextRenderer.swift in Sources */,
+				A41B41C41D41E51F61A71B81 /* UnifiedPagedView.swift in Sources */,
+				A51B51C51D51E51F61A71B81 /* UnifiedScrollView.swift in Sources */,
 				1CB7C39AC6FE3B715D4B4305 /* V1toV2Migration.swift in Sources */,
 				F10FCB9E3EC6862A640BD406 /* VReaderApp.swift in Sources */,
 				AEFC819574E845429DFC9D78 /* ZIPReader.swift in Sources */,

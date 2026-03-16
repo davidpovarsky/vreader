@@ -2,7 +2,9 @@
 // Determines reader type from book format and provides shared chrome.
 //
 // Key decisions:
-// - Dispatches to format-specific reader based on BookFormat.
+// - Dispatches to format-specific reader based on BookFormat and ReadingMode.
+// - When readingMode == .unified and format supports .unifiedReflow, shows placeholder (Phase B).
+// - PDF always falls through to native (no .unifiedReflow capability).
 // - File URL resolved from fingerprintKey using the sandbox import convention.
 // - DocumentFingerprint parsed from the canonical key string.
 // - Format host views (TXTReaderHost, etc.) extracted to ReaderFormatHosts.swift (WI-004).
@@ -59,36 +61,11 @@ struct ReaderContainerView: View {
     var body: some View {
         Group {
             if let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                switch book.format.lowercased() {
-                case "epub":
-                    EPUBReaderHost(
-                        fileURL: resolvedFileURL,
-                        fingerprint: fingerprint,
-                        modelContainer: modelContext.container,
-                        settingsStore: settingsStore
-                    )
-                case "pdf":
-                    PDFReaderHost(
-                        fileURL: resolvedFileURL,
-                        fingerprint: fingerprint,
-                        modelContainer: modelContext.container
-                    )
-                case "txt":
-                    TXTReaderHost(
-                        fileURL: resolvedFileURL,
-                        fingerprint: fingerprint,
-                        modelContainer: modelContext.container,
-                        settingsStore: settingsStore
-                    )
-                case "md":
-                    MDReaderHost(
-                        fileURL: resolvedFileURL,
-                        fingerprint: fingerprint,
-                        modelContainer: modelContext.container,
-                        settingsStore: settingsStore
-                    )
-                default:
-                    unsupportedFormatView(format: book.format.uppercased())
+                if settingsStore.readingMode == .unified
+                    && resolvedBookFormat.capabilities.contains(.unifiedReflow) {
+                    UnifiedPlaceholderView(settingsStore: settingsStore)
+                } else {
+                    nativeReaderView(fingerprint: fingerprint)
                 }
             } else {
                 fingerprintErrorView
@@ -235,7 +212,8 @@ struct ReaderContainerView: View {
                 return
             }
             do {
-                let store = try SearchIndexStore()
+                // Use persistent file-backed index (WI-F06)
+                let store = try Self.makePersistentStore()
                 let service = SearchService(store: store)
                 searchService = service
 
@@ -247,10 +225,21 @@ struct ReaderContainerView: View {
                 )
                 searchViewModel = vm
 
-                let alreadyIndexed = await service.isIndexed(fingerprint: fingerprint)
+                // Check persistent index -- skip if already indexed (WI-F06)
+                let alreadyPersisted = store.isBookIndexed(
+                    fingerprintKey: fingerprint.canonicalKey
+                )
+                let inMemoryIndexed = await service.isIndexed(fingerprint: fingerprint)
+                let alreadyIndexed = alreadyPersisted || inMemoryIndexed
+
                 if !alreadyIndexed {
-                    await Self.indexBookContent(
-                        service: service,
+                    // Defer indexing to background (WI-F05)
+                    let coordinator = BackgroundIndexingCoordinator(
+                        searchService: service
+                    )
+                    await Self.enqueueBookIndexing(
+                        coordinator: coordinator,
+                        store: store,
                         fileURL: resolvedFileURL,
                         fingerprint: fingerprint,
                         format: book.format.lowercased()
@@ -429,7 +418,106 @@ struct ReaderContainerView: View {
         #endif
     }()
 
-    // MARK: - Search Indexing
+    // MARK: - Persistent Search Index (WI-F06)
+
+    /// Creates a persistent file-backed SearchIndexStore.
+    /// Falls back to in-memory if file creation fails.
+    private static func makePersistentStore() throws -> SearchIndexStore {
+        let dir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SearchIndex", isDirectory: true)
+        let dbPath = dir.appendingPathComponent("search.sqlite3")
+        do {
+            let core = try SearchIndexCore(databasePath: dbPath.path)
+            return try SearchIndexStore(core: core)
+        } catch {
+            logger.warning("Persistent index failed, using in-memory: \(error.localizedDescription)")
+            return try SearchIndexStore()
+        }
+    }
+
+    /// Extracts text units and enqueues them for background indexing (WI-F05).
+    private static func enqueueBookIndexing(
+        coordinator: BackgroundIndexingCoordinator,
+        store: SearchIndexStore,
+        fileURL: URL,
+        fingerprint: DocumentFingerprint,
+        format: String
+    ) async {
+        do {
+            switch format {
+            case "txt":
+                let extractor = TXTTextExtractor()
+                let result = try await extractor.extractWithOffsets(from: fileURL)
+                await coordinator.enqueueIndexing(
+                    fingerprint: fingerprint,
+                    textUnits: result.textUnits,
+                    segmentBaseOffsets: result.segmentBaseOffsets
+                )
+                // Persist segment offsets for future sessions
+                if !result.segmentBaseOffsets.isEmpty {
+                    store.setSegmentBaseOffsets(
+                        fingerprintKey: fingerprint.canonicalKey,
+                        offsets: result.segmentBaseOffsets
+                    )
+                }
+
+            case "md":
+                let extractor = MDTextExtractor()
+                let result = try await extractor.extractWithOffsets(from: fileURL)
+                await coordinator.enqueueIndexing(
+                    fingerprint: fingerprint,
+                    textUnits: result.textUnits,
+                    segmentBaseOffsets: result.segmentBaseOffsets
+                )
+                if !result.segmentBaseOffsets.isEmpty {
+                    store.setSegmentBaseOffsets(
+                        fingerprintKey: fingerprint.canonicalKey,
+                        offsets: result.segmentBaseOffsets
+                    )
+                }
+
+            case "pdf":
+                let extractor = PDFTextExtractor()
+                let units = try await extractor.extractTextUnits(
+                    from: fileURL, fingerprint: fingerprint
+                )
+                await coordinator.enqueueIndexing(
+                    fingerprint: fingerprint,
+                    textUnits: units,
+                    segmentBaseOffsets: nil
+                )
+
+            case "epub":
+                let parser = EPUBParser()
+                do {
+                    let metadata = try await parser.open(url: fileURL)
+                    let extractor = EPUBTextExtractor()
+                    let units = try await extractor.extractFromParser(
+                        parser, metadata: metadata
+                    )
+                    await parser.close()
+                    await coordinator.enqueueIndexing(
+                        fingerprint: fingerprint,
+                        textUnits: units,
+                        segmentBaseOffsets: nil
+                    )
+                } catch {
+                    await parser.close()
+                    throw error
+                }
+
+            default:
+                break
+            }
+        } catch {
+            Self.logger.error(
+                "Background index enqueue failed for \(format): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    // MARK: - Search Indexing (Legacy)
 
     /// Extracts text from the book and indexes it for search.
     /// Runs on the calling task — use from a `.task` modifier for background execution.
@@ -603,6 +691,42 @@ struct ReaderContainerView: View {
                     }
             }
             .accessibilityIdentifier("searchSheet")
+        }
+    }
+
+    /// Dispatches to the format-specific native reader.
+    @ViewBuilder
+    private func nativeReaderView(fingerprint: DocumentFingerprint) -> some View {
+        switch book.format.lowercased() {
+        case "epub":
+            EPUBReaderHost(
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint,
+                modelContainer: modelContext.container,
+                settingsStore: settingsStore
+            )
+        case "pdf":
+            PDFReaderHost(
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint,
+                modelContainer: modelContext.container
+            )
+        case "txt":
+            TXTReaderHost(
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint,
+                modelContainer: modelContext.container,
+                settingsStore: settingsStore
+            )
+        case "md":
+            MDReaderHost(
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint,
+                modelContainer: modelContext.container,
+                settingsStore: settingsStore
+            )
+        default:
+            unsupportedFormatView(format: book.format.uppercased())
         }
     }
 

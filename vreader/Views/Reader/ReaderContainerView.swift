@@ -62,6 +62,8 @@ struct ReaderContainerView: View {
     @State private var isChromeVisible = true
     /// Computed TOC entries for the current book (format-specific).
     @State private var tocEntries: [TOCEntry] = []
+    /// TTS service for read-aloud feature (WI-B03).
+    @State private var ttsService = TTSService()
 
     var body: some View {
         ZStack {
@@ -85,6 +87,18 @@ struct ReaderContainerView: View {
                 } else {
                     fingerprintErrorView
                 }
+            }
+
+            // TTS control bar at the bottom (WI-B03)
+            if ttsService.state != .idle {
+                VStack {
+                    Spacer()
+                    TTSControlBar(
+                        ttsService: ttsService,
+                        settingsStore: settingsStore
+                    )
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
@@ -147,6 +161,20 @@ struct ReaderContainerView: View {
                     }
                     .accessibilityLabel("AI Assistant")
                     .accessibilityIdentifier("readerAIButton")
+                }
+
+                if resolvedBookFormat.capabilities.contains(.tts) {
+                    Button {
+                        startTTS()
+                    } label: {
+                        Image(systemName: ttsService.state == .idle
+                              ? "speaker.wave.2"
+                              : "speaker.wave.2.fill")
+                    }
+                    .accessibilityLabel(ttsService.state == .idle
+                                        ? "Read aloud"
+                                        : "TTS active")
+                    .accessibilityIdentifier("readerTTSButton")
                 }
 
                 Button {
@@ -423,6 +451,36 @@ struct ReaderContainerView: View {
             loadedTextContent = text
             // Update chat VM book context with extracted section (not full text)
             chatViewModel?.bookContext = currentTextContent
+        }
+    }
+
+    // MARK: - TTS Integration (WI-B03)
+
+    /// Starts or stops TTS read-aloud. If currently speaking, stops.
+    /// Otherwise, loads text from the book file and starts speaking.
+    private func startTTS() {
+        if ttsService.state != .idle {
+            ttsService.stop()
+            return
+        }
+
+        // Use already-loaded text content if available
+        if let text = loadedTextContent, !text.isEmpty {
+            let offset = currentLocator?.charOffsetUTF16 ?? 0
+            withAnimation(.easeInOut(duration: 0.2)) {
+                ttsService.startSpeaking(text: text, fromOffset: offset)
+            }
+        } else {
+            // Trigger text loading and start TTS when ready
+            Task {
+                await loadBookTextContent()
+                if let text = loadedTextContent, !text.isEmpty {
+                    let offset = currentLocator?.charOffsetUTF16 ?? 0
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        ttsService.startSpeaking(text: text, fromOffset: offset)
+                    }
+                }
+            }
         }
     }
 

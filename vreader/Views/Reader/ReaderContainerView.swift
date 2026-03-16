@@ -44,6 +44,7 @@ struct ReaderContainerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var settingsStore = ReaderSettingsStore()
+    @State private var tapZoneStore = TapZoneStore()
     @State private var showSettings = false
     @State private var showAnnotationsPanel = false
     @State private var showSearch = false
@@ -70,6 +71,7 @@ struct ReaderContainerView: View {
                     UnifiedPlaceholderView(settingsStore: settingsStore)
                 } else {
                     nativeReaderView(fingerprint: fingerprint)
+                        .tapZoneOverlay(config: tapZoneStore.config)
                 }
             } else {
                 fingerprintErrorView

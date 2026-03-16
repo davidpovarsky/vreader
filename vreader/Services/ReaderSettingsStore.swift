@@ -1,164 +1,59 @@
-// Purpose: Observable store for reader theme, typography, and reading mode settings.
-// Persists via UserDefaults and provides computed UIKit values for bridges.
-//
-// Key decisions:
-// - @Observable for SwiftUI reactivity.
-// - UserDefaults for persistence across app launches.
-// - Computed UIFont, UIColor, etc. derived from current settings.
-// - Provides bridge-specific config objects (MDRenderConfig, TXTViewConfig).
-// - CJK letter spacing is 0.05em equivalent when enabled.
-// - Line spacing stored as multiplier; converted to absolute points for UIKit.
-// - ReadingMode defaults to .native; .unified reserved for Phase B (V2).
-//
-// @coordinates-with: ReaderTheme.swift, TypographySettings.swift, ReadingMode.swift,
-//   MDTypes.swift, TXTTextViewBridge.swift
-
 import Foundation
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
-
-/// Observable store for reader appearance settings.
-/// Wraps UserDefaults for persistence and provides computed UIKit values.
 @Observable
 @MainActor
 final class ReaderSettingsStore {
-
-    // MARK: - Storage Keys
-
     static let themeKey = "readerTheme"
     static let typographyKey = "readerTypography"
     static let readingModeKey = "readerReadingMode"
-
-    // MARK: - Persisted State
-
-    /// Current color theme.
-    var theme: ReaderTheme {
-        didSet {
-            defaults.set(theme.rawValue, forKey: Self.themeKey)
-        }
-    }
-
-    /// Reading engine mode (native per-format or unified reflow).
-    var readingMode: ReadingMode {
-        didSet {
-            defaults.set(readingMode.rawValue, forKey: Self.readingModeKey)
-        }
-    }
-
-    /// Typography settings (font size, line spacing, font family, CJK spacing).
+    static let useCustomBackgroundKey = "readerUseCustomBackground"
+    static let backgroundOpacityKey = "readerBackgroundOpacity"
+    var theme: ReaderTheme { didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) } }
+    var readingMode: ReadingMode { didSet { defaults.set(readingMode.rawValue, forKey: Self.readingModeKey) } }
     var typography: TypographySettings {
-        didSet {
-            do {
-                let data = try JSONEncoder().encode(typography)
-                defaults.set(data, forKey: Self.typographyKey)
-            } catch {
-                assertionFailure("Failed to encode TypographySettings: \(error)")
-            }
-        }
+        didSet { if let data = try? JSONEncoder().encode(typography) { defaults.set(data, forKey: Self.typographyKey) } }
     }
-
-    // MARK: - Private
-
+    var useCustomBackground: Bool { didSet { defaults.set(useCustomBackground, forKey: Self.useCustomBackgroundKey) } }
+    var backgroundOpacity: Double {
+        get { _backgroundOpacity }
+        set { _backgroundOpacity = min(max(newValue, 0.0), 1.0); defaults.set(_backgroundOpacity, forKey: Self.backgroundOpacityKey) }
+    }
+    private var _backgroundOpacity: Double
     private let defaults: UserDefaults
-
-    // MARK: - Init
-
-    /// Creates a store backed by the given UserDefaults.
-    /// - Parameter defaults: UserDefaults instance. Use a custom suite for testing.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-
-        // Restore theme
-        self.theme = ReaderTheme(rawValue: defaults.string(forKey: Self.themeKey) ?? "")
-            ?? .default
-
-        // Restore reading mode
-        self.readingMode = ReadingMode(rawValue: defaults.string(forKey: Self.readingModeKey) ?? "")
-            ?? .native
-
-        // Restore typography
-        if let data = defaults.data(forKey: Self.typographyKey),
-           let decoded = try? JSONDecoder().decode(TypographySettings.self, from: data) {
-            self.typography = decoded
-        } else {
-            self.typography = TypographySettings()
-        }
+        self.theme = ReaderTheme(rawValue: defaults.string(forKey: Self.themeKey) ?? "") ?? .default
+        self.readingMode = ReadingMode(rawValue: defaults.string(forKey: Self.readingModeKey) ?? "") ?? .native
+        if let data = defaults.data(forKey: Self.typographyKey), let d = try? JSONDecoder().decode(TypographySettings.self, from: data) { self.typography = d } else { self.typography = TypographySettings() }
+        self.useCustomBackground = defaults.bool(forKey: Self.useCustomBackgroundKey)
+        self._backgroundOpacity = min(max((defaults.object(forKey: Self.backgroundOpacityKey) as? Double) ?? 0.15, 0.0), 1.0)
     }
-
-    // MARK: - Computed UIKit Values
-
     #if canImport(UIKit)
-    /// UIFont for current font family and size.
     var uiFont: UIFont {
         let size = typography.fontSize
         switch typography.fontFamily {
-        case .system:
-            return .systemFont(ofSize: size)
-        case .serif:
-            // Georgia is the most reliable serif on iOS
-            return UIFont(name: "Georgia", size: size) ?? .systemFont(ofSize: size)
-        case .monospace:
-            return .monospacedSystemFont(ofSize: size, weight: .regular)
+        case .system: return .systemFont(ofSize: size)
+        case .serif: return UIFont(name: "Georgia", size: size) ?? .systemFont(ofSize: size)
+        case .monospace: return .monospacedSystemFont(ofSize: size, weight: .regular)
         }
     }
-
-    /// Background color from current theme.
-    var uiBackgroundColor: UIColor {
-        theme.backgroundColor
-    }
-
-    /// Primary text color from current theme.
-    var uiTextColor: UIColor {
-        theme.textColor
-    }
-
-    /// Secondary text color from current theme.
-    var uiSecondaryTextColor: UIColor {
-        theme.secondaryTextColor
-    }
-
-    /// Absolute line spacing in points (fontSize * (multiplier - 1.0)).
-    var lineSpacingPoints: CGFloat {
-        typography.fontSize * (typography.lineSpacing - 1.0)
-    }
-
-    /// CJK inter-character spacing. 0 when disabled, ~0.05em equivalent when enabled.
-    var cjkLetterSpacing: CGFloat {
-        typography.cjkSpacing ? typography.fontSize * 0.05 : 0
-    }
+    var uiBackgroundColor: UIColor { theme.backgroundColor }
+    var uiTextColor: UIColor { theme.textColor }
+    var uiSecondaryTextColor: UIColor { theme.secondaryTextColor }
+    var lineSpacingPoints: CGFloat { typography.fontSize * (typography.lineSpacing - 1.0) }
+    var cjkLetterSpacing: CGFloat { typography.cjkSpacing ? typography.fontSize * 0.05 : 0 }
     #endif
-
-    // MARK: - Bridge Configs
-
     #if canImport(UIKit)
-    /// MDRenderConfig bridged from current settings.
-    var mdRenderConfig: MDRenderConfig {
-        MDRenderConfig(
-            fontSize: typography.fontSize,
-            lineSpacing: lineSpacingPoints,
-            textColor: uiTextColor
-        )
-    }
-
-    /// TXTViewConfig bridged from current settings.
+    var mdRenderConfig: MDRenderConfig { MDRenderConfig(fontSize: typography.fontSize, lineSpacing: lineSpacingPoints, textColor: uiTextColor) }
     var txtViewConfig: TXTViewConfig {
-        var config = TXTViewConfig()
-        config.fontSize = typography.fontSize
-        config.lineSpacing = lineSpacingPoints
-        config.textColor = uiTextColor
-        config.backgroundColor = uiBackgroundColor
-        config.letterSpacing = cjkLetterSpacing
-        switch typography.fontFamily {
-        case .system:
-            config.fontName = nil
-        case .serif:
-            config.fontName = "Georgia"
-        case .monospace:
-            config.fontName = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
-        }
-        return config
+        var c = TXTViewConfig(); c.fontSize = typography.fontSize; c.lineSpacing = lineSpacingPoints
+        c.textColor = uiTextColor; c.backgroundColor = uiBackgroundColor; c.letterSpacing = cjkLetterSpacing
+        switch typography.fontFamily { case .system: c.fontName = nil; case .serif: c.fontName = "Georgia"
+        case .monospace: c.fontName = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName }
+        return c
     }
     #endif
 }

@@ -6,7 +6,7 @@
 // - Zones are percentage-based: 33.33% / 33.33% / 33.33%.
 // - Zone detection is a static pure function for easy testing.
 // - All types are Codable + Sendable for persistence and thread safety.
-// - previousPage/nextPage are no-ops until Phase B wires PageNavigator.
+// - previousPage/nextPage dispatch via NotificationCenter; PDF wired via PDFPageNavigator (WI-B09).
 // - TapZoneStore provides @Observable persistence independent of ReaderSettingsStore.
 //
 // @coordinates-with TapZoneOverlay.swift, ReaderContainerView.swift

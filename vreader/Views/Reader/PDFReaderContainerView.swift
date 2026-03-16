@@ -19,7 +19,7 @@
 //
 // @coordinates-with: PDFReaderViewModel.swift, PDFViewBridge.swift,
 //   PDFPasswordPromptView.swift, ReadingProgressBar.swift, PDFProgressHelper.swift,
-//   PDFAnnotationBridge.swift, HighlightPersisting.swift
+//   PDFAnnotationBridge.swift, HighlightPersisting.swift, PDFPageNavigator.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -59,6 +59,8 @@ struct PDFReaderContainerView: View {
     /// Temporary search highlight text quote for navigating to search results (bug #43).
     /// Set when receiving .readerNavigateToLocator with textQuote, cleared after display.
     @State private var searchHighlightText: String?
+    /// Page navigator for tap zone integration (WI-B09).
+    @State private var pageNavigator = PDFPageNavigator()
 
     var body: some View {
         ZStack {
@@ -132,6 +134,11 @@ struct PDFReaderContainerView: View {
                 try? viewModel.startSession()
                 restoredPage = await viewModel.restorePosition()
                 await viewModel.updateLastOpened()
+                // Initialize page navigator for tap zone integration (WI-B09)
+                pageNavigator.totalPages = viewModel.totalPages
+                if let page = restoredPage {
+                    pageNavigator.syncCurrentPage(page)
+                }
                 // Restore saved highlights as visible annotations
                 if let container = modelContainer {
                     let persistence = PersistenceActor(modelContainer: container)
@@ -159,6 +166,20 @@ struct PDFReaderContainerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
+            guard viewModel.isDocumentLoaded else { return }
+            pageNavigator.nextPage()
+            let page = pageNavigator.currentPage
+            restoredPage = page
+            viewModel.pageDidChange(to: page)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
+            guard viewModel.isDocumentLoaded else { return }
+            pageNavigator.previousPage()
+            let page = pageNavigator.currentPage
+            restoredPage = page
+            viewModel.pageDidChange(to: page)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
             guard let locator = notification.object as? Locator,
                   let page = locator.page else { return }
@@ -170,11 +191,13 @@ struct PDFReaderContainerView: View {
                 searchHighlightText = textQuote
             }
         }
-        .onChange(of: viewModel.currentPageIndex) { _, _ in
+        .onChange(of: viewModel.currentPageIndex) { _, newPage in
             readingProgress = PDFProgressHelper.progressForPage(
-                currentPageIndex: viewModel.currentPageIndex,
+                currentPageIndex: newPage,
                 totalPages: viewModel.totalPages
             )
+            // Keep page navigator in sync with PDFView scroll (WI-B09)
+            pageNavigator.syncCurrentPage(newPage)
             // Notify ReaderContainerView of the live position for AI panel.
             let locator = viewModel.makeCurrentLocator()
             NotificationCenter.default.post(

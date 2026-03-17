@@ -268,6 +268,64 @@ enum CSSRuleEvaluator {
         return results
     }
 
+    // MARK: - Evaluate Raw HTML
+
+    /// Evaluates a CSS selector and returns the full HTML of each match.
+    ///
+    /// Used for container-level rules (bookList, chapterList) where
+    /// sub-rules are applied to each element's HTML.
+    static func evaluateRawHTML(
+        selector: String,
+        index: Int?,
+        html: String
+    ) -> [String] {
+        guard !selector.isEmpty, !html.isEmpty else { return [] }
+
+        let parts = parseDescendantSelector(selector)
+        let matches: [ElementMatch]
+
+        if parts.count > 1 {
+            matches = findDescendantMatches(parts: parts, html: html)
+        } else {
+            matches = findElements(matching: parts[0], in: html)
+        }
+
+        let rawHTMLs = matches.map { $0.fullMatch }
+        return HTMLHelper.applyIndex(results: rawHTMLs, index: index)
+    }
+
+    /// Finds descendant matches, returning ElementMatch objects.
+    private static func findDescendantMatches(
+        parts: [SimpleSelector],
+        html: String
+    ) -> [ElementMatch] {
+        guard let first = parts.first else { return [] }
+
+        let outerMatches = findElements(matching: first, in: html)
+        if parts.count == 1 { return outerMatches }
+
+        let remaining = Array(parts.dropFirst())
+        var results: [ElementMatch] = []
+
+        for match in outerMatches {
+            if remaining.count == 1 {
+                results.append(
+                    contentsOf: findElements(
+                        matching: remaining[0], in: match.innerHTML
+                    )
+                )
+            } else {
+                results.append(
+                    contentsOf: findDescendantMatches(
+                        parts: remaining, html: match.innerHTML
+                    )
+                )
+            }
+        }
+
+        return results
+    }
+
     // MARK: - Value Extraction
 
     private static func extractValue(

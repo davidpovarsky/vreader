@@ -80,4 +80,39 @@ enum RuleEngine {
     ) -> String? {
         evaluate(rule: rule, html: html, baseURL: baseURL).first
     }
+
+    // MARK: - Evaluate Raw HTML (Container Extraction)
+
+    /// Evaluates a CSS rule and returns the full HTML of each matched element.
+    ///
+    /// Used by the pipeline for container rules (e.g., bookList, chapterList)
+    /// where sub-rules need to be applied against each element's HTML.
+    /// Regex and XPath rules fall back to normal `evaluate`.
+    ///
+    /// - Parameters:
+    ///   - rule: The CSS selector rule string.
+    ///   - html: The HTML content to evaluate against.
+    ///   - baseURL: Base URL for resolving relative URLs.
+    /// - Returns: Array of raw HTML strings for each matched element.
+    static func evaluateRawHTML(
+        rule: String,
+        html: String,
+        baseURL: URL?
+    ) -> [String] {
+        let trimmed = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let parsed = LegadoRuleParser.parse(trimmed)
+
+        switch parsed.type {
+        case .css:
+            return CSSRuleEvaluator.evaluateRawHTML(
+                selector: parsed.selector,
+                index: parsed.index,
+                html: html
+            )
+        case .regex, .xpath:
+            return evaluate(rule: rule, html: html, baseURL: baseURL)
+        }
+    }
 }

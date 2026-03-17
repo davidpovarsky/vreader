@@ -505,6 +505,19 @@
 		FAD9F46E8B9BD3E87FB68287 /* RuleEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB007C93A274D2EB4EF7A3B9 /* RuleEngineTests.swift */; };
 		0DDF1B72D9B712C6B0D327D3 /* CSSRuleEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386F15A3CC3059EC5B4E3872 /* CSSRuleEvaluatorTests.swift */; };
 		3D4FD29B8D09BBB8C02241D5 /* LegadoRuleParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6F8130B082FB1C006A2F711 /* LegadoRuleParserTests.swift */; };
+		70679EB33203CA5BD78A43C9 /* BookSourcePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E6850832765DA26713F278C /* BookSourcePipeline.swift */; };
+		275C851E9115056F4AF6657B /* PipelineTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA41D8643B42B4B25CB6D96A /* PipelineTypes.swift */; };
+		87A6858F82E1DE2F31A592C3 /* BookSourceSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A691D7600EDE0812CC1E6AD /* BookSourceSearchView.swift */; };
+		1F55B2D70EC99A6E77AACFD8 /* BookSourceChapterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9541B260A743177FAD2B96EE /* BookSourceChapterListView.swift */; };
+		60E22AD64A6DF63A0CFBFE70 /* BookSourceReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A13D6063551337AC540840D /* BookSourceReaderView.swift */; };
+		47B8BA0B880F22752CD21308 /* BookSourcePipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAB86FF543782FB25FCE33C /* BookSourcePipelineTests.swift */; };
+		18EC97E247FEF2212C90B5E1 /* search_results.html in Resources */ = {isa = PBXBuildFile; fileRef = 56955DD1A478DEED93B590C9 /* search_results.html */; };
+		BC0E362C5EA8C36CB648B34E /* book_detail.html in Resources */ = {isa = PBXBuildFile; fileRef = F5DFC4A77EA2740C79B2EC34 /* book_detail.html */; };
+		D4BE2B581F2B7372BA6390AF /* chapter_list.html in Resources */ = {isa = PBXBuildFile; fileRef = 2026D64F5931E86FF0E34945 /* chapter_list.html */; };
+		989E5E5ACA5EB8FFD6A3B74A /* chapter_content.html in Resources */ = {isa = PBXBuildFile; fileRef = DDC5E430511CD7491C543A15 /* chapter_content.html */; };
+		5DDD5217EFD8A53C4C5DD152 /* search_no_results.html in Resources */ = {isa = PBXBuildFile; fileRef = F099DED45D1C192D6F99A194 /* search_no_results.html */; };
+		212D635EB0A8088D74729C2C /* chapter_list_paginated.html in Resources */ = {isa = PBXBuildFile; fileRef = 9509CC40145B03A66875390C /* chapter_list_paginated.html */; };
+		8C858D4E771BCCAC02F2D1E2 /* chapter_list_page2.html in Resources */ = {isa = PBXBuildFile; fileRef = 6B600146907F8D9159F2B777 /* chapter_list_page2.html */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1026,6 +1039,19 @@
 		EB007C93A274D2EB4EF7A3B9 /* RuleEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleEngineTests.swift; sourceTree = "<group>"; };
 		386F15A3CC3059EC5B4E3872 /* CSSRuleEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSRuleEvaluatorTests.swift; sourceTree = "<group>"; };
 		B6F8130B082FB1C006A2F711 /* LegadoRuleParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRuleParserTests.swift; sourceTree = "<group>"; };
+		8E6850832765DA26713F278C /* BookSourcePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourcePipeline.swift; sourceTree = "<group>"; };
+		EA41D8643B42B4B25CB6D96A /* PipelineTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineTypes.swift; sourceTree = "<group>"; };
+		7A691D7600EDE0812CC1E6AD /* BookSourceSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceSearchView.swift; sourceTree = "<group>"; };
+		9541B260A743177FAD2B96EE /* BookSourceChapterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceChapterListView.swift; sourceTree = "<group>"; };
+		3A13D6063551337AC540840D /* BookSourceReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceReaderView.swift; sourceTree = "<group>"; };
+		8FAB86FF543782FB25FCE33C /* BookSourcePipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourcePipelineTests.swift; sourceTree = "<group>"; };
+		56955DD1A478DEED93B590C9 /* search_results.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = search_results.html; sourceTree = "<group>"; };
+		F5DFC4A77EA2740C79B2EC34 /* book_detail.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = book_detail.html; sourceTree = "<group>"; };
+		2026D64F5931E86FF0E34945 /* chapter_list.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = chapter_list.html; sourceTree = "<group>"; };
+		DDC5E430511CD7491C543A15 /* chapter_content.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = chapter_content.html; sourceTree = "<group>"; };
+		F099DED45D1C192D6F99A194 /* search_no_results.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = search_no_results.html; sourceTree = "<group>"; };
+		9509CC40145B03A66875390C /* chapter_list_paginated.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = chapter_list_paginated.html; sourceTree = "<group>"; };
+		6B600146907F8D9159F2B777 /* chapter_list_page2.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = chapter_list_page2.html; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -1038,6 +1064,13 @@
 				9B4C9FADDEE54F268F536EC5 /* legado_source_xpath.json */,
 				D0966F97359B41E9AB958A02 /* legado_source_js.json */,
 				FCB2E5176B454D4A8C82E893 /* legado_source_minimal.json */,
+				56955DD1A478DEED93B590C9 /* search_results.html */,
+				F5DFC4A77EA2740C79B2EC34 /* book_detail.html */,
+				2026D64F5931E86FF0E34945 /* chapter_list.html */,
+				DDC5E430511CD7491C543A15 /* chapter_content.html */,
+				F099DED45D1C192D6F99A194 /* search_no_results.html */,
+				9509CC40145B03A66875390C /* chapter_list_paginated.html */,
+				6B600146907F8D9159F2B777 /* chapter_list_page2.html */,
 			);
 			path = BookSource;
 			sourceTree = "<group>";
@@ -2115,6 +2148,8 @@
 				8FA0499B50436361D13BA5D0 /* RegexRuleEvaluator.swift */,
 				B5099FDCB9D68C511D5C59FA /* LegadoRuleParser.swift */,
 				78E21000C7B6029FCAD6E13E /* HTMLHelper.swift */,
+				EA41D8643B42B4B25CB6D96A /* PipelineTypes.swift */,
+				8E6850832765DA26713F278C /* BookSourcePipeline.swift */,
 			);
 			path = BookSource;
 			sourceTree = "<group>";
@@ -2128,6 +2163,7 @@
 				EB007C93A274D2EB4EF7A3B9 /* RuleEngineTests.swift */,
 				386F15A3CC3059EC5B4E3872 /* CSSRuleEvaluatorTests.swift */,
 				B6F8130B082FB1C006A2F711 /* LegadoRuleParserTests.swift */,
+				8FAB86FF543782FB25FCE33C /* BookSourcePipelineTests.swift */,
 			);
 			path = BookSource;
 			sourceTree = "<group>";
@@ -2156,6 +2192,9 @@
 			children = (
 				41D6AA10585EA3CE63143C50 /* BookSourceEditorView.swift */,
 				A97BCD7E2CCDE30EA6372D6C /* BookSourceListView.swift */,
+				7A691D7600EDE0812CC1E6AD /* BookSourceSearchView.swift */,
+				9541B260A743177FAD2B96EE /* BookSourceChapterListView.swift */,
+				3A13D6063551337AC540840D /* BookSourceReaderView.swift */,
 			);
 			path = BookSource;
 			sourceTree = "<group>";
@@ -2277,6 +2316,13 @@
 				7BF30BFBA55B4D40A38A03F4 /* legado_source_xpath.json in Resources */,
 				63F0FFBB206E429287E293C3 /* legado_source_js.json in Resources */,
 				AF5A3B3C7744485DB376E5C8 /* legado_source_minimal.json in Resources */,
+				18EC97E247FEF2212C90B5E1 /* search_results.html in Resources */,
+				BC0E362C5EA8C36CB648B34E /* book_detail.html in Resources */,
+				D4BE2B581F2B7372BA6390AF /* chapter_list.html in Resources */,
+				989E5E5ACA5EB8FFD6A3B74A /* chapter_content.html in Resources */,
+				5DDD5217EFD8A53C4C5DD152 /* search_no_results.html in Resources */,
+				212D635EB0A8088D74729C2C /* chapter_list_paginated.html in Resources */,
+				8C858D4E771BCCAC02F2D1E2 /* chapter_list_page2.html in Resources */,
 				4176B17F6A64ED68E53B016E /* utf16le_bom.txt in Resources */,
 				08F7E1DE72FF450114142960 /* utf8_bom.txt in Resources */,
 			);
@@ -2296,6 +2342,7 @@
 				FAD9F46E8B9BD3E87FB68287 /* RuleEngineTests.swift in Sources */,
 				0DDF1B72D9B712C6B0D327D3 /* CSSRuleEvaluatorTests.swift in Sources */,
 				3D4FD29B8D09BBB8C02241D5 /* LegadoRuleParserTests.swift in Sources */,
+				47B8BA0B880F22752CD21308 /* BookSourcePipelineTests.swift in Sources */,
 				8044960A1B045C48AAE88736 /* AIAssistantViewModelTests.swift in Sources */,
 				369D003DCE5F36A64E5C1C06 /* AIChatGeneralTests.swift in Sources */,
 				05BE70789318FA085B9A735E /* AIChatViewModelTests.swift in Sources */,
@@ -2498,6 +2545,11 @@
 				A6D4A208825821F4077F90A0 /* RegexRuleEvaluator.swift in Sources */,
 				47534D81F01962F43C11E9B5 /* LegadoRuleParser.swift in Sources */,
 				5BC84DECAA7A019DAB762F29 /* HTMLHelper.swift in Sources */,
+				275C851E9115056F4AF6657B /* PipelineTypes.swift in Sources */,
+				70679EB33203CA5BD78A43C9 /* BookSourcePipeline.swift in Sources */,
+				87A6858F82E1DE2F31A592C3 /* BookSourceSearchView.swift in Sources */,
+				1F55B2D70EC99A6E77AACFD8 /* BookSourceChapterListView.swift in Sources */,
+				60E22AD64A6DF63A0CFBFE70 /* BookSourceReaderView.swift in Sources */,
 				384E9916435C82876752D9D9 /* AIAssistantView.swift in Sources */,
 				99456D2FCC39AA83E0B43C65 /* AIAssistantViewModel.swift in Sources */,
 				8E936BF32CF0850398C9D742 /* AIChatView.swift in Sources */,

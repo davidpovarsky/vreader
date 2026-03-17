@@ -12,6 +12,8 @@
 //   to avoid memory/store pressure with large images.
 // - detectedEncoding stores the IANA name of the encoding detected at import
 //   for TXT files, enabling consistent reopen without re-detection.
+// - seriesName/seriesIndex are inline fields for series grouping (no separate entity).
+// - bookCollections is a many-to-many relationship with BookCollection (inverse managed by BookCollection).
 
 import Foundation
 import SwiftData
@@ -58,6 +60,15 @@ final class Book {
     var isFavorite: Bool
     var tags: [String]
 
+    // MARK: - Series
+
+    /// Series name for grouping books. Nil if not part of a series.
+    var seriesName: String?
+
+    /// Position within the series (1-based). Nil if not part of a series
+    /// or position is unknown.
+    var seriesIndex: Int?
+
     // MARK: - Indexing-Produced Metadata
 
     /// Total word count, populated by background indexer after import.
@@ -75,6 +86,9 @@ final class Book {
     @Relationship(deleteRule: .cascade) var bookmarks: [Bookmark]
     @Relationship(deleteRule: .cascade) var highlights: [Highlight]
     @Relationship(deleteRule: .cascade) var annotations: [AnnotationNote]
+
+    /// Collections this book belongs to. Managed by BookCollection's inverse relationship.
+    var bookCollections: [BookCollection]
 
     // MARK: - Init
 
@@ -104,6 +118,7 @@ final class Book {
         self.bookmarks = []
         self.highlights = []
         self.annotations = []
+        self.bookCollections = []
     }
 
     // MARK: - Explicit Sync

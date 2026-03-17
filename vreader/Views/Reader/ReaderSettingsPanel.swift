@@ -1,6 +1,7 @@
 // Purpose: Slide-up settings panel for reader theme, reading mode, and typography controls.
 // Provides theme picker, reading mode picker, font size slider, line spacing slider,
 // font family picker, CJK spacing toggle, and live-preview text.
+// When paged layout is selected, shows page turn animation picker and auto page turn toggle.
 //
 // Key decisions:
 // - Presented as a sheet from reader toolbar.
@@ -16,6 +17,12 @@ import SwiftUI
 /// Settings panel for reader appearance.
 struct ReaderSettingsPanel: View {
     @Bindable var store: ReaderSettingsStore
+    /// Fingerprint key for the currently open book (nil if no per-book support).
+    var bookFingerprintKey: String?
+    /// Base URL for per-book settings storage.
+    var perBookBaseURL: URL?
+    /// Whether per-book settings are currently enabled for this book.
+    @State private var isPerBookEnabled = false
 
     var body: some View {
         NavigationStack {
@@ -23,15 +30,27 @@ struct ReaderSettingsPanel: View {
                 themeSection
                 readingModeSection
                 epubLayoutSection
+                if store.epubLayout == .paged {
+                    pageTurnAnimationSection
+                    autoPageTurnSection
+                }
                 fontSizeSection
                 lineSpacingSection
                 fontFamilySection
                 cjkSection
+                if bookFingerprintKey != nil { perBookSection }
                 previewSection
             }
             .navigationTitle("Reading Settings")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .onAppear { loadPerBookState() }
+        .onChange(of: store.typography.fontSize) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.typography.lineSpacing) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.typography.fontFamily) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.typography.cjkSpacing) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.theme) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.readingMode) { _, _ in syncPerBookIfEnabled() }
         .accessibilityIdentifier("readerSettingsPanel")
     }
 
@@ -107,6 +126,52 @@ struct ReaderSettingsPanel: View {
             .accessibilityLabel("EPUB layout")
         } footer: {
             Text("Scroll uses continuous vertical scrolling. Paged uses horizontal page turns.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - Page Turn Animation (B11)
+
+    @ViewBuilder
+    private var pageTurnAnimationSection: some View {
+        Section {
+            Picker("Page Turn Animation", selection: $store.pageTurnAnimation) {
+                Text("None").tag(PageTurnAnimation.none)
+                Text("Slide").tag(PageTurnAnimation.slide)
+                Text("Cover").tag(PageTurnAnimation.cover)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Page turn animation")
+        }
+    }
+
+    // MARK: - Auto Page Turn (B10)
+
+    @ViewBuilder
+    private var autoPageTurnSection: some View {
+        Section {
+            Toggle("Auto Page Turn", isOn: $store.autoPageTurn)
+                .accessibilityLabel("Auto page turn")
+
+            if store.autoPageTurn {
+                HStack {
+                    Text("Interval")
+                    Spacer()
+                    Slider(
+                        value: $store.autoPageTurnInterval,
+                        in: 1...60,
+                        step: 1
+                    )
+                    .frame(maxWidth: 160)
+                    .accessibilityLabel("Auto page turn interval")
+                    Text("\(Int(store.autoPageTurnInterval))s")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .frame(width: 32)
+                }
+            }
+        } footer: {
+            Text("Automatically turn pages at the set interval. Pauses on user interaction.")
                 .font(.caption)
         }
     }
@@ -192,6 +257,52 @@ struct ReaderSettingsPanel: View {
             Text("Adds extra spacing between CJK characters for improved readability.")
                 .font(.caption)
         }
+    }
+
+    // MARK: - Per-Book Settings (A05)
+
+    @ViewBuilder
+    private var perBookSection: some View {
+        Section {
+            Toggle("Custom settings for this book", isOn: $isPerBookEnabled)
+                .accessibilityLabel("Custom settings for this book")
+                .onChange(of: isPerBookEnabled) { _, newValue in
+                    if newValue { savePerBookSnapshot() } else { deletePerBookOverride() }
+                }
+        } footer: {
+            Text(isPerBookEnabled
+                ? "Font, spacing, and theme changes apply only to this book."
+                : "All books share the same settings.")
+                .font(.caption)
+        }
+    }
+
+    private func loadPerBookState() {
+        guard let key = bookFingerprintKey, let baseURL = perBookBaseURL else { return }
+        isPerBookEnabled = PerBookSettingsStore.settings(for: key, baseURL: baseURL) != nil
+    }
+
+    private func savePerBookSnapshot() {
+        guard let key = bookFingerprintKey, let baseURL = perBookBaseURL else { return }
+        let override = PerBookSettingsOverride(
+            fontSize: store.typography.fontSize,
+            fontName: store.typography.fontFamily.rawValue,
+            lineSpacing: store.typography.lineSpacing,
+            letterSpacing: store.typography.cjkSpacing ? store.typography.fontSize * 0.05 : 0,
+            themeName: store.theme.rawValue,
+            readingMode: store.readingMode.rawValue
+        )
+        try? PerBookSettingsStore.save(override, for: key, baseURL: baseURL)
+    }
+
+    private func deletePerBookOverride() {
+        guard let key = bookFingerprintKey, let baseURL = perBookBaseURL else { return }
+        PerBookSettingsStore.delete(for: key, baseURL: baseURL)
+    }
+
+    private func syncPerBookIfEnabled() {
+        guard isPerBookEnabled else { return }
+        savePerBookSnapshot()
     }
 
     // MARK: - Preview

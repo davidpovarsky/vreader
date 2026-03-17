@@ -27,15 +27,13 @@ struct UnifiedPagedView: UIViewRepresentable {
     let pageText: String?
     /// Attributed text for the current page (rich formatting from MD/EPUB).
     let pageAttributedText: NSAttributedString?
+    /// Page turn animation style (B11). Defaults to .none for backward compatibility.
+    var pageTurnAnimation: PageTurnAnimation = .none
 
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView(usingTextLayoutManager: true)
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isScrollEnabled = false
-        textView.font = .systemFont(ofSize: 17)
-        applyContent(to: textView)
-        textView.accessibilityIdentifier = "unifiedPagedTextView"
+    func makeUIView(context: Context) -> UnifiedPagedContainer {
+        let container = UnifiedPagedContainer()
+        applyContent(to: container.textView)
+        container.accessibilityIdentifier = "unifiedPagedTextView"
 
         // Add swipe gestures for page navigation
         let swipeLeft = UISwipeGestureRecognizer(
@@ -43,20 +41,32 @@ struct UnifiedPagedView: UIViewRepresentable {
             action: #selector(Coordinator.handleSwipeLeft)
         )
         swipeLeft.direction = .left
-        textView.addGestureRecognizer(swipeLeft)
+        container.addGestureRecognizer(swipeLeft)
 
         let swipeRight = UISwipeGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleSwipeRight)
         )
         swipeRight.direction = .right
-        textView.addGestureRecognizer(swipeRight)
+        container.addGestureRecognizer(swipeRight)
 
-        return textView
+        return container
     }
 
-    func updateUIView(_ textView: UITextView, context: Context) {
-        applyContent(to: textView)
+    func updateUIView(_ container: UnifiedPagedContainer, context: Context) {
+        let oldPage = context.coordinator.lastPage
+        if oldPage != currentPage && oldPage >= 0 {
+            let direction: PageTurnAnimator.Direction = currentPage > oldPage ? .forward : .backward
+            container.animatePageChange(
+                animation: pageTurnAnimation,
+                direction: direction
+            ) {
+                self.applyContent(to: container.textView)
+            }
+        } else {
+            applyContent(to: container.textView)
+        }
+        context.coordinator.lastPage = currentPage
     }
 
     func makeCoordinator() -> Coordinator {
@@ -77,6 +87,7 @@ struct UnifiedPagedView: UIViewRepresentable {
     @MainActor
     class Coordinator: NSObject {
         let viewModel: UnifiedTextRendererViewModel
+        var lastPage: Int = -1
 
         init(viewModel: UnifiedTextRendererViewModel) {
             self.viewModel = viewModel
@@ -88,6 +99,61 @@ struct UnifiedPagedView: UIViewRepresentable {
 
         @objc func handleSwipeRight() {
             viewModel.previousPage()
+        }
+    }
+}
+
+/// Container UIView for the unified paged view. Supports page turn animations (B11).
+@MainActor
+final class UnifiedPagedContainer: UIView {
+    let textView: UITextView = {
+        let tv = UITextView(usingTextLayoutManager: true)
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.isScrollEnabled = false
+        tv.font = .systemFont(ofSize: 17)
+        tv.translatesAutoresizingMaskIntoConstraints = false
+        return tv
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    func animatePageChange(
+        animation: PageTurnAnimation,
+        direction: PageTurnAnimator.Direction,
+        applyContent: () -> Void
+    ) {
+        guard animation != .none else {
+            applyContent()
+            return
+        }
+
+        let snapshot = textView.snapshotView(afterScreenUpdates: false) ?? UIView()
+        snapshot.frame = textView.frame
+        addSubview(snapshot)
+
+        applyContent()
+
+        PageTurnAnimator.transition(
+            from: snapshot,
+            to: textView,
+            animation: animation,
+            direction: direction
+        ) {
+            Task { @MainActor in
+                snapshot.removeFromSuperview()
+            }
         }
     }
 }

@@ -25,21 +25,16 @@
 //
 // @coordinates-with: ReaderFormatHosts.swift, AnnotationsPanelView.swift,
 //   ReaderSettingsStore.swift, ReaderSettingsPanel.swift, DocumentFingerprint.swift,
-//   SearchView.swift, SearchViewModel.swift, SearchService.swift, SearchIndexStore.swift,
-//   AIReaderPanel.swift, AIReaderAvailability.swift, AIAssistantViewModel.swift,
-//   AITranslationViewModel.swift, AIChatViewModel.swift, ThemeBackgroundView.swift
+//   SearchView.swift, ThemeBackgroundView.swift,
+//   ReaderAICoordinator.swift, ReaderSearchCoordinator.swift,
+//   ReaderUnifiedCoordinator.swift, ReaderTOCBuilder.swift
 
 import SwiftUI
 import SwiftData
-import PDFKit
 import os
 
 /// Container view that dispatches to the correct format-specific reader.
 struct ReaderContainerView: View {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "vreader",
-        category: "Search"
-    )
 
     let book: LibraryBookItem
 
@@ -53,27 +48,20 @@ struct ReaderContainerView: View {
     @State private var showAIPanel = false
     @State private var showDictionary = false
     @State private var dictionaryWord: String = ""
-    @State private var searchViewModel: SearchViewModel?
-    @State private var searchService: SearchService?
-    @State private var aiViewModel: AIAssistantViewModel?
-    @State private var translationViewModel: AITranslationViewModel?
-    @State private var chatViewModel: AIChatViewModel?
     /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
     @State private var isChromeVisible = true
     /// Computed TOC entries for the current book (format-specific).
     @State private var tocEntries: [TOCEntry] = []
     /// TTS service for read-aloud feature (WI-B03).
     @State private var ttsService = TTSService()
-    /// Text loaded for the unified reflow engine (WI-B04). Nil until loaded.
-    @State private var unifiedTextContent: String?
-    /// Attributed text for unified MD/EPUB rendering (WI-B05, WI-B07). Nil until loaded.
-    @State private var unifiedAttributedText: NSAttributedString?
-    /// Whether EPUB unified loading completed (true = done loading, false = still loading).
-    @State private var epubUnifiedLoadComplete = false
-    /// Warning message from EPUB unified loading (e.g., "3 of 10 chapters could not be loaded").
-    @State private var epubUnifiedLoadWarning: String?
     /// Reading progress for the unified renderer (WI-B04).
     @State private var unifiedReadingProgress: Double = 0
+
+    // MARK: - Coordinators
+
+    @State private var aiCoordinator: ReaderAICoordinator?
+    @State private var searchCoordinator = ReaderSearchCoordinator()
+    @State private var unifiedCoordinator = ReaderUnifiedCoordinator()
 
     var body: some View {
         ZStack {
@@ -126,100 +114,8 @@ struct ReaderContainerView: View {
         .toolbarColorScheme(settingsStore.theme.preferredColorScheme, for: .navigationBar)
         .statusBarHidden(!isChromeVisible)
         .ignoresSafeArea(edges: isChromeVisible ? [] : [.top])
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .accessibilityLabel("Back to library")
-                .accessibilityIdentifier("readerBackButton")
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    showSearch = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                }
-                .accessibilityLabel("Search in book")
-                .accessibilityIdentifier("readerSearchButton")
-
-                Button {
-                    NotificationCenter.default.post(
-                        name: .readerBookmarkRequested, object: nil
-                    )
-                } label: {
-                    Image(systemName: "bookmark")
-                }
-                .accessibilityLabel("Add bookmark")
-                .accessibilityIdentifier("readerBookmarkButton")
-
-                Button {
-                    showAnnotationsPanel = true
-                } label: {
-                    Image(systemName: "list.bullet.rectangle")
-                }
-                .accessibilityLabel("Bookmarks and annotations")
-                .accessibilityIdentifier("readerAnnotationsButton")
-
-                if isAIAvailable {
-                    Button {
-                        showAIPanel = true
-                    } label: {
-                        Image(systemName: "sparkles")
-                    }
-                    .accessibilityLabel("AI Assistant")
-                    .accessibilityIdentifier("readerAIButton")
-                }
-
-                if resolvedBookFormat.capabilities.contains(.tts) {
-                    Button {
-                        startTTS()
-                    } label: {
-                        Image(systemName: ttsService.state == .idle
-                              ? "speaker.wave.2"
-                              : "speaker.wave.2.fill")
-                    }
-                    .accessibilityLabel(ttsService.state == .idle
-                                        ? "Read aloud"
-                                        : "TTS active")
-                    .accessibilityIdentifier("readerTTSButton")
-                }
-
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "textformat.size")
-                }
-                .accessibilityLabel("Reading settings")
-                .accessibilityIdentifier("readerSettingsButton")
-            }
-        }
-        .sheet(isPresented: $showAIPanel) {
-            if let aiVM = aiViewModel,
-               let transVM = translationViewModel,
-               let chatVM = chatViewModel,
-               let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                AIReaderPanel(
-                    viewModel: aiVM,
-                    translationViewModel: transVM,
-                    chatViewModel: chatVM,
-                    locator: currentLocator ?? Locator(
-                        bookFingerprint: fingerprint,
-                        href: nil, progression: nil, totalProgression: nil, cfi: nil,
-                        page: nil, charOffsetUTF16: nil,
-                        charRangeStartUTF16: nil, charRangeEndUTF16: nil,
-                        textQuote: nil, textContextBefore: nil, textContextAfter: nil
-                    ),
-                    textContent: currentTextContent,
-                    format: resolvedBookFormat,
-                    onDismiss: { showAIPanel = false }
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-            }
-        }
+        .toolbar { toolbarContent }
+        .sheet(isPresented: $showAIPanel) { aiSheet }
         .onReceive(NotificationCenter.default.publisher(for: .readerDefineRequested)) { notification in
             guard let info = notification.object as? TextSelectionInfo else { return }
             if let word = DictionaryLookup.extractWord(from: info.selectedText) {
@@ -229,8 +125,8 @@ struct ReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerTranslateRequested)) { notification in
             guard let info = notification.object as? TextSelectionInfo else { return }
-            setupAIViewModelIfNeeded()
-            if let transVM = translationViewModel {
+            resolvedAICoordinator.setupIfNeeded()
+            if let transVM = resolvedAICoordinator.translationViewModel {
                 transVM.originalText = info.selectedText
             }
             showAIPanel = true
@@ -239,16 +135,19 @@ struct ReaderContainerView: View {
             DictionarySheet(word: dictionaryWord)
         }
         .task {
-            setupAIViewModelIfNeeded()
+            resolvedAICoordinator.setupIfNeeded()
         }
         .task {
-            await loadBookTextContent()
+            await resolvedAICoordinator.loadBookTextContent(
+                fileURL: resolvedFileURL,
+                format: book.format.lowercased()
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
             guard let locator = notification.object as? Locator else { return }
-            currentLocator = locator
+            resolvedAICoordinator.currentLocator = locator
             // Update chat VM with extracted context around new position
-            chatViewModel?.bookContext = currentTextContent
+            resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
         }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel(store: settingsStore)
@@ -279,56 +178,21 @@ struct ReaderContainerView: View {
                 .presentationDragIndicator(.visible)
         }
         .task {
-            guard searchService == nil,
-                  let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
+            guard let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
                 return
             }
-            do {
-                // Use persistent file-backed index (WI-F06)
-                let store = try Self.makePersistentStore()
-                let service = SearchService(store: store)
-                searchService = service
-
-                // Create ViewModel immediately so the search panel opens instantly.
-                // Searching before indexing returns empty results (acceptable UX).
-                let vm = SearchViewModel(
-                    searchService: service,
-                    bookFingerprint: fingerprint
-                )
-                searchViewModel = vm
-
-                // Check persistent index -- skip if already indexed (WI-F06)
-                let alreadyPersisted = store.isBookIndexed(
-                    fingerprintKey: fingerprint.canonicalKey
-                )
-                let inMemoryIndexed = await service.isIndexed(fingerprint: fingerprint)
-                let alreadyIndexed = alreadyPersisted || inMemoryIndexed
-
-                if !alreadyIndexed {
-                    // Defer indexing to background (WI-F05)
-                    let coordinator = BackgroundIndexingCoordinator(
-                        searchService: service
-                    )
-                    await Self.enqueueBookIndexing(
-                        coordinator: coordinator,
-                        store: store,
-                        fileURL: resolvedFileURL,
-                        fingerprint: fingerprint,
-                        format: book.format.lowercased()
-                    )
-                    // Re-trigger search if user typed a query while indexing
-                    vm.retriggerIfNeeded()
-                }
-            } catch {
-                Self.logger.error("Search setup failed: \(error.localizedDescription)")
-            }
+            await searchCoordinator.setup(
+                fingerprint: fingerprint,
+                fileURL: resolvedFileURL,
+                format: book.format.lowercased()
+            )
         }
         .task {
             guard tocEntries.isEmpty,
                   let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
                 return
             }
-            tocEntries = await Self.buildTOC(
+            tocEntries = await ReaderTOCFactory.buildTOC(
                 format: book.format.lowercased(),
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint
@@ -336,132 +200,26 @@ struct ReaderContainerView: View {
         }
     }
 
-    // MARK: - AI Integration
-
-    /// Whether the AI assistant button should be visible.
-    private var isAIAvailable: Bool {
-        AIReaderAvailability.isAvailable(
-            featureFlags: FeatureFlags.shared,
-            keychainService: KeychainService()
-        )
-    }
+    // MARK: - Resolved Helpers
 
     /// The resolved book format enum value.
     private var resolvedBookFormat: BookFormat {
         BookFormat(rawValue: book.format.lowercased()) ?? .txt
     }
 
-    /// Full text content loaded from the book file. Used as the source for AI context extraction.
-    @State private var loadedTextContent: String?
-
-    /// Current reading position locator, updated via `.readerPositionDidChange` notification.
-    /// Used by AIContextExtractor to determine which section to send as AI context.
-    @State private var currentLocator: Locator?
-
-    /// Text content for AI context. Extracts ~2500 chars around the current reading position
-    /// using AIContextExtractor, instead of sending the entire book.
-    private var currentTextContent: String {
-        guard let loaded = loadedTextContent, !loaded.isEmpty else {
-            return book.title.isEmpty ? "No content available" : book.title
-        }
-        let extractor = AIContextExtractor()
-        if let locator = currentLocator {
-            let extracted = extractor.extractContext(
-                locator: locator,
-                textContent: loaded,
-                format: resolvedBookFormat
-            )
-            if !extracted.isEmpty { return extracted }
-        }
-        // Fallback: extract from beginning
-        return String(loaded.prefix(extractor.targetCharacterCount))
-    }
-
-    /// Creates the AI ViewModels if AI features are available.
-    private func setupAIViewModelIfNeeded() {
-        guard aiViewModel == nil, isAIAvailable else { return }
-        let flags = FeatureFlags.shared
-        let keychain = KeychainService()
-        let service = AIService(
-            featureFlags: flags,
-            consentManager: AIConsentManager(),
-            keychainService: keychain,
-            providerFactory: { apiKey, config in
-                OpenAICompatibleProvider(
-                    baseURL: config.endpoint,
-                    apiKey: apiKey,
-                    model: config.model
-                )
-            }
+    /// Lazily creates the AI coordinator on first access.
+    private var resolvedAICoordinator: ReaderAICoordinator {
+        if let existing = aiCoordinator { return existing }
+        let coordinator = ReaderAICoordinator(
+            fallbackTitle: book.title,
+            bookFormat: resolvedBookFormat,
+            fingerprintKey: book.fingerprintKey
         )
-        aiViewModel = AIAssistantViewModel(aiService: service)
-        translationViewModel = AITranslationViewModel(aiService: service)
-
-        let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey)
-        let chatVM = AIChatViewModel(aiService: service, bookFingerprint: fingerprint)
-        chatVM.bookContext = currentTextContent
-        chatViewModel = chatVM
-    }
-
-    /// Loads text content from the book file for AI context extraction.
-    /// For TXT/MD: reads the full text file.
-    /// For PDF: extracts text from all pages via PDFKit.
-    /// For EPUB: reads the raw content (best-effort text extraction).
-    /// The full text is stored in `loadedTextContent`; AIContextExtractor then
-    /// extracts only the relevant section (~2500 chars) around the current position.
-    private func loadBookTextContent() async {
-        guard loadedTextContent == nil else { return }
-        let url = resolvedFileURL
-        let format = book.format.lowercased()
-
-        let text: String? = await Task.detached {
-            switch format {
-            case "txt", "md":
-                return try? String(contentsOf: url, encoding: .utf8)
-
-            case "pdf":
-                guard let doc = PDFKit.PDFDocument(url: url) else { return nil }
-                var pages: [String] = []
-                for i in 0..<doc.pageCount {
-                    if let page = doc.page(at: i), let text = page.string {
-                        pages.append(text)
-                    }
-                }
-                return pages.joined(separator: "\n\n")
-
-            case "epub":
-                // Extract text from EPUB spine items via EPUBParser + HTML stripping.
-                // String(contentsOf:) on a .epub file reads the raw ZIP archive (garbage).
-                let parser = EPUBParser()
-                do {
-                    let metadata = try await parser.open(url: url)
-                    var textParts: [String] = []
-                    for item in metadata.spineItems {
-                        if let xhtml = try? await parser.contentForSpineItem(href: item.href) {
-                            let plain = EPUBTextExtractor.stripHTML(xhtml)
-                            let trimmed = plain.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !trimmed.isEmpty {
-                                textParts.append(trimmed)
-                            }
-                        }
-                    }
-                    await parser.close()
-                    return textParts.isEmpty ? nil : textParts.joined(separator: "\n\n")
-                } catch {
-                    await parser.close()
-                    return nil
-                }
-
-            default:
-                return nil
-            }
-        }.value
-
-        if let text, !text.isEmpty {
-            loadedTextContent = text
-            // Update chat VM book context with extracted section (not full text)
-            chatViewModel?.bookContext = currentTextContent
+        // SwiftUI will apply the mutation at the end of the render pass
+        DispatchQueue.main.async {
+            aiCoordinator = coordinator
         }
+        return coordinator
     }
 
     // MARK: - TTS Integration (WI-B03)
@@ -469,23 +227,27 @@ struct ReaderContainerView: View {
     /// Starts or stops TTS read-aloud. If currently speaking, stops.
     /// Otherwise, loads text from the book file and starts speaking.
     private func startTTS() {
+        let ai = resolvedAICoordinator
         if ttsService.state != .idle {
             ttsService.stop()
             return
         }
 
         // Use already-loaded text content if available
-        if let text = loadedTextContent, !text.isEmpty {
-            let offset = currentLocator?.charOffsetUTF16 ?? 0
+        if let text = ai.loadedTextContent, !text.isEmpty {
+            let offset = ai.currentLocator?.charOffsetUTF16 ?? 0
             withAnimation(.easeInOut(duration: 0.2)) {
                 ttsService.startSpeaking(text: text, fromOffset: offset)
             }
         } else {
             // Trigger text loading and start TTS when ready
             Task {
-                await loadBookTextContent()
-                if let text = loadedTextContent, !text.isEmpty {
-                    let offset = currentLocator?.charOffsetUTF16 ?? 0
+                await ai.loadBookTextContent(
+                    fileURL: resolvedFileURL,
+                    format: book.format.lowercased()
+                )
+                if let text = ai.loadedTextContent, !text.isEmpty {
+                    let offset = ai.currentLocator?.charOffsetUTF16 ?? 0
                     withAnimation(.easeInOut(duration: 0.2)) {
                         ttsService.startSpeaking(text: text, fromOffset: offset)
                     }
@@ -520,256 +282,12 @@ struct ReaderContainerView: View {
         #endif
     }()
 
-    // MARK: - Persistent Search Index (WI-F06)
-
-    /// Creates a persistent file-backed SearchIndexStore.
-    /// Falls back to in-memory if file creation fails.
-    private static func makePersistentStore() throws -> SearchIndexStore {
-        let dir = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SearchIndex", isDirectory: true)
-        let dbPath = dir.appendingPathComponent("search.sqlite3")
-        do {
-            let core = try SearchIndexCore(databasePath: dbPath.path)
-            return try SearchIndexStore(core: core)
-        } catch {
-            logger.warning("Persistent index failed, using in-memory: \(error.localizedDescription)")
-            return try SearchIndexStore()
-        }
-    }
-
-    /// Extracts text units and enqueues them for background indexing (WI-F05).
-    private static func enqueueBookIndexing(
-        coordinator: BackgroundIndexingCoordinator,
-        store: SearchIndexStore,
-        fileURL: URL,
-        fingerprint: DocumentFingerprint,
-        format: String
-    ) async {
-        do {
-            switch format {
-            case "txt":
-                let extractor = TXTTextExtractor()
-                let result = try await extractor.extractWithOffsets(from: fileURL)
-                await coordinator.enqueueIndexing(
-                    fingerprint: fingerprint,
-                    textUnits: result.textUnits,
-                    segmentBaseOffsets: result.segmentBaseOffsets
-                )
-                // Persist segment offsets for future sessions
-                if !result.segmentBaseOffsets.isEmpty {
-                    store.setSegmentBaseOffsets(
-                        fingerprintKey: fingerprint.canonicalKey,
-                        offsets: result.segmentBaseOffsets
-                    )
-                }
-
-            case "md":
-                let extractor = MDTextExtractor()
-                let result = try await extractor.extractWithOffsets(from: fileURL)
-                await coordinator.enqueueIndexing(
-                    fingerprint: fingerprint,
-                    textUnits: result.textUnits,
-                    segmentBaseOffsets: result.segmentBaseOffsets
-                )
-                if !result.segmentBaseOffsets.isEmpty {
-                    store.setSegmentBaseOffsets(
-                        fingerprintKey: fingerprint.canonicalKey,
-                        offsets: result.segmentBaseOffsets
-                    )
-                }
-
-            case "pdf":
-                let extractor = PDFTextExtractor()
-                let units = try await extractor.extractTextUnits(
-                    from: fileURL, fingerprint: fingerprint
-                )
-                await coordinator.enqueueIndexing(
-                    fingerprint: fingerprint,
-                    textUnits: units,
-                    segmentBaseOffsets: nil
-                )
-
-            case "epub":
-                let parser = EPUBParser()
-                do {
-                    let metadata = try await parser.open(url: fileURL)
-                    let extractor = EPUBTextExtractor()
-                    let units = try await extractor.extractFromParser(
-                        parser, metadata: metadata
-                    )
-                    await parser.close()
-                    await coordinator.enqueueIndexing(
-                        fingerprint: fingerprint,
-                        textUnits: units,
-                        segmentBaseOffsets: nil
-                    )
-                } catch {
-                    await parser.close()
-                    throw error
-                }
-
-            default:
-                break
-            }
-        } catch {
-            Self.logger.error(
-                "Background index enqueue failed for \(format): \(error.localizedDescription)"
-            )
-        }
-    }
-
-    // MARK: - Search Indexing (Legacy)
-
-    /// Extracts text from the book and indexes it for search.
-    /// Runs on the calling task — use from a `.task` modifier for background execution.
-    private static func indexBookContent(
-        service: SearchService,
-        fileURL: URL,
-        fingerprint: DocumentFingerprint,
-        format: String
-    ) async {
-        do {
-            switch format {
-            case "txt":
-                let extractor = TXTTextExtractor()
-                let result = try await extractor.extractWithOffsets(from: fileURL)
-                try await service.indexBook(
-                    fingerprint: fingerprint,
-                    textUnits: result.textUnits,
-                    segmentBaseOffsets: result.segmentBaseOffsets
-                )
-
-            case "md":
-                let extractor = MDTextExtractor()
-                let result = try await extractor.extractWithOffsets(from: fileURL)
-                try await service.indexBook(
-                    fingerprint: fingerprint,
-                    textUnits: result.textUnits,
-                    segmentBaseOffsets: result.segmentBaseOffsets
-                )
-
-            case "pdf":
-                let extractor = PDFTextExtractor()
-                let units = try await extractor.extractTextUnits(
-                    from: fileURL, fingerprint: fingerprint
-                )
-                try await service.indexBook(
-                    fingerprint: fingerprint,
-                    textUnits: units,
-                    segmentBaseOffsets: nil
-                )
-
-            case "epub":
-                let parser = EPUBParser()
-                do {
-                    let metadata = try await parser.open(url: fileURL)
-                    let extractor = EPUBTextExtractor()
-                    let units = try await extractor.extractFromParser(
-                        parser, metadata: metadata
-                    )
-                    await parser.close()
-                    try await service.indexBook(
-                        fingerprint: fingerprint,
-                        textUnits: units,
-                        segmentBaseOffsets: nil
-                    )
-                } catch {
-                    await parser.close()
-                    throw error
-                }
-
-            default:
-                break
-            }
-        } catch {
-            Self.logger.error("Search indexing failed for \(format): \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: - TOC Building
-
-    /// Builds table of contents entries for the given book format.
-    private static func buildTOC(
-        format: String,
-        fileURL: URL,
-        fingerprint: DocumentFingerprint
-    ) async -> [TOCEntry] {
-        switch format {
-        case "epub":
-            let parser = EPUBParser()
-            do {
-                let metadata = try await parser.open(url: fileURL)
-                await parser.close()
-                return TOCBuilder.fromSpineItems(metadata.spineItems, fingerprint: fingerprint)
-            } catch {
-                await parser.close()
-                return []
-            }
-
-        case "pdf":
-            return await Task.detached {
-                Self.extractPDFOutline(from: fileURL, fingerprint: fingerprint)
-            }.value
-
-        case "txt":
-            do {
-                let text = try String(contentsOf: fileURL, encoding: .utf8)
-                return TOCBuilder.forTXT(text: text, fingerprint: fingerprint)
-            } catch {
-                return []
-            }
-
-        case "md":
-            do {
-                let text = try String(contentsOf: fileURL, encoding: .utf8)
-                return TOCBuilder.forMD(text: text, fingerprint: fingerprint)
-            } catch {
-                return []
-            }
-
-        default:
-            return []
-        }
-    }
-
-    /// Extracts outline entries from a PDF document.
-    /// Nonisolated so it can run off-main-actor in Task.detached.
-    nonisolated private static func extractPDFOutline(
-        from url: URL,
-        fingerprint: DocumentFingerprint
-    ) -> [TOCEntry] {
-        guard let document = PDFDocument(url: url),
-              let outline = document.outlineRoot else { return [] }
-        var entries: [(title: String, level: Int, page: Int)] = []
-        walkOutline(outline, document: document, level: 0, into: &entries)
-        return TOCBuilder.fromPDFOutline(entries: entries, fingerprint: fingerprint)
-    }
-
-    nonisolated private static func walkOutline(
-        _ node: PDFOutline,
-        document: PDFDocument,
-        level: Int,
-        into entries: inout [(title: String, level: Int, page: Int)]
-    ) {
-        for i in 0..<node.numberOfChildren {
-            guard let child = node.child(at: i) else { continue }
-            if let label = child.label,
-               let dest = child.destination,
-               let page = dest.page {
-                let pageIndex = document.index(for: page)
-                entries.append((title: label, level: level, page: pageIndex))
-            }
-            walkOutline(child, document: document, level: level + 1, into: &entries)
-        }
-    }
-
     // MARK: - Sheets & Placeholders
 
     /// Search sheet — uses SearchView when search pipeline is ready.
     @ViewBuilder
     private var searchSheet: some View {
-        if let searchViewModel {
+        if let searchViewModel = searchCoordinator.searchViewModel {
             SearchView(
                 viewModel: searchViewModel,
                 onNavigate: { locator in
@@ -847,7 +365,7 @@ struct ReaderContainerView: View {
     private func unifiedReaderView(fingerprint: DocumentFingerprint) -> some View {
         switch book.format.lowercased() {
         case "txt":
-            if let text = unifiedTextContent {
+            if let text = unifiedCoordinator.textContent {
                 UnifiedTextRenderer(
                     text: text,
                     settingsStore: settingsStore,
@@ -856,26 +374,26 @@ struct ReaderContainerView: View {
                 .tapZoneOverlay(config: tapZoneStore.config)
             } else {
                 ProgressView("Loading\u{2026}")
-                    .task { await loadUnifiedTextContent() }
+                    .task { await unifiedCoordinator.loadTextContent(fileURL: resolvedFileURL) }
             }
         case "md":
-            if let text = unifiedTextContent {
+            if let text = unifiedCoordinator.textContent {
                 UnifiedTextRenderer(
                     text: text,
                     settingsStore: settingsStore,
                     readingProgress: $unifiedReadingProgress,
-                    attributedText: unifiedAttributedText
+                    attributedText: unifiedCoordinator.attributedText
                 )
                 .tapZoneOverlay(config: tapZoneStore.config)
             } else {
                 ProgressView("Loading\u{2026}")
-                    .task { await loadUnifiedMDContent() }
+                    .task { await unifiedCoordinator.loadMDContent(fileURL: resolvedFileURL) }
             }
         case "epub":
-            if let text = unifiedTextContent {
+            if let text = unifiedCoordinator.textContent {
                 VStack(spacing: 0) {
                     // Issue 10: Show warning banner when some chapters were skipped
-                    if let warning = epubUnifiedLoadWarning {
+                    if let warning = unifiedCoordinator.epubLoadWarning {
                         Text(warning)
                             .font(.caption)
                             .foregroundStyle(.orange)
@@ -889,104 +407,21 @@ struct ReaderContainerView: View {
                         text: text,
                         settingsStore: settingsStore,
                         readingProgress: $unifiedReadingProgress,
-                        attributedText: unifiedAttributedText
+                        attributedText: unifiedCoordinator.attributedText
                     )
                     .tapZoneOverlay(config: tapZoneStore.config)
                 }
-            } else if epubUnifiedLoadComplete {
+            } else if unifiedCoordinator.epubLoadComplete {
                 // EPUB has complex chapters — fall back to native WKWebView reader
                 // instead of showing a placeholder, so the user can still read.
                 nativeReaderView(fingerprint: fingerprint)
                     .tapZoneOverlay(config: tapZoneStore.config)
             } else {
                 ProgressView("Loading\u{2026}")
-                    .task { await loadUnifiedEPUBContent() }
+                    .task { await unifiedCoordinator.loadEPUBContent(fileURL: resolvedFileURL) }
             }
         default:
             UnifiedPlaceholderView(settingsStore: settingsStore)
-        }
-    }
-
-    /// Loads text content for the unified reflow engine from TXT files.
-    private func loadUnifiedTextContent() async {
-        let url = resolvedFileURL
-        let text: String? = await Task.detached {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        if let text, !text.isEmpty {
-            unifiedTextContent = text
-        }
-    }
-
-    /// Loads and renders Markdown content as attributed text for the unified engine (WI-B05).
-    private func loadUnifiedMDContent() async {
-        let url = resolvedFileURL
-        let rawText = await Task.detached {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        guard let rawText, !rawText.isEmpty else { return }
-
-        let parser = MDParser()
-        let docInfo = await parser.parse(text: rawText, config: .default)
-        unifiedTextContent = docInfo.renderedText
-        unifiedAttributedText = docInfo.renderedAttributedString
-    }
-
-    /// Loads simple EPUB chapters as attributed text for the unified engine (WI-B07).
-    /// Concatenates all simple chapters into one attributed string.
-    /// If any chapter is complex, falls back to placeholder.
-    /// Issue 10: Counts and reports skipped chapters instead of silently ignoring them.
-    private func loadUnifiedEPUBContent() async {
-        let url = resolvedFileURL
-        let parser = EPUBParser()
-        do {
-            let metadata = try await parser.open(url: url)
-            var combinedText = NSMutableAttributedString()
-            var allSimple = true
-            var skippedCount = 0
-            let totalCount = metadata.spineItems.count
-
-            for item in metadata.spineItems {
-                guard let xhtml = try? await parser.contentForSpineItem(href: item.href) else {
-                    skippedCount += 1
-                    continue
-                }
-                if EPUBTextStripper.shouldUseNative(html: xhtml) {
-                    allSimple = false
-                    break
-                }
-                if let attrChapter = EPUBTextStripper.attributedString(from: xhtml) {
-                    if combinedText.length > 0 {
-                        combinedText.append(NSAttributedString(string: "\n\n"))
-                    }
-                    combinedText.append(attrChapter)
-                } else {
-                    skippedCount += 1
-                }
-            }
-            await parser.close()
-
-            let result = UnifiedEPUBLoadResult(
-                text: combinedText.length > 0 ? combinedText.string : nil,
-                attributedText: combinedText.length > 0 ? combinedText : nil,
-                skippedChapterCount: skippedCount,
-                totalChapterCount: totalCount
-            )
-
-            if allSimple, combinedText.length > 0 {
-                unifiedTextContent = combinedText.string
-                unifiedAttributedText = combinedText
-            }
-            // Issue 10: Surface warning/error for skipped chapters
-            if result.allChaptersFailed {
-                epubUnifiedLoadWarning = result.errorMessage
-            } else if result.hasSkippedChapters {
-                epubUnifiedLoadWarning = result.warningMessage
-            }
-            epubUnifiedLoadComplete = true
-        } catch {
-            await parser.close()
-            epubUnifiedLoadComplete = true
         }
     }
 
@@ -1012,6 +447,109 @@ struct ReaderContainerView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("unsupportedFormatView")
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .accessibilityLabel("Back to library")
+            .accessibilityIdentifier("readerBackButton")
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                showSearch = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel("Search in book")
+            .accessibilityIdentifier("readerSearchButton")
+
+            Button {
+                NotificationCenter.default.post(
+                    name: .readerBookmarkRequested, object: nil
+                )
+            } label: {
+                Image(systemName: "bookmark")
+            }
+            .accessibilityLabel("Add bookmark")
+            .accessibilityIdentifier("readerBookmarkButton")
+
+            Button {
+                showAnnotationsPanel = true
+            } label: {
+                Image(systemName: "list.bullet.rectangle")
+            }
+            .accessibilityLabel("Bookmarks and annotations")
+            .accessibilityIdentifier("readerAnnotationsButton")
+
+            if resolvedAICoordinator.isAIAvailable {
+                Button {
+                    showAIPanel = true
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .accessibilityLabel("AI Assistant")
+                .accessibilityIdentifier("readerAIButton")
+            }
+
+            if resolvedBookFormat.capabilities.contains(.tts) {
+                Button {
+                    startTTS()
+                } label: {
+                    Image(systemName: ttsService.state == .idle
+                          ? "speaker.wave.2"
+                          : "speaker.wave.2.fill")
+                }
+                .accessibilityLabel(ttsService.state == .idle
+                                    ? "Read aloud"
+                                    : "TTS active")
+                .accessibilityIdentifier("readerTTSButton")
+            }
+
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "textformat.size")
+            }
+            .accessibilityLabel("Reading settings")
+            .accessibilityIdentifier("readerSettingsButton")
+        }
+    }
+
+    // MARK: - AI Sheet
+
+    @ViewBuilder
+    private var aiSheet: some View {
+        let ai = resolvedAICoordinator
+        if let aiVM = ai.aiViewModel,
+           let transVM = ai.translationViewModel,
+           let chatVM = ai.chatViewModel,
+           let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+            AIReaderPanel(
+                viewModel: aiVM,
+                translationViewModel: transVM,
+                chatViewModel: chatVM,
+                locator: ai.currentLocator ?? Locator(
+                    bookFingerprint: fingerprint,
+                    href: nil, progression: nil, totalProgression: nil, cfi: nil,
+                    page: nil, charOffsetUTF16: nil,
+                    charRangeStartUTF16: nil, charRangeEndUTF16: nil,
+                    textQuote: nil, textContextBefore: nil, textContextAfter: nil
+                ),
+                textContent: ai.currentTextContent,
+                format: resolvedBookFormat,
+                onDismiss: { showAIPanel = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 }
 

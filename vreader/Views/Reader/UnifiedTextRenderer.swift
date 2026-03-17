@@ -38,7 +38,8 @@ struct UnifiedTextRenderer: View {
                             viewModel: vm,
                             currentPage: vm.currentPage,
                             pageText: vm.currentPageText,
-                            pageAttributedText: vm.currentPageAttributedText
+                            pageAttributedText: vm.currentPageAttributedText,
+                            pageTurnAnimation: settingsStore.pageTurnAnimation
                         )
                     } else {
                         UnifiedScrollView(viewModel: vm)

@@ -1,5 +1,6 @@
 // Purpose: SwiftUI container for the TXT reader. Composes the TXTTextViewBridge
 // (small files) or TXTChunkedReaderBridge (large files) with loading/error overlays.
+// When layout is .paged (and file is small), uses NativeTextPagedView instead of scroll.
 //
 // Key decisions:
 // - Owns TXTReaderViewModel lifecycle (open on appear, close on disappear).
@@ -11,10 +12,16 @@
 //   thread for large files. The bridge receives the pre-built attributed string.
 // - Files over `largeFileThreshold` UTF-16 code units use chunked rendering
 //   (UITableView) to avoid TextKit 1 glyph storage blowup.
+// - Paged mode (B08): small files use NativeTextPageNavigator + NativeTextPagedView.
+//   Large/chunked files always use scroll mode (too expensive to paginate).
+// - AutoPageTurner (B10): wired when autoPageTurn is enabled + paged layout.
+// - PageTurnAnimator (B11): animation style from settingsStore.pageTurnAnimation.
 //
 // @coordinates-with: TXTReaderViewModel.swift, TXTTextViewBridge.swift,
 //   TXTChunkedReaderBridge.swift, TXTTextChunker.swift, TXTAttributedStringBuilder.swift,
-//   ReadingProgressBar.swift, ScrollProgressHelper.swift
+//   ReadingProgressBar.swift, ScrollProgressHelper.swift,
+//   NativeTextPageNavigator.swift, NativeTextPagedView.swift,
+//   AutoPageTurner.swift, PageTurnAnimator.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -66,6 +73,20 @@ struct TXTReaderContainerView: View {
     /// Synced from viewModel.totalProgression via onChange.
     @State private var readingProgress: Double = 0
 
+    // MARK: - Paged Mode State (B08, B10, B11)
+
+    /// Page navigator for paged mode. Nil when in scroll mode or large file.
+    @State private var pageNavigator: NativeTextPageNavigator?
+    /// Tracks the current page for SwiftUI reactivity (drives NativeTextPagedView updates).
+    @State private var pagedCurrentPage: Int = 0
+    /// Auto page turner instance (B10). Created when autoPageTurn is enabled.
+    @State private var autoPageTurner: AutoPageTurner?
+
+    /// Whether paged mode is active (small file + paged layout preference).
+    private var isPagedMode: Bool {
+        settingsStore?.epubLayout == .paged && !isLargeFile
+    }
+
     /// Whether the loaded text exceeds the large file threshold.
     private var isLargeFile: Bool {
         viewModel.totalTextLengthUTF16 > Self.largeFileThreshold
@@ -98,8 +119,12 @@ struct TXTReaderContainerView: View {
                     loadingView
                 }
             } else if let text = viewModel.textContent, let attrStr = preparedAttrString {
-                // Small file → single UITextView
-                readerContent(text: text, attributedText: attrStr)
+                // Small file → paged or scroll
+                if isPagedMode, let nav = pageNavigator {
+                    pagedReaderContent(text: text, attributedText: attrStr, navigator: nav)
+                } else {
+                    readerContent(text: text, attributedText: attrStr)
+                }
             } else if viewModel.textContent != nil {
                 loadingView
             } else {
@@ -187,6 +212,10 @@ struct TXTReaderContainerView: View {
                 }.value
                 guard !Task.isCancelled else { return }
                 preparedAttrString = wrapped.value
+                // Trigger pagination if paged mode is active (B08)
+                if isPagedMode {
+                    updatePaginationIfNeeded()
+                }
             }
         }
         .onDisappear {
@@ -224,6 +253,31 @@ struct TXTReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
+            // Pause auto page turner on user interaction (B10)
+            autoPageTurner?.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
+            guard isPagedMode else { return }
+            pageNavigator?.nextPage()
+            syncPagedState()
+            // Pause auto page turner on user interaction (B10)
+            autoPageTurner?.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
+            guard isPagedMode else { return }
+            pageNavigator?.previousPage()
+            syncPagedState()
+            // Pause auto page turner on user interaction (B10)
+            autoPageTurner?.pause()
+        }
+        .onChange(of: settingsStore?.epubLayout) { _, _ in
+            updatePaginationIfNeeded()
+        }
+        .onChange(of: settingsStore?.typography.fontSize) { _, _ in
+            updatePaginationIfNeeded()
+        }
+        .onChange(of: settingsStore?.autoPageTurn) { _, newValue in
+            updateAutoPageTurner(enabled: newValue ?? false)
         }
         .readerNotificationHandlers(
             deps: makeNotificationDeps(),
@@ -287,6 +341,35 @@ struct TXTReaderContainerView: View {
     }
 
     @ViewBuilder
+    private func pagedReaderContent(
+        text: String,
+        attributedText: NSAttributedString,
+        navigator: NativeTextPageNavigator
+    ) -> some View {
+        VStack(spacing: 0) {
+            NativeTextPagedView(
+                navigator: navigator,
+                fullText: text,
+                fullAttributedText: attributedText,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                currentPage: pagedCurrentPage,
+                pageTurnAnimation: settingsStore?.pageTurnAnimation ?? .none
+            )
+
+            // Page indicator
+            if navigator.totalPages > 0 {
+                Text("Page \(pagedCurrentPage + 1) of \(navigator.totalPages)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+                    .accessibilityIdentifier("txtPageIndicator")
+            }
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .accessibilityIdentifier("txtReaderPagedContent")
+    }
+
+    @ViewBuilder
     private func readerContent(text: String, attributedText: NSAttributedString) -> some View {
         TXTTextViewBridge(
             text: text,
@@ -344,6 +427,67 @@ struct TXTReaderContainerView: View {
             }
         }
         return lo
+    }
+
+    // MARK: - Paged Mode Helpers (B08, B10)
+
+    /// Creates or updates the page navigator when entering paged mode.
+    private func updatePaginationIfNeeded() {
+        guard isPagedMode,
+              let text = viewModel.textContent,
+              let attrStr = preparedAttrString,
+              let settings = settingsStore else {
+            // Not in paged mode or text not ready — tear down paging state
+            autoPageTurner?.stop()
+            pageNavigator = nil
+            return
+        }
+
+        let nav = pageNavigator ?? NativeTextPageNavigator()
+        nav.paginateAttributed(
+            attributedText: attrStr,
+            viewportSize: UIScreen.main.bounds.size
+        )
+
+        // Restore position from saved offset on first paginate
+        if pageNavigator == nil, let offset = initialRestoreOffset {
+            nav.jumpToOffset(utf16Offset: offset)
+        }
+
+        pageNavigator = nav
+        syncPagedState()
+
+        // Wire auto page turner (B10)
+        if settings.autoPageTurn {
+            updateAutoPageTurner(enabled: true)
+        }
+    }
+
+    /// Syncs the @State page counter from the navigator for SwiftUI reactivity.
+    private func syncPagedState() {
+        guard let nav = pageNavigator else { return }
+        pagedCurrentPage = nav.currentPage
+        // Update reading progress from page position
+        if nav.totalPages > 1 {
+            readingProgress = nav.progression
+        }
+        // Update viewModel position for persistence
+        if let range = nav.currentPageCharRange {
+            viewModel.updateScrollPosition(charOffsetUTF16: range.location)
+        }
+    }
+
+    /// Starts or stops the auto page turner (B10).
+    private func updateAutoPageTurner(enabled: Bool) {
+        guard enabled, isPagedMode, let nav = pageNavigator else {
+            autoPageTurner?.stop()
+            return
+        }
+
+        let turner = autoPageTurner ?? AutoPageTurner()
+        turner.interval = settingsStore?.autoPageTurnInterval ?? 5.0
+        turner.start(navigator: nav)
+        autoPageTurner = turner
     }
 }
 #endif

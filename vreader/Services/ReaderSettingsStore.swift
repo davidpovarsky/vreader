@@ -14,11 +14,16 @@ final class ReaderSettingsStore {
     static let epubLayoutKey = "readerEPUBLayout"
     static let autoPageTurnKey = "readerAutoPageTurn"
     static let autoPageTurnIntervalKey = "readerAutoPageTurnInterval"
+    static let pageTurnAnimationKey = "readerPageTurnAnimation"
     var theme: ReaderTheme { didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) } }
     var readingMode: ReadingMode { didSet { defaults.set(readingMode.rawValue, forKey: Self.readingModeKey) } }
     var epubLayout: EPUBLayoutPreference { didSet { defaults.set(epubLayout.rawValue, forKey: Self.epubLayoutKey) } }
     /// Whether auto page turning is enabled (Issue 9).
     var autoPageTurn: Bool { didSet { defaults.set(autoPageTurn, forKey: Self.autoPageTurnKey) } }
+    /// Page turn animation style (B11).
+    var pageTurnAnimation: PageTurnAnimation {
+        didSet { defaults.set(pageTurnAnimation.rawValue, forKey: Self.pageTurnAnimationKey) }
+    }
     /// Interval in seconds between auto page turns (Issue 9). Clamped to 1...60.
     var autoPageTurnInterval: TimeInterval {
         didSet {
@@ -42,6 +47,7 @@ final class ReaderSettingsStore {
         self.readingMode = ReadingMode(rawValue: defaults.string(forKey: Self.readingModeKey) ?? "") ?? .native
         if let data = defaults.data(forKey: Self.typographyKey), let d = try? JSONDecoder().decode(TypographySettings.self, from: data) { self.typography = d } else { self.typography = TypographySettings() }
         self.epubLayout = EPUBLayoutPreference(rawValue: defaults.string(forKey: Self.epubLayoutKey) ?? "") ?? .scroll
+        self.pageTurnAnimation = PageTurnAnimation(rawValue: defaults.string(forKey: Self.pageTurnAnimationKey) ?? "") ?? .none
         self.autoPageTurn = defaults.bool(forKey: Self.autoPageTurnKey)
         let storedInterval = defaults.double(forKey: Self.autoPageTurnIntervalKey)
         self.autoPageTurnInterval = storedInterval > 0 ? max(1.0, min(60.0, storedInterval)) : 5.0

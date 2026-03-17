@@ -1,5 +1,6 @@
 // Purpose: SwiftUI container for the Markdown reader. Composes the TXTTextViewBridge
 // (with NSAttributedString) with loading/error overlays and reading session chrome.
+// When layout is .paged, uses NativeTextPagedView for page-at-a-time rendering.
 //
 // Key decisions:
 // - Owns MDReaderViewModel lifecycle (open on appear, close on disappear).
@@ -7,9 +8,14 @@
 // - Shows loading spinner during file open.
 // - Shows error message on failure.
 // - Passes rendered NSAttributedString to bridge for rich display.
+// - Paged mode (B08): uses NativeTextPageNavigator + NativeTextPagedView.
+// - AutoPageTurner (B10): wired when autoPageTurn is enabled + paged layout.
+// - PageTurnAnimator (B11): animation style from settingsStore.pageTurnAnimation.
 //
 // @coordinates-with: MDReaderViewModel.swift, TXTTextViewBridge.swift,
-//   ReadingProgressBar.swift, ScrollProgressHelper.swift
+//   ReadingProgressBar.swift, ScrollProgressHelper.swift,
+//   NativeTextPageNavigator.swift, NativeTextPagedView.swift,
+//   AutoPageTurner.swift, PageTurnAnimator.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -46,6 +52,20 @@ struct MDReaderContainerView: View {
     /// Synced from viewModel.totalProgression via onChange.
     @State private var readingProgress: Double = 0
 
+    // MARK: - Paged Mode State (B08, B10, B11)
+
+    /// Page navigator for paged mode. Nil when in scroll mode.
+    @State private var pageNavigator: NativeTextPageNavigator?
+    /// Tracks the current page for SwiftUI reactivity.
+    @State private var pagedCurrentPage: Int = 0
+    /// Auto page turner instance (B10). Created when autoPageTurn is enabled.
+    @State private var autoPageTurner: AutoPageTurner?
+
+    /// Whether paged mode is active.
+    private var isPagedMode: Bool {
+        settingsStore?.epubLayout == .paged
+    }
+
     var body: some View {
         ZStack {
             if viewModel.isLoading {
@@ -53,7 +73,11 @@ struct MDReaderContainerView: View {
             } else if let errorMessage = viewModel.errorMessage, viewModel.renderedText == nil {
                 errorView(message: errorMessage)
             } else if let attrStr = viewModel.renderedAttributedString {
-                readerContent(attributedString: attrStr)
+                if isPagedMode, let nav = pageNavigator {
+                    pagedReaderContent(attributedString: attrStr, navigator: nav)
+                } else {
+                    readerContent(attributedString: attrStr)
+                }
             } else {
                 // Not yet opened
                 Color.clear
@@ -88,6 +112,10 @@ struct MDReaderContainerView: View {
         .task {
             await viewModel.open(url: fileURL)
             initialRestoreOffset = viewModel.currentOffsetUTF16
+            // Trigger pagination if paged mode is active (B08)
+            if isPagedMode {
+                updatePaginationIfNeeded()
+            }
             // Load persisted highlights from DB for visual rendering (bug #55)
             if let container = modelContainer {
                 let persistence = PersistenceActor(modelContainer: container)
@@ -138,6 +166,28 @@ struct MDReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
+            autoPageTurner?.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
+            guard isPagedMode else { return }
+            pageNavigator?.nextPage()
+            syncPagedState()
+            autoPageTurner?.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
+            guard isPagedMode else { return }
+            pageNavigator?.previousPage()
+            syncPagedState()
+            autoPageTurner?.pause()
+        }
+        .onChange(of: settingsStore?.epubLayout) { _, _ in
+            updatePaginationIfNeeded()
+        }
+        .onChange(of: settingsStore?.typography.fontSize) { _, _ in
+            updatePaginationIfNeeded()
+        }
+        .onChange(of: settingsStore?.autoPageTurn) { _, newValue in
+            updateAutoPageTurner(enabled: newValue ?? false)
         }
         .readerNotificationHandlers(
             deps: makeNotificationDeps(),
@@ -200,6 +250,33 @@ struct MDReaderContainerView: View {
     }
 
     @ViewBuilder
+    private func pagedReaderContent(
+        attributedString: NSAttributedString,
+        navigator: NativeTextPageNavigator
+    ) -> some View {
+        VStack(spacing: 0) {
+            NativeTextPagedView(
+                navigator: navigator,
+                fullText: attributedString.string,
+                fullAttributedText: attributedString,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                currentPage: pagedCurrentPage,
+                pageTurnAnimation: settingsStore?.pageTurnAnimation ?? .none
+            )
+
+            if navigator.totalPages > 0 {
+                Text("Page \(pagedCurrentPage + 1) of \(navigator.totalPages)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+                    .accessibilityIdentifier("mdPageIndicator")
+            }
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .accessibilityIdentifier("mdReaderPagedContent")
+    }
+
+    @ViewBuilder
     private func readerContent(attributedString: NSAttributedString) -> some View {
         TXTTextViewBridge(
             text: attributedString.string,
@@ -214,6 +291,58 @@ struct MDReaderContainerView: View {
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("mdReaderContent")
+    }
+
+    // MARK: - Paged Mode Helpers (B08, B10)
+
+    private func updatePaginationIfNeeded() {
+        guard isPagedMode,
+              let attrStr = viewModel.renderedAttributedString,
+              let settings = settingsStore else {
+            autoPageTurner?.stop()
+            pageNavigator = nil
+            return
+        }
+
+        let nav = pageNavigator ?? NativeTextPageNavigator()
+        nav.paginateAttributed(
+            attributedText: attrStr,
+            viewportSize: UIScreen.main.bounds.size
+        )
+
+        if pageNavigator == nil, let offset = initialRestoreOffset {
+            nav.jumpToOffset(utf16Offset: offset)
+        }
+
+        pageNavigator = nav
+        syncPagedState()
+
+        if settings.autoPageTurn {
+            updateAutoPageTurner(enabled: true)
+        }
+    }
+
+    private func syncPagedState() {
+        guard let nav = pageNavigator else { return }
+        pagedCurrentPage = nav.currentPage
+        if nav.totalPages > 1 {
+            readingProgress = nav.progression
+        }
+        if let range = nav.currentPageCharRange {
+            viewModel.updateScrollPosition(charOffsetUTF16: range.location)
+        }
+    }
+
+    private func updateAutoPageTurner(enabled: Bool) {
+        guard enabled, isPagedMode, let nav = pageNavigator else {
+            autoPageTurner?.stop()
+            return
+        }
+
+        let turner = autoPageTurner ?? AutoPageTurner()
+        turner.interval = settingsStore?.autoPageTurnInterval ?? 5.0
+        turner.start(navigator: nav)
+        autoPageTurner = turner
     }
 }
 #endif

@@ -10,7 +10,7 @@
 // - Max pagination depth to prevent infinite loops.
 //
 // @coordinates-with: PipelineTypes.swift, BookSource.swift, BookSourceRules.swift,
-//   RuleEngine.swift, BookSourceHTTPClient.swift
+//   RuleEngine.swift, BookSourceHTTPClient.swift, ChapterCache.swift
 
 import Foundation
 
@@ -29,17 +29,23 @@ actor BookSourcePipeline {
     /// The HTML fetch provider (injectable for testing).
     private let fetchHTML: HTMLFetchProvider
 
+    /// Optional chapter cache for offline reading (D06).
+    private let chapterCache: ChapterCache?
+
     /// Creates a pipeline with the given fetch provider.
     ///
     /// - Parameters:
     ///   - fetchHTML: Closure to fetch HTML from a URL.
     ///   - maxPaginationDepth: Max pages to follow for pagination (default 50).
+    ///   - chapterCache: Optional cache for chapter content (default nil).
     init(
         fetchHTML: @escaping HTMLFetchProvider,
-        maxPaginationDepth: Int = 50
+        maxPaginationDepth: Int = 50,
+        chapterCache: ChapterCache? = nil
     ) {
         self.fetchHTML = fetchHTML
         self.maxPaginationDepth = maxPaginationDepth
+        self.chapterCache = chapterCache
     }
 
     // MARK: - Stage 1: Search
@@ -198,6 +204,8 @@ actor BookSourcePipeline {
     // MARK: - Stage 4: Chapter Content
 
     /// Extracts the text content of a single chapter.
+    /// Checks the chapter cache first; on hit, returns cached content without network.
+    /// On miss, fetches via network, applies rules, and caches the result.
     /// Handles pagination via nextContentUrl for multi-page chapters.
     /// Applies replaceRegex cleanup if defined.
     func chapterContent(
@@ -212,6 +220,14 @@ actor BookSourcePipeline {
               let contentSelector = contentRule.content,
               !contentSelector.isEmpty else {
             throw PipelineError.missingContentRule
+        }
+
+        // Check cache first (D06)
+        if let cache = chapterCache,
+           let cached = await cache.get(
+               sourceURL: source.sourceURL, chapterURL: chapterUrl
+           ) {
+            return cached
         }
 
         var allText: [String] = []
@@ -253,6 +269,15 @@ actor BookSourcePipeline {
         if let replaceRegex = contentRule.replaceRegex, !replaceRegex.isEmpty {
             result = RegexRuleEvaluator.replace(
                 pattern: replaceRegex, replacement: "", in: result
+            )
+        }
+
+        // Cache the result (D06)
+        if let cache = chapterCache {
+            await cache.set(
+                sourceURL: source.sourceURL,
+                chapterURL: chapterUrl,
+                content: result
             )
         }
 

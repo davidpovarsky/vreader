@@ -1,7 +1,7 @@
 // Purpose: Main library view displaying the user's book collection.
 // Supports grid/list toggle, sorting, pull-to-refresh, swipe-to-delete,
 // context menu with Info/Share/Delete, empty state with onboarding CTA,
-// and general AI chat entry point (WI-013).
+// general AI chat entry point (WI-013), and OPDS catalog browsing (WI-C04).
 //
 // Key decisions:
 // - Uses .refreshable for pull-to-refresh (delegates to ViewModel throttle).
@@ -12,10 +12,11 @@
 // - Custom covers via PhotosPicker; stored/loaded through CustomCoverStore.
 // - Delete via context menu (grid) and swipe actions (list).
 // - AI chat button shown conditionally (feature flag + API key).
+// - OPDS catalog button opens catalog management sheet.
 //
 // @coordinates-with: LibraryViewModel.swift, BookCardView.swift, BookRowView.swift,
 //   ReaderContainerView.swift, BookInfoSheet.swift, SettingsView.swift, AIChatView.swift,
-//   CustomCoverStore.swift
+//   CustomCoverStore.swift, OPDSCatalogListView.swift
 
 import SwiftUI
 import Combine
@@ -31,6 +32,7 @@ struct LibraryView: View {
     @State private var isShowingImporter = false
     @State private var isShowingSettings = false
     @State private var isShowingAIChat = false
+    @State private var isShowingOPDSCatalogs = false
     @State private var coverPickerItem: PhotosPickerItem?
     @State private var bookForCover: LibraryBookItem?
     /// Incremented when a custom cover is set or removed, to force card/row views to reload.
@@ -125,6 +127,26 @@ struct LibraryView: View {
                                 .accessibilityIdentifier("aiChatDoneButton")
                             }
                         }
+                }
+            }
+            .sheet(isPresented: $isShowingOPDSCatalogs) {
+                NavigationStack {
+                    OPDSCatalogListView()
+                        .navigationTitle("OPDS Catalogs")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Done") {
+                                    isShowingOPDSCatalogs = false
+                                }
+                                .accessibilityIdentifier("opdsCatalogsDoneButton")
+                            }
+                        }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .opdsBookDownloaded)) { notification in
+                if let url = notification.userInfo?["url"] as? URL {
+                    Task { await viewModel.importFiles([url]) }
                 }
             }
             .fileImporter(
@@ -296,6 +318,16 @@ struct LibraryView: View {
                 .accessibilityLabel("AI Chat")
                 .accessibilityIdentifier("aiChatToolbarButton")
             }
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                isShowingOPDSCatalogs = true
+            } label: {
+                Image(systemName: "globe")
+            }
+            .accessibilityLabel("OPDS Catalogs")
+            .accessibilityIdentifier("opdsCatalogsToolbarButton")
         }
 
         ToolbarItem(placement: .topBarTrailing) {

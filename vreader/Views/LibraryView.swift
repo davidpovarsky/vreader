@@ -25,6 +25,7 @@ import UniformTypeIdentifiers
 
 /// Main library view for the book collection.
 struct LibraryView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: LibraryViewModel
     @State private var bookToDelete: LibraryBookItem?
     @State private var bookForInfo: LibraryBookItem?
@@ -33,6 +34,11 @@ struct LibraryView: View {
     @State private var isShowingSettings = false
     @State private var isShowingAIChat = false
     @State private var isShowingOPDSCatalogs = false
+    @State private var isShowingCollections = false
+    @State private var activeFilter: LibraryFilter = .allBooks
+    @State private var collectionRecords: [CollectionRecord] = []
+    /// Fingerprint keys of books with new chapters detected by UpdateChecker (D07a).
+    @State private var booksWithUpdates: Set<String> = []
     @State private var coverPickerItem: PhotosPickerItem?
     @State private var bookForCover: LibraryBookItem?
     /// Incremented when a custom cover is set or removed, to force card/row views to reload.
@@ -66,6 +72,7 @@ struct LibraryView: View {
             }
             .refreshable {
                 await viewModel.refresh()
+                await checkForBookSourceUpdates()
             }
             .task {
                 await viewModel.loadBooks()
@@ -143,6 +150,24 @@ struct LibraryView: View {
                             }
                         }
                 }
+            }
+            .sheet(isPresented: $isShowingCollections) {
+                CollectionSidebar(
+                    activeFilter: $activeFilter,
+                    collections: collectionRecords,
+                    allTags: [],
+                    allSeries: [],
+                    onCreateCollection: { name in
+                        let persistence = PersistenceActor(modelContainer: modelContext.container)
+                        _ = try? await persistence.createCollection(name: name)
+                        collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    },
+                    onDeleteCollection: { name in
+                        let persistence = PersistenceActor(modelContainer: modelContext.container)
+                        try? await persistence.deleteCollection(name: name)
+                        collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    }
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: .opdsBookDownloaded)) { notification in
                 if let url = notification.userInfo?["url"] as? URL {
@@ -322,6 +347,20 @@ struct LibraryView: View {
 
         ToolbarItem(placement: .topBarTrailing) {
             Button {
+                Task {
+                    let persistence = PersistenceActor(modelContainer: modelContext.container)
+                    collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    isShowingCollections = true
+                }
+            } label: {
+                Image(systemName: "folder")
+            }
+            .accessibilityLabel("Collections")
+            .accessibilityIdentifier("collectionsToolbarButton")
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
                 isShowingOPDSCatalogs = true
             } label: {
                 Image(systemName: "globe")
@@ -440,6 +479,17 @@ struct LibraryView: View {
             }
         )
         return AIChatViewModel(aiService: service, bookFingerprint: nil)
+    }
+
+    // MARK: - Update Checker (D07a)
+
+    /// Checks enabled BookSources for new chapters on tracked books.
+    /// Populates `booksWithUpdates` with fingerprint keys of updated books.
+    private func checkForBookSourceUpdates() async {
+        // TODO: Wire up once books track their source URL and chapter count.
+        // For now, this is a no-op infrastructure hook for pull-to-refresh.
+        // When book-to-source linking is implemented, iterate over source-linked
+        // books and call UpdateChecker.checkForUpdates() for each.
     }
 
     // MARK: - Helpers

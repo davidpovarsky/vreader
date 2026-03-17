@@ -26,6 +26,10 @@ struct UnifiedTextRenderer: View {
     /// Optional attributed text for rich formatting (MD, EPUB). When provided,
     /// the renderer uses `configureAttributed()` to preserve bold, italic, headings.
     var attributedText: NSAttributedString?
+    /// Optional shared pagination cache to avoid redundant TextKit layout passes (B13).
+    var paginationCache: PaginationCache?
+    /// Document fingerprint used as part of the pagination cache key (B13).
+    var documentFingerprint: String = ""
 
     @State private var viewModel: UnifiedTextRendererViewModel?
 
@@ -62,7 +66,11 @@ struct UnifiedTextRenderer: View {
     }
 
     private func setupViewModel(viewportSize: CGSize) {
-        let vm = UnifiedTextRendererViewModel(text: text)
+        let vm = UnifiedTextRendererViewModel(
+            text: text,
+            cache: paginationCache,
+            documentFingerprint: documentFingerprint
+        )
         // Wire progress callback: update binding and post notification
         vm.onProgressChange = { [weak vm] progress in
             readingProgress = progress

@@ -11,6 +11,7 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 /// Manages the user's list of book sources with enable/disable toggles.
 struct BookSourceListView: View {
@@ -18,6 +19,11 @@ struct BookSourceListView: View {
     @Query(sort: \BookSource.customOrder) private var sources: [BookSource]
 
     @State private var isShowingEditor = false
+    @State private var isShowingSearch = false
+    @State private var isShowingLegadoImporter = false
+    @State private var isShowingShareSheet = false
+    @State private var shareFileURL: URL?
+    @State private var legadoImportMessage: String?
     @State private var editingSource: BookSource?
 
     var body: some View {
@@ -30,7 +36,24 @@ struct BookSourceListView: View {
         }
         .navigationTitle("Book Sources")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    isShowingSearch = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search books")
+                .accessibilityIdentifier("bookSourceSearch")
+                .disabled(sources.filter(\.enabled).isEmpty)
+
+                Button {
+                    isShowingLegadoImporter = true
+                } label: {
+                    Image(systemName: "doc.badge.plus")
+                }
+                .accessibilityLabel("Import Legado sources")
+                .accessibilityIdentifier("bookSourceLegadoImport")
+
                 Button {
                     editingSource = nil
                     isShowingEditor = true
@@ -39,6 +62,11 @@ struct BookSourceListView: View {
                 }
                 .accessibilityLabel("Add source")
                 .accessibilityIdentifier("bookSourceAdd")
+            }
+        }
+        .navigationDestination(isPresented: $isShowingSearch) {
+            if let firstEnabled = sources.first(where: \.enabled) {
+                BookSourceSearchView(source: BookSourceSnapshot(from: firstEnabled))
             }
         }
         .sheet(isPresented: $isShowingEditor) {
@@ -56,6 +84,27 @@ struct BookSourceListView: View {
                     }
                 )
             }
+        }
+        .fileImporter(
+            isPresented: $isShowingLegadoImporter,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                importLegadoSources(from: url)
+            case .failure:
+                break
+            }
+        }
+        .alert("Import Result", isPresented: .init(
+            get: { legadoImportMessage != nil },
+            set: { if !$0 { legadoImportMessage = nil } }
+        )) {
+            Button("OK") { legadoImportMessage = nil }
+        } message: {
+            Text(legadoImportMessage ?? "")
         }
     }
 
@@ -95,11 +144,24 @@ struct BookSourceListView: View {
         List {
             ForEach(sources) { source in
                 sourceRow(source)
+                    .contextMenu {
+                        Button {
+                            shareSource(source)
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                    }
             }
             .onDelete(perform: deleteSources)
         }
         .listStyle(.plain)
         .accessibilityIdentifier("bookSourceList")
+        .sheet(isPresented: $isShowingShareSheet) {
+            if let url = shareFileURL {
+                ShareActivityView(activityItems: [url])
+                    .ignoresSafeArea()
+            }
+        }
     }
 
     private func sourceRow(_ source: BookSource) -> some View {
@@ -159,6 +221,39 @@ struct BookSourceListView: View {
             .background(color.opacity(0.15))
             .foregroundStyle(color)
             .clipShape(Capsule())
+    }
+
+    // MARK: - Source Sharing (D07b)
+
+    private func shareSource(_ source: BookSource) {
+        guard let data = try? SourceSharingService.exportSource(source) else { return }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(source.sourceName).json")
+        try? data.write(to: tempURL, options: .atomic)
+        shareFileURL = tempURL
+        isShowingShareSheet = true
+    }
+
+    // MARK: - Legado Import (D05)
+
+    private func importLegadoSources(from url: URL) {
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        guard let data = try? Data(contentsOf: url) else {
+            legadoImportMessage = "Could not read file."
+            return
+        }
+
+        do {
+            let imported = try LegadoImporter.importSources(from: data)
+            for source in imported {
+                modelContext.insert(source)
+            }
+            legadoImportMessage = "Imported \(imported.count) source(s)."
+        } catch {
+            legadoImportMessage = "Import failed: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Actions

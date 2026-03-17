@@ -65,6 +65,8 @@ struct ReaderContainerView: View {
 
     /// Shared content cache — loads book text once, shared across AI/search/TTS.
     @State private var contentCache = BookContentCache()
+    /// Shared pagination cache for the unified renderer (B13).
+    @State private var paginationCache = PaginationCache()
 
     var body: some View {
         ZStack {
@@ -186,6 +188,18 @@ struct ReaderContainerView: View {
             if !rules.isEmpty {
                 transforms.append(ReplacementTransform(rules: rules))
             }
+            // E04: Add SimpTrad transform if configured
+            if settingsStore.chineseConversion != .none {
+                transforms.append(SimpTradTransform(direction: settingsStore.chineseConversion))
+            }
+            unifiedCoordinator.activeTransforms = transforms
+        }
+        .onChange(of: settingsStore.chineseConversion) { _, newDirection in
+            // Re-apply transforms when Chinese conversion setting changes
+            var transforms = unifiedCoordinator.activeTransforms.filter { !($0 is SimpTradTransform) }
+            if newDirection != .none {
+                transforms.append(SimpTradTransform(direction: newDirection))
+            }
             unifiedCoordinator.activeTransforms = transforms
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
@@ -195,7 +209,11 @@ struct ReaderContainerView: View {
             resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
         }
         .sheet(isPresented: $showSettings) {
-            ReaderSettingsPanel(store: settingsStore)
+            ReaderSettingsPanel(
+                store: settingsStore,
+                bookFingerprintKey: book.fingerprintKey,
+                perBookBaseURL: Self.perBookSettingsBaseURL
+            )
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
@@ -316,6 +334,15 @@ struct ReaderContainerView: View {
             .appendingPathExtension(ext)
     }
 
+    // MARK: - Per-Book Settings Base URL (A05)
+
+    /// Directory where per-book settings JSON files are stored.
+    static let perBookSettingsBaseURL: URL = {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PerBookSettings", isDirectory: true)
+    }()
+
     // MARK: - Device ID
 
     /// Stable device identifier for reading position and session tracking.
@@ -414,7 +441,9 @@ struct ReaderContainerView: View {
                 UnifiedTextRenderer(
                     text: text,
                     settingsStore: settingsStore,
-                    readingProgress: $unifiedReadingProgress
+                    readingProgress: $unifiedReadingProgress,
+                    paginationCache: paginationCache,
+                    documentFingerprint: fingerprint.canonicalKey
                 )
                 .tapZoneOverlay(config: tapZoneStore.config)
             } else {
@@ -427,7 +456,9 @@ struct ReaderContainerView: View {
                     text: text,
                     settingsStore: settingsStore,
                     readingProgress: $unifiedReadingProgress,
-                    attributedText: unifiedCoordinator.attributedText
+                    attributedText: unifiedCoordinator.attributedText,
+                    paginationCache: paginationCache,
+                    documentFingerprint: fingerprint.canonicalKey
                 )
                 .tapZoneOverlay(config: tapZoneStore.config)
             } else {
@@ -452,7 +483,9 @@ struct ReaderContainerView: View {
                         text: text,
                         settingsStore: settingsStore,
                         readingProgress: $unifiedReadingProgress,
-                        attributedText: unifiedCoordinator.attributedText
+                        attributedText: unifiedCoordinator.attributedText,
+                        paginationCache: paginationCache,
+                        documentFingerprint: fingerprint.canonicalKey
                     )
                     .tapZoneOverlay(config: tapZoneStore.config)
                 }

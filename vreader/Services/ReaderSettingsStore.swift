@@ -15,6 +15,7 @@ final class ReaderSettingsStore {
     static let autoPageTurnKey = "readerAutoPageTurn"
     static let autoPageTurnIntervalKey = "readerAutoPageTurnInterval"
     static let pageTurnAnimationKey = "readerPageTurnAnimation"
+    static let chineseConversionKey = "readerChineseConversion"
     var theme: ReaderTheme { didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) } }
     var readingMode: ReadingMode { didSet { defaults.set(readingMode.rawValue, forKey: Self.readingModeKey) } }
     var epubLayout: EPUBLayoutPreference { didSet { defaults.set(epubLayout.rawValue, forKey: Self.epubLayoutKey) } }
@@ -30,6 +31,10 @@ final class ReaderSettingsStore {
             autoPageTurnInterval = max(1.0, min(60.0, autoPageTurnInterval))
             defaults.set(autoPageTurnInterval, forKey: Self.autoPageTurnIntervalKey)
         }
+    }
+    /// Chinese Simplified/Traditional conversion direction (E04).
+    var chineseConversion: ChineseConversionDirection {
+        didSet { defaults.set(chineseConversion.rawValue, forKey: Self.chineseConversionKey) }
     }
     var typography: TypographySettings {
         didSet { if let data = try? JSONEncoder().encode(typography) { defaults.set(data, forKey: Self.typographyKey) } }
@@ -48,6 +53,7 @@ final class ReaderSettingsStore {
         if let data = defaults.data(forKey: Self.typographyKey), let d = try? JSONDecoder().decode(TypographySettings.self, from: data) { self.typography = d } else { self.typography = TypographySettings() }
         self.epubLayout = EPUBLayoutPreference(rawValue: defaults.string(forKey: Self.epubLayoutKey) ?? "") ?? .scroll
         self.pageTurnAnimation = PageTurnAnimation(rawValue: defaults.string(forKey: Self.pageTurnAnimationKey) ?? "") ?? .none
+        self.chineseConversion = ChineseConversionDirection(rawValue: defaults.string(forKey: Self.chineseConversionKey) ?? "") ?? .none
         self.autoPageTurn = defaults.bool(forKey: Self.autoPageTurnKey)
         let storedInterval = defaults.double(forKey: Self.autoPageTurnIntervalKey)
         self.autoPageTurnInterval = storedInterval > 0 ? max(1.0, min(60.0, storedInterval)) : 5.0

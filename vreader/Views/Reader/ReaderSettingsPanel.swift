@@ -38,6 +38,7 @@ struct ReaderSettingsPanel: View {
                 lineSpacingSection
                 fontFamilySection
                 cjkSection
+                chineseConversionSection
                 if bookFingerprintKey != nil { perBookSection }
                 previewSection
             }
@@ -51,6 +52,7 @@ struct ReaderSettingsPanel: View {
         .onChange(of: store.typography.cjkSpacing) { _, _ in syncPerBookIfEnabled() }
         .onChange(of: store.theme) { _, _ in syncPerBookIfEnabled() }
         .onChange(of: store.readingMode) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.chineseConversion) { _, _ in syncPerBookIfEnabled() }
         .accessibilityIdentifier("readerSettingsPanel")
     }
 
@@ -255,6 +257,24 @@ struct ReaderSettingsPanel: View {
                 .accessibilityLabel("CJK character spacing")
         } footer: {
             Text("Adds extra spacing between CJK characters for improved readability.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - Chinese Conversion (E04)
+
+    @ViewBuilder
+    private var chineseConversionSection: some View {
+        Section {
+            Picker("Chinese Text", selection: $store.chineseConversion) {
+                Text("None").tag(ChineseConversionDirection.none)
+                Text("Simp \u{2192} Trad").tag(ChineseConversionDirection.simpToTrad)
+                Text("Trad \u{2192} Simp").tag(ChineseConversionDirection.tradToSimp)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Chinese text conversion")
+        } footer: {
+            Text("Convert Chinese text between Simplified and Traditional scripts.")
                 .font(.caption)
         }
     }

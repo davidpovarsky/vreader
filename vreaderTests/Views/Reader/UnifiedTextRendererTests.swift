@@ -313,4 +313,107 @@ struct UnifiedTextRendererTests {
         let offset100 = vm.charOffsetForProgress(1.0)
         #expect(offset100 == totalLen)
     }
+
+    // MARK: - Issue 1: Page change updates progress (Phase B Audit)
+
+    @Test func pagedMode_nextPage_updatesProgress() {
+        let longText = generateLongText(lineCount: 200)
+        let vm = makeViewModel(text: longText, layout: .paged)
+        #expect(vm.totalPages > 2)
+        #expect(vm.progress == 0.0)
+
+        vm.nextPage()
+        #expect(vm.currentPage == 1)
+        #expect(vm.progress > 0.0, "Progress should increase after nextPage()")
+    }
+
+    @Test func pagedMode_previousPage_updatesProgress() {
+        let longText = generateLongText(lineCount: 200)
+        let vm = makeViewModel(text: longText, layout: .paged)
+        vm.goToPage(3)
+        let progressAt3 = vm.progress
+
+        vm.previousPage()
+        #expect(vm.currentPage == 2)
+        #expect(vm.progress < progressAt3, "Progress should decrease after previousPage()")
+    }
+
+    // MARK: - Issue 1: onProgressChange callback (Phase B Audit)
+
+    @Test func pagedMode_onProgressChange_firesOnPageChange() {
+        let longText = generateLongText(lineCount: 200)
+        let vm = makeViewModel(text: longText, layout: .paged)
+        #expect(vm.totalPages > 2)
+
+        var callbackFired = false
+        var reportedProgress: Double = -1
+        vm.onProgressChange = { progress in
+            callbackFired = true
+            reportedProgress = progress
+        }
+
+        vm.nextPage()
+        #expect(callbackFired, "onProgressChange should fire after page navigation")
+        #expect(reportedProgress > 0.0, "Reported progress should be > 0")
+        #expect(abs(reportedProgress - vm.progress) < 0.001,
+                "Reported progress should match vm.progress")
+    }
+
+    @Test func scrollMode_onProgressChange_firesOnScrollUpdate() {
+        let longText = generateLongText(lineCount: 200)
+        let vm = makeViewModel(text: longText, layout: .scroll)
+
+        var callbackFired = false
+        vm.onProgressChange = { _ in callbackFired = true }
+
+        let midOffset = (longText as NSString).length / 2
+        vm.updateScrollOffset(charOffsetUTF16: midOffset)
+        #expect(callbackFired, "onProgressChange should fire after scroll update")
+    }
+
+    // MARK: - Issue 2: Attributed text stored (Phase B Audit)
+
+    @Test func configureAttributed_storesAttributedText() {
+        let text = "Hello bold italic test"
+        let attrStr = NSAttributedString(string: text, attributes: [
+            .font: UIFont.systemFont(ofSize: 17),
+        ])
+        let vm = UnifiedTextRendererViewModel(text: text)
+        vm.configureAttributed(
+            attributedText: attrStr,
+            viewportSize: phoneViewport,
+            layout: .paged
+        )
+        #expect(vm.attributedText != nil, "attributedText should be stored after configureAttributed")
+        #expect(vm.attributedText?.string == text)
+    }
+
+    @Test func currentPageAttributedText_returnsSubstring() {
+        let text = generateLongText(lineCount: 200)
+        let attrStr = NSAttributedString(string: text, attributes: [
+            .font: UIFont.systemFont(ofSize: 17),
+        ])
+        let vm = UnifiedTextRendererViewModel(text: text)
+        vm.configureAttributed(
+            attributedText: attrStr,
+            viewportSize: phoneViewport,
+            layout: .paged
+        )
+        #expect(vm.totalPages > 1)
+
+        let pageAttr = vm.currentPageAttributedText
+        #expect(pageAttr != nil, "currentPageAttributedText should return attributed substring")
+        #expect(pageAttr!.length > 0, "Attributed page text should not be empty")
+        // The plain string should match currentPageText
+        #expect(pageAttr?.string == vm.currentPageText,
+                "Attributed substring text should match plain page text")
+    }
+
+    @Test func configure_plainText_attributedTextIsNil() {
+        let vm = makeViewModel(text: "Hello", layout: .paged)
+        #expect(vm.attributedText == nil,
+                "attributedText should be nil when configured with plain text")
+        #expect(vm.currentPageAttributedText == nil,
+                "currentPageAttributedText should be nil for plain text")
+    }
 }

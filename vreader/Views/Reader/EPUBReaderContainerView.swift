@@ -184,6 +184,9 @@ struct EPUBReaderContainerView: View {
             if let spineIndex = meta.spineItems.firstIndex(where: { $0.href == href }) {
                 viewModel.navigateToSpine(index: spineIndex)
                 webViewError = nil
+                // Issue 6: Reset pagination on locator navigation (same as chapter nav).
+                pageNavigator.reset()
+                currentPaginationPage = nil
                 // Issue 3: Use locator.progression to scroll within the chapter.
                 // This reuses the existing WI-004d scroll-to-fraction mechanism so
                 // the WebView lands at the correct position, not chapter top.
@@ -420,6 +423,10 @@ struct EPUBReaderContainerView: View {
         webViewError = nil
         // Chapter navigation always starts at the top
         seekScrollFraction = nil
+        // Issue 6: Reset pagination state so stale page index from previous chapter
+        // is not applied to the newly loaded chapter.
+        pageNavigator.reset()
+        currentPaginationPage = nil
 
         // Update the WKWebView content URL
         if let meta = viewModel.metadata,

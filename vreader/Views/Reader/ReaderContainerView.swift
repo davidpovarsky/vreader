@@ -70,6 +70,8 @@ struct ReaderContainerView: View {
     @State private var unifiedAttributedText: NSAttributedString?
     /// Whether EPUB unified loading completed (true = done loading, false = still loading).
     @State private var epubUnifiedLoadComplete = false
+    /// Warning message from EPUB unified loading (e.g., "3 of 10 chapters could not be loaded").
+    @State private var epubUnifiedLoadWarning: String?
     /// Reading progress for the unified renderer (WI-B04).
     @State private var unifiedReadingProgress: Double = 0
 
@@ -836,11 +838,11 @@ struct ReaderContainerView: View {
     }
 
     /// Dispatches to the unified reflow engine for supported formats,
-    /// or falls back to the placeholder for unsupported ones.
+    /// or falls back to native reader for complex content.
     /// - TXT: plain text, no formatting.
     /// - MD: attributed text with bold/italic/headings (WI-B05).
     /// - EPUB (simple): HTML converted to attributed text (WI-B07).
-    /// - EPUB (complex): placeholder (stays in WKWebView via native mode).
+    /// - EPUB (complex): falls back to native WKWebView reader (Phase B Audit fix).
     @ViewBuilder
     private func unifiedReaderView(fingerprint: DocumentFingerprint) -> some View {
         switch book.format.lowercased() {
@@ -871,16 +873,31 @@ struct ReaderContainerView: View {
             }
         case "epub":
             if let text = unifiedTextContent {
-                UnifiedTextRenderer(
-                    text: text,
-                    settingsStore: settingsStore,
-                    readingProgress: $unifiedReadingProgress,
-                    attributedText: unifiedAttributedText
-                )
-                .tapZoneOverlay(config: tapZoneStore.config)
+                VStack(spacing: 0) {
+                    // Issue 10: Show warning banner when some chapters were skipped
+                    if let warning = epubUnifiedLoadWarning {
+                        Text(warning)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.orange.opacity(0.1))
+                            .accessibilityIdentifier("epubUnifiedLoadWarning")
+                    }
+                    UnifiedTextRenderer(
+                        text: text,
+                        settingsStore: settingsStore,
+                        readingProgress: $unifiedReadingProgress,
+                        attributedText: unifiedAttributedText
+                    )
+                    .tapZoneOverlay(config: tapZoneStore.config)
+                }
             } else if epubUnifiedLoadComplete {
-                // EPUB has complex chapters — show placeholder
-                UnifiedPlaceholderView(settingsStore: settingsStore)
+                // EPUB has complex chapters — fall back to native WKWebView reader
+                // instead of showing a placeholder, so the user can still read.
+                nativeReaderView(fingerprint: fingerprint)
+                    .tapZoneOverlay(config: tapZoneStore.config)
             } else {
                 ProgressView("Loading\u{2026}")
                     .task { await loadUnifiedEPUBContent() }
@@ -918,6 +935,7 @@ struct ReaderContainerView: View {
     /// Loads simple EPUB chapters as attributed text for the unified engine (WI-B07).
     /// Concatenates all simple chapters into one attributed string.
     /// If any chapter is complex, falls back to placeholder.
+    /// Issue 10: Counts and reports skipped chapters instead of silently ignoring them.
     private func loadUnifiedEPUBContent() async {
         let url = resolvedFileURL
         let parser = EPUBParser()
@@ -925,9 +943,12 @@ struct ReaderContainerView: View {
             let metadata = try await parser.open(url: url)
             var combinedText = NSMutableAttributedString()
             var allSimple = true
+            var skippedCount = 0
+            let totalCount = metadata.spineItems.count
 
             for item in metadata.spineItems {
                 guard let xhtml = try? await parser.contentForSpineItem(href: item.href) else {
+                    skippedCount += 1
                     continue
                 }
                 if EPUBTextStripper.shouldUseNative(html: xhtml) {
@@ -939,13 +960,28 @@ struct ReaderContainerView: View {
                         combinedText.append(NSAttributedString(string: "\n\n"))
                     }
                     combinedText.append(attrChapter)
+                } else {
+                    skippedCount += 1
                 }
             }
             await parser.close()
 
+            let result = UnifiedEPUBLoadResult(
+                text: combinedText.length > 0 ? combinedText.string : nil,
+                attributedText: combinedText.length > 0 ? combinedText : nil,
+                skippedChapterCount: skippedCount,
+                totalChapterCount: totalCount
+            )
+
             if allSimple, combinedText.length > 0 {
                 unifiedTextContent = combinedText.string
                 unifiedAttributedText = combinedText
+            }
+            // Issue 10: Surface warning/error for skipped chapters
+            if result.allChaptersFailed {
+                epubUnifiedLoadWarning = result.errorMessage
+            } else if result.hasSkippedChapters {
+                epubUnifiedLoadWarning = result.warningMessage
             }
             epubUnifiedLoadComplete = true
         } catch {

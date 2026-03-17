@@ -6,6 +6,10 @@
 // - Swipe left/right triggers page navigation via the ViewModel.
 // - Text container sized to viewport for accurate per-page rendering.
 // - Integrates with PageNavigator protocol for consistent navigation.
+// - Uses attributed text when available (MD/EPUB) for rich formatting.
+// - Passes currentPage and currentPageText as explicit properties so SwiftUI
+//   detects changes and calls updateUIView on page navigation.
+// - Posts .readerPositionDidChange after page changes for AI panel context.
 //
 // @coordinates-with: UnifiedTextRendererViewModel.swift, UnifiedTextRenderer.swift,
 //   TextKit2Paginator.swift
@@ -17,6 +21,12 @@ import UIKit
 /// Single-page text view for paged mode in the unified reflow engine.
 struct UnifiedPagedView: UIViewRepresentable {
     let viewModel: UnifiedTextRendererViewModel
+    /// Explicit page index so SwiftUI detects page changes and triggers updateUIView.
+    let currentPage: Int
+    /// Plain text for the current page (triggers SwiftUI diff).
+    let pageText: String?
+    /// Attributed text for the current page (rich formatting from MD/EPUB).
+    let pageAttributedText: NSAttributedString?
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView(usingTextLayoutManager: true)
@@ -24,7 +34,7 @@ struct UnifiedPagedView: UIViewRepresentable {
         textView.isSelectable = true
         textView.isScrollEnabled = false
         textView.font = .systemFont(ofSize: 17)
-        textView.text = viewModel.currentPageText ?? ""
+        applyContent(to: textView)
         textView.accessibilityIdentifier = "unifiedPagedTextView"
 
         // Add swipe gestures for page navigation
@@ -46,11 +56,22 @@ struct UnifiedPagedView: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
-        textView.text = viewModel.currentPageText ?? ""
+        applyContent(to: textView)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel)
+    }
+
+    // MARK: - Private
+
+    /// Applies attributed or plain text to the text view.
+    private func applyContent(to textView: UITextView) {
+        if let attrText = pageAttributedText {
+            textView.attributedText = attrText
+        } else {
+            textView.text = pageText ?? ""
+        }
     }
 
     @MainActor

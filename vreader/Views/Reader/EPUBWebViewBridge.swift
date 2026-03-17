@@ -130,6 +130,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         context.coordinator.onSelectionEvent = onSelectionEvent
         context.coordinator.onPageDidFinishLoad = onPageDidFinishLoad
         context.coordinator.isPaged = isPaged
+        context.coordinator.previousIsPaged = isPaged
         context.coordinator.onPaginationReady = onPaginationReady
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
@@ -153,6 +154,19 @@ struct EPUBWebViewBridge: UIViewRepresentable {
 
         // Update scroll enabled state when layout mode changes
         webView.scrollView.isScrollEnabled = !isPaged
+
+        // Issue 5: When isPaged toggles without a URL change, inject/remove pagination CSS live.
+        let isPagedChanged = context.coordinator.previousIsPaged != isPaged
+        context.coordinator.previousIsPaged = isPaged
+        if isPagedChanged, context.coordinator.currentURL == contentURL {
+            if isPaged {
+                context.coordinator.setupPagination(webView: webView)
+            } else {
+                webView.evaluateJavaScript(EPUBPaginationHelper.removePaginationCSSJS) { _, error in
+                    if let error { print("[EPUBWebViewBridge] remove pagination CSS error: \(error)") }
+                }
+            }
+        }
 
         // Only reload if the URL changed
         if context.coordinator.currentURL != contentURL {
@@ -339,6 +353,8 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         var onPageDidFinishLoad: (@MainActor (@escaping (String) -> Void) -> Void)?
         /// Whether paged layout mode is active.
         var isPaged = false
+        /// Tracks the previous value of isPaged for change detection in updateUIView.
+        var previousIsPaged = false
         /// Called when pagination is ready with total page count.
         var onPaginationReady: (@MainActor (Int) -> Void)?
         private let onProgressChange: @MainActor (Double) -> Void
@@ -469,7 +485,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         }
 
         /// Injects pagination CSS and queries total page count after layout settles.
-        private func setupPagination(webView: WKWebView) {
+        func setupPagination(webView: WKWebView) {
             let viewportWidth = webView.bounds.width
             let viewportHeight = webView.bounds.height
             guard viewportWidth > 0, viewportHeight > 0 else { return }

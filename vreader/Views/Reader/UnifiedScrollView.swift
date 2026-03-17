@@ -6,6 +6,7 @@
 // - Reports scroll position changes back to ViewModel via delegate pattern.
 // - Non-editable, selectable text view for reading.
 // - Respects settings (font, theme colors) from ReaderSettingsStore.
+// - When attributed text is available, renders it instead of plain text.
 //
 // @coordinates-with: UnifiedTextRendererViewModel.swift, UnifiedTextRenderer.swift
 
@@ -21,19 +22,30 @@ struct UnifiedScrollView: UIViewRepresentable {
         let textView = UITextView(usingTextLayoutManager: true)
         textView.isEditable = false
         textView.isSelectable = true
-        textView.text = viewModel.text
-        textView.font = .systemFont(ofSize: 17)
+        applyContent(to: textView)
         textView.delegate = context.coordinator
         textView.accessibilityIdentifier = "unifiedScrollTextView"
         return textView
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
-        // Update text if needed
+        applyContent(to: textView)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel)
+    }
+
+    // MARK: - Private
+
+    /// Applies attributed or plain text to the text view.
+    private func applyContent(to textView: UITextView) {
+        if let attrText = viewModel.attributedText {
+            textView.attributedText = attrText
+        } else {
+            textView.text = viewModel.text
+            textView.font = .systemFont(ofSize: 17)
+        }
     }
 
     class Coordinator: NSObject, UITextViewDelegate {

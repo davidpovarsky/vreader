@@ -64,4 +64,11 @@ class BasePageNavigator: PageNavigator {
         currentPage = clamped
         delegate?.pageNavigator(self, didNavigateToPage: currentPage)
     }
+
+    /// Reset the navigator to initial state. Used when content changes
+    /// (e.g., chapter navigation) to avoid stale page state from the previous content.
+    func reset() {
+        currentPage = 0
+        totalPages = 0
+    }
 }

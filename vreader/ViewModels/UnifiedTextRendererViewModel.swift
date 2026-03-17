@@ -37,11 +37,22 @@ final class UnifiedTextRendererViewModel {
     /// Current layout mode.
     private(set) var layout: EPUBLayoutPreference = .scroll
 
+    /// Optional callback invoked whenever reading progress changes (page navigation or scroll).
+    var onProgressChange: ((Double) -> Void)?
+
+    /// The full attributed text, if configured via `configureAttributed()`. Nil for plain text.
+    private(set) var attributedText: NSAttributedString?
+
     // MARK: - Private State
 
     private let paginator = TextKit2Paginator()
     private var totalLengthUTF16: Int = 0
     private var currentScrollOffsetUTF16: Int = 0
+
+    /// Optional pagination cache for avoiding redundant TextKit layout passes (Issue 7).
+    private let cache: PaginationCache?
+    /// Document fingerprint used as part of the cache key.
+    private let documentFingerprint: String
 
     // MARK: - Computed
 
@@ -57,6 +68,18 @@ final class UnifiedTextRendererViewModel {
         return paginator.pages[currentPage].text
     }
 
+    /// The attributed text content of the current page (paged mode, attributed text only).
+    /// Returns the attributed substring for the current page's text range, or nil if
+    /// plain text mode or no pages.
+    var currentPageAttributedText: NSAttributedString? {
+        guard isPagedMode,
+              currentPage < paginator.pages.count,
+              let attrText = attributedText else { return nil }
+        let range = paginator.pages[currentPage].textRange
+        guard range.location + range.length <= attrText.length else { return nil }
+        return attrText.attributedSubstring(from: range)
+    }
+
     /// Reading progress as a fraction in 0.0...1.0.
     var progress: Double {
         if isPagedMode {
@@ -70,22 +93,51 @@ final class UnifiedTextRendererViewModel {
 
     // MARK: - Init
 
-    init(text: String) {
+    init(text: String, cache: PaginationCache? = nil, documentFingerprint: String = "") {
         self.text = text
         self.totalLengthUTF16 = (text as NSString).length
+        self.cache = cache
+        self.documentFingerprint = documentFingerprint
     }
 
     // MARK: - Configuration
 
     /// Configures (or reconfigures) the renderer with the given font, viewport, and layout.
     /// In paged mode, this triggers re-pagination. Progress is preserved across reconfiguration.
+    /// If a PaginationCache was provided, checks it before paginating and stores results after.
     func configure(font: UIFont, viewportSize: CGSize, layout: EPUBLayoutPreference) {
         let previousProgress = self.progress
         self.layout = layout
 
         if layout == .paged {
-            paginator.paginate(text: text, font: font, viewportSize: viewportSize)
-            totalPages = paginator.totalPages
+            let cacheKey = PaginationCacheKey(
+                documentFingerprint: documentFingerprint,
+                fontSize: font.pointSize,
+                fontName: font.fontName,
+                lineSpacing: 0,
+                viewportWidth: viewportSize.width,
+                viewportHeight: viewportSize.height
+            )
+
+            // Issue 7: Check cache before paginating
+            if let cached = cache?.get(key: cacheKey) {
+                totalPages = cached.count
+            } else {
+                paginator.paginate(text: text, font: font, viewportSize: viewportSize)
+                totalPages = paginator.totalPages
+
+                // Store in cache for future use
+                if !documentFingerprint.isEmpty {
+                    let cachePages = paginator.pages.enumerated().map { idx, page in
+                        PaginationCachePage(
+                            pageIndex: idx,
+                            charLocation: page.textRange.location,
+                            charLength: page.textRange.length
+                        )
+                    }
+                    cache?.set(key: cacheKey, pages: cachePages)
+                }
+            }
 
             // Restore approximate page from previous progress
             if totalPages > 1 {
@@ -119,6 +171,7 @@ final class UnifiedTextRendererViewModel {
     ) {
         let previousProgress = self.progress
         self.layout = layout
+        self.attributedText = attributedText
 
         if layout == .paged {
             // Use the font from the attributed string's first character, or system default.
@@ -155,6 +208,7 @@ final class UnifiedTextRendererViewModel {
         let target = currentPage + 1
         guard target < totalPages else { return }
         currentPage = target
+        onProgressChange?(progress)
     }
 
     /// Go to the previous page. No-op at first page or in scroll mode.
@@ -163,12 +217,14 @@ final class UnifiedTextRendererViewModel {
         let target = currentPage - 1
         guard target >= 0 else { return }
         currentPage = target
+        onProgressChange?(progress)
     }
 
     /// Jump to a specific page. Values are clamped to valid range.
     func goToPage(_ page: Int) {
         guard isPagedMode, totalPages > 0 else { return }
         currentPage = max(0, min(page, totalPages - 1))
+        onProgressChange?(progress)
     }
 
     // MARK: - Scroll Position (Scroll Mode)
@@ -177,6 +233,7 @@ final class UnifiedTextRendererViewModel {
     func updateScrollOffset(charOffsetUTF16: Int) {
         guard totalLengthUTF16 > 0 else { return }
         currentScrollOffsetUTF16 = max(0, min(charOffsetUTF16, totalLengthUTF16))
+        onProgressChange?(progress)
     }
 
     /// Returns the UTF-16 character offset for the given progress fraction.

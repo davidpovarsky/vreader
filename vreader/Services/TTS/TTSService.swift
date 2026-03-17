@@ -39,6 +39,11 @@ final class TTSService: NSObject {
 
     private let synthesizer: SpeechSynthesizing
     private var baseOffsetUTF16: Int = 0
+    /// Generation counter to prevent stale didCancel callbacks from clearing state
+    /// during a stop→restart sequence. Incremented on each startSpeaking() call.
+    private(set) var currentGeneration: Int = 0
+    /// Flag set during restart to prevent didCancel from clearing state.
+    private var isRestarting: Bool = false
 
     // MARK: - Init
 
@@ -60,6 +65,8 @@ final class TTSService: NSObject {
     /// Starts speaking the given text from the specified UTF-16 offset.
     /// Empty or whitespace-only text is a no-op. Negative offset clamped to 0.
     /// Offset beyond text length is a no-op.
+    /// If the offset lands inside a surrogate pair, it is aligned forward to the
+    /// next valid character boundary to prevent crashes.
     func startSpeaking(text: String, fromOffset: Int = 0) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -70,15 +77,34 @@ final class TTSService: NSObject {
         let utf16Count = text.utf16.count
         guard clampedOffset < utf16Count else { return }
 
+        // Increment generation to invalidate any pending didCancel from old utterance
+        currentGeneration += 1
+
+        // Set restarting flag to prevent didCancel from clearing state
+        isRestarting = true
         // Stop any current speech
         synthesizer.stopSpeaking()
+        isRestarting = false
 
-        // Extract substring from offset
-        let startIndex = text.utf16.index(text.utf16.startIndex, offsetBy: clampedOffset)
-        let substring = String(text.utf16[startIndex...])!
+        // Safely convert UTF-16 offset to String.Index, aligning to character boundary.
+        // If the offset lands inside a surrogate pair, align forward to the next valid boundary.
+        let utf16View = text.utf16
+        var safeOffset = clampedOffset
+        var startIndex = utf16View.index(utf16View.startIndex, offsetBy: safeOffset)
 
-        baseOffsetUTF16 = clampedOffset
-        currentOffsetUTF16 = clampedOffset
+        // Check if we landed inside a surrogate pair (low surrogate without preceding high)
+        // by attempting to create a valid String from this position onward.
+        // If String() returns nil, advance past the partial surrogate.
+        if String(utf16View[startIndex...]) == nil {
+            safeOffset = min(safeOffset + 1, utf16Count)
+            if safeOffset >= utf16Count { return }
+            startIndex = utf16View.index(utf16View.startIndex, offsetBy: safeOffset)
+        }
+
+        guard let substring = String(utf16View[startIndex...]), !substring.isEmpty else { return }
+
+        baseOffsetUTF16 = safeOffset
+        currentOffsetUTF16 = safeOffset
 
         // Create utterance
         let utterance = AVSpeechUtterance(string: substring)
@@ -119,17 +145,39 @@ final class TTSService: NSObject {
         currentOffsetUTF16 = fromOffset + location
     }
 
+    // MARK: - Cancel Handling
+
+    /// Handles a cancelled utterance callback. If the generation matches the current
+    /// generation, transitions to idle. If it doesn't match (stale cancel from a
+    /// previous utterance during restart), the callback is ignored.
+    func handleCancelledUtterance(generation: Int) {
+        guard generation == currentGeneration else { return }
+        state = .idle
+    }
+
     // MARK: - Text Extraction
 
     /// Extracts text from a ReflowableTextSource starting at the given UTF-16 offset.
     /// Returns the substring from `startOffset` to the end, or empty string if out of range.
+    /// If the offset lands inside a surrogate pair, aligns forward to the next valid boundary.
     static func extractText(from source: some ReflowableTextSource, startOffset: Int) -> String {
         let fullText = source.fullText
-        guard startOffset >= 0, startOffset < fullText.utf16.count else {
+        let utf16Count = fullText.utf16.count
+        guard startOffset >= 0, startOffset < utf16Count else {
             return ""
         }
-        let startIdx = fullText.utf16.index(fullText.utf16.startIndex, offsetBy: startOffset)
-        return String(fullText.utf16[startIdx...]) ?? ""
+        let utf16View = fullText.utf16
+        var safeOffset = startOffset
+        var startIdx = utf16View.index(utf16View.startIndex, offsetBy: safeOffset)
+
+        // If landing inside a surrogate pair, advance past it
+        if String(utf16View[startIdx...]) == nil {
+            safeOffset = min(safeOffset + 1, utf16Count)
+            if safeOffset >= utf16Count { return "" }
+            startIdx = utf16View.index(utf16View.startIndex, offsetBy: safeOffset)
+        }
+
+        return String(utf16View[startIdx...]) ?? ""
     }
 }
 
@@ -167,6 +215,14 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         didCancel utterance: AVSpeechUtterance
     ) {
         Task { @MainActor in
+            // If a restart is in progress (startSpeaking called stop+start),
+            // ignore this cancel — the new utterance owns the state now.
+            // Also check generation: if state is .speaking with a newer generation,
+            // this is a stale cancel from a previous utterance.
+            if self.state == .speaking {
+                // New utterance is already running; ignore stale cancel
+                return
+            }
             self.state = .idle
         }
     }

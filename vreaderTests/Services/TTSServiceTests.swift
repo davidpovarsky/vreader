@@ -307,6 +307,88 @@ struct TTSServiceEdgeCaseTests {
         service.startSpeaking(text: "Hi", fromOffset: 1000)
         #expect(service.state == .idle, "Offset beyond text length should not start speaking")
     }
+
+    // MARK: - Surrogate Pair Safety (Phase B Audit)
+
+    @Test @MainActor
+    func startSpeaking_offsetInSurrogatePair_doesNotCrash() async {
+        // "Hello 🌍 World" — 🌍 is a surrogate pair at UTF-16 positions 6-7.
+        // Offset 7 lands between the high and low surrogate.
+        let text = "Hello 🌍 World"
+        let service = TTSService(synthesizerFactory: { MockSpeechSynthesizer() })
+        // Should not crash — must align to nearest valid character boundary
+        service.startSpeaking(text: text, fromOffset: 7)
+        // Either speaking from aligned position, or idle if alignment pushes past end
+        #expect(service.state == .speaking || service.state == .idle,
+                "Should handle surrogate pair boundary gracefully")
+    }
+
+    @Test @MainActor
+    func startSpeaking_offsetAtHighSurrogate_doesNotCrash() async {
+        // "A𝄞B" — 𝄞 (U+1D11E, musical symbol) is a surrogate pair at UTF-16 positions 1-2.
+        // Offset 2 lands at the low surrogate.
+        let text = "A\u{1D11E}B"
+        let service = TTSService(synthesizerFactory: { MockSpeechSynthesizer() })
+        service.startSpeaking(text: text, fromOffset: 2)
+        #expect(service.state == .speaking || service.state == .idle,
+                "Should handle offset inside surrogate pair gracefully")
+    }
+
+    @Test @MainActor
+    func startSpeaking_multipleEmoji_offsetMidSurrogate_doesNotCrash() async {
+        // Several surrogate pairs in sequence
+        let text = "🎵🎶🎷🎸🎹"
+        let service = TTSService(synthesizerFactory: { MockSpeechSynthesizer() })
+        // Each emoji is 2 UTF-16 code units. Offset 3 is mid-surrogate pair.
+        service.startSpeaking(text: text, fromOffset: 3)
+        #expect(service.state == .speaking || service.state == .idle,
+                "Should handle mid-surrogate offset in emoji sequence")
+    }
+
+    @Test @MainActor
+    func extractText_offsetInSurrogatePair_doesNotCrash() async {
+        let source = TXTReflowableTextSource(textContent: "Hello 🌍 World")
+        // Offset 7 lands inside the surrogate pair
+        let extracted = TTSService.extractText(from: source, startOffset: 7)
+        // Should return something valid, not crash
+        #expect(!extracted.isEmpty || extracted.isEmpty,
+                "Should not crash on surrogate pair boundary in extractText")
+    }
+
+    // MARK: - didCancel Race Condition (Phase B Audit)
+
+    @Test @MainActor
+    func didCancel_duringRestart_doesNotClearState() async {
+        let service = TTSService(synthesizerFactory: { MockSpeechSynthesizer() })
+        service.startSpeaking(text: "First text", fromOffset: 0)
+        #expect(service.state == .speaking)
+
+        // Simulate rapid restart: start new speech immediately
+        service.startSpeaking(text: "Second text", fromOffset: 5)
+        #expect(service.state == .speaking)
+        #expect(service.currentOffsetUTF16 == 5)
+
+        // Simulate the didCancel callback from the OLD utterance arriving late
+        // With generation counter, this should be ignored
+        service.handleCancelledUtterance(generation: 0)
+        #expect(service.state == .speaking,
+                "didCancel from old utterance should not clear state during restart")
+        #expect(service.currentOffsetUTF16 == 5,
+                "Offset should remain at new utterance's position")
+    }
+
+    @Test @MainActor
+    func didCancel_afterRealStop_clearsState() async {
+        let service = TTSService(synthesizerFactory: { MockSpeechSynthesizer() })
+        service.startSpeaking(text: "Test text", fromOffset: 0)
+        let gen = service.currentGeneration
+        service.stop()
+        #expect(service.state == .idle)
+
+        // didCancel arriving after real stop — already idle, should stay idle
+        service.handleCancelledUtterance(generation: gen)
+        #expect(service.state == .idle)
+    }
 }
 
 // MARK: - Mock

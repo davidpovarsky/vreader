@@ -12,9 +12,20 @@ final class ReaderSettingsStore {
     static let useCustomBackgroundKey = "readerUseCustomBackground"
     static let backgroundOpacityKey = "readerBackgroundOpacity"
     static let epubLayoutKey = "readerEPUBLayout"
+    static let autoPageTurnKey = "readerAutoPageTurn"
+    static let autoPageTurnIntervalKey = "readerAutoPageTurnInterval"
     var theme: ReaderTheme { didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) } }
     var readingMode: ReadingMode { didSet { defaults.set(readingMode.rawValue, forKey: Self.readingModeKey) } }
     var epubLayout: EPUBLayoutPreference { didSet { defaults.set(epubLayout.rawValue, forKey: Self.epubLayoutKey) } }
+    /// Whether auto page turning is enabled (Issue 9).
+    var autoPageTurn: Bool { didSet { defaults.set(autoPageTurn, forKey: Self.autoPageTurnKey) } }
+    /// Interval in seconds between auto page turns (Issue 9). Clamped to 1...60.
+    var autoPageTurnInterval: TimeInterval {
+        didSet {
+            autoPageTurnInterval = max(1.0, min(60.0, autoPageTurnInterval))
+            defaults.set(autoPageTurnInterval, forKey: Self.autoPageTurnIntervalKey)
+        }
+    }
     var typography: TypographySettings {
         didSet { if let data = try? JSONEncoder().encode(typography) { defaults.set(data, forKey: Self.typographyKey) } }
     }
@@ -31,6 +42,9 @@ final class ReaderSettingsStore {
         self.readingMode = ReadingMode(rawValue: defaults.string(forKey: Self.readingModeKey) ?? "") ?? .native
         if let data = defaults.data(forKey: Self.typographyKey), let d = try? JSONDecoder().decode(TypographySettings.self, from: data) { self.typography = d } else { self.typography = TypographySettings() }
         self.epubLayout = EPUBLayoutPreference(rawValue: defaults.string(forKey: Self.epubLayoutKey) ?? "") ?? .scroll
+        self.autoPageTurn = defaults.bool(forKey: Self.autoPageTurnKey)
+        let storedInterval = defaults.double(forKey: Self.autoPageTurnIntervalKey)
+        self.autoPageTurnInterval = storedInterval > 0 ? max(1.0, min(60.0, storedInterval)) : 5.0
         self.useCustomBackground = defaults.bool(forKey: Self.useCustomBackgroundKey)
         self._backgroundOpacity = min(max((defaults.object(forKey: Self.backgroundOpacityKey) as? Double) ?? 0.15, 0.0), 1.0)
     }

@@ -34,7 +34,12 @@ struct UnifiedTextRenderer: View {
             Group {
                 if let vm = viewModel {
                     if vm.isPagedMode {
-                        UnifiedPagedView(viewModel: vm)
+                        UnifiedPagedView(
+                            viewModel: vm,
+                            currentPage: vm.currentPage,
+                            pageText: vm.currentPageText,
+                            pageAttributedText: vm.currentPageAttributedText
+                        )
                     } else {
                         UnifiedScrollView(viewModel: vm)
                     }
@@ -57,6 +62,21 @@ struct UnifiedTextRenderer: View {
 
     private func setupViewModel(viewportSize: CGSize) {
         let vm = UnifiedTextRendererViewModel(text: text)
+        // Wire progress callback: update binding and post notification
+        vm.onProgressChange = { [weak vm] progress in
+            readingProgress = progress
+            onProgressChange?(progress)
+            // Post position change notification for AI panel context
+            guard let vm else { return }
+            let offset = vm.isPagedMode
+                ? vm.charOffsetForProgress(progress)
+                : vm.charOffsetForProgress(progress)
+            NotificationCenter.default.post(
+                name: .readerPositionDidChange,
+                object: nil,
+                userInfo: ["charOffsetUTF16": offset, "progress": progress]
+            )
+        }
         if let attrText = attributedText {
             vm.configureAttributed(
                 attributedText: attrText,

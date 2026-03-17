@@ -1,6 +1,7 @@
-// Purpose: TextKit 2 spike — paginator that divides plain text into viewport-sized pages.
+// Purpose: TextKit 2 paginator that divides text into viewport-sized pages.
 // Uses NSTextContentStorage + NSTextLayoutManager (iOS 16+/TextKit 2) to lay out text
 // and calculate which text ranges fit per viewport height.
+// Supports both plain text (uniform font) and pre-formatted attributed text (WI-B05).
 //
 // Key decisions:
 // - @MainActor because TextKit layout managers require main-thread access.
@@ -9,8 +10,9 @@
 // - Re-pagination is supported: calling paginate() again replaces prior results.
 // - Text container width matches viewport width; height is unconstrained so we get
 //   full layout, then we slice by viewport height.
+// - paginateAttributed() preserves NSAttributedString formatting (bold, italic, headings).
 //
-// @coordinates-with: TextKit2PaginatorTests.swift, SPIKE_RESULTS.md
+// @coordinates-with: TextKit2PaginatorTests.swift, UnifiedMDTests.swift, SPIKE_RESULTS.md
 
 import UIKit
 
@@ -123,6 +125,109 @@ final class TextKit2Paginator {
 
             if lineBottom > pageHeight && i > pageStartLineIdx {
                 // Lines [pageStartLineIdx..<i] form a page
+                let pageRange = mergedRange(lines: lines, from: pageStartLineIdx, to: i - 1)
+                let pageText = nsString.substring(with: pageRange)
+                result.append(TextKit2PageInfo(
+                    pageIndex: result.count,
+                    textRange: pageRange,
+                    text: pageText
+                ))
+                pageStartLineIdx = i
+                currentPageTop = lines[i].origin.y
+            }
+        }
+
+        // Last page: remaining lines
+        if pageStartLineIdx < lines.count {
+            let pageRange = mergedRange(lines: lines, from: pageStartLineIdx, to: lines.count - 1)
+            let pageText = nsString.substring(with: pageRange)
+            result.append(TextKit2PageInfo(
+                pageIndex: result.count,
+                textRange: pageRange,
+                text: pageText
+            ))
+        }
+
+        pages = result
+        return pages
+    }
+
+    /// Paginate pre-formatted attributed text into pages that fit the viewport.
+    ///
+    /// Unlike `paginate(text:font:viewportSize:)` which applies a uniform font,
+    /// this method preserves all existing attributes (bold, italic, heading sizes, etc.)
+    /// from the input attributed string. The `font` parameter is only used as a fallback
+    /// for ranges that lack a `.font` attribute.
+    ///
+    /// - Parameters:
+    ///   - attributedText: The attributed text to paginate. Formatting is preserved.
+    ///   - font: Fallback font for ranges without a `.font` attribute.
+    ///   - viewportSize: The size of one page (width and height in points).
+    /// - Returns: Array of `TextKit2PageInfo` describing each page.
+    @discardableResult
+    func paginateAttributed(
+        attributedText: NSAttributedString,
+        font: UIFont,
+        viewportSize: CGSize
+    ) -> [TextKit2PageInfo] {
+        pages = []
+
+        guard attributedText.length > 0 else { return pages }
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return pages }
+
+        let nsString = attributedText.string as NSString
+
+        // Set up TextKit 2 stack
+        let textContentStorage = NSTextContentStorage()
+        let textLayoutManager = NSTextLayoutManager()
+        let textContainer = NSTextContainer(size: CGSize(
+            width: viewportSize.width,
+            height: 0 // Unconstrained height — lay out everything
+        ))
+        textContainer.lineFragmentPadding = 0
+
+        textLayoutManager.textContainer = textContainer
+        textContentStorage.addTextLayoutManager(textLayoutManager)
+
+        // Use the attributed string directly to preserve formatting
+        textContentStorage.textStorage?.setAttributedString(attributedText)
+
+        // Force layout to complete
+        textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+
+        // Collect all layout fragment origins, heights, and UTF-16 ranges
+        var lines: [FragmentInfo] = []
+
+        textLayoutManager.enumerateTextLayoutFragments(
+            from: textLayoutManager.documentRange.location,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            let fragmentRange = fragment.rangeInElement
+            let nsRange = NSRange(fragmentRange, in: textContentStorage)
+            lines.append(FragmentInfo(origin: frame.origin, height: frame.height, textRange: nsRange))
+            return true
+        }
+
+        guard !lines.isEmpty else {
+            pages = [TextKit2PageInfo(
+                pageIndex: 0,
+                textRange: NSRange(location: 0, length: nsString.length),
+                text: attributedText.string
+            )]
+            return pages
+        }
+
+        // Slice lines into pages based on viewport height
+        let pageHeight = viewportSize.height
+        var pageStartLineIdx = 0
+        var currentPageTop = lines[0].origin.y
+        var result: [TextKit2PageInfo] = []
+
+        for i in 0..<lines.count {
+            let lineBottom = lines[i].origin.y + lines[i].height - currentPageTop
+
+            if lineBottom > pageHeight && i > pageStartLineIdx {
                 let pageRange = mergedRange(lines: lines, from: pageStartLineIdx, to: i - 1)
                 let pageText = nsString.substring(with: pageRange)
                 result.append(TextKit2PageInfo(

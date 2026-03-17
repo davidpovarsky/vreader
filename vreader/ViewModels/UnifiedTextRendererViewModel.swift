@@ -1,6 +1,7 @@
-// Purpose: ViewModel for the unified TXT reflow engine (WI-B04).
+// Purpose: ViewModel for the unified reflow engine (WI-B04, WI-B05).
 // Manages pagination state, page navigation, and progress tracking
 // using TextKit2Paginator for paged mode and UTF-16 offsets for scroll mode.
+// Supports both plain text (TXT) and pre-formatted attributed text (MD, EPUB).
 //
 // Key decisions:
 // - @Observable + @MainActor for SwiftUI integration.
@@ -8,6 +9,7 @@
 // - Scroll mode tracks progress via UTF-16 character offsets.
 // - Paged mode tracks progress via currentPage / (totalPages - 1).
 // - configure() re-paginates when font, viewport, or layout changes.
+// - configureAttributed() preserves NSAttributedString formatting (WI-B05).
 // - Mode switching preserves approximate reading progress.
 //
 // @coordinates-with: TextKit2Paginator.swift, UnifiedTextRenderer.swift,
@@ -96,6 +98,51 @@ final class UnifiedTextRendererViewModel {
             totalPages = 0
             currentPage = 0
             // Restore scroll offset from previous progress
+            currentScrollOffsetUTF16 = Int((previousProgress * Double(totalLengthUTF16)).rounded())
+        }
+    }
+
+    // MARK: - Configuration (Attributed Text — WI-B05)
+
+    /// Configures (or reconfigures) the renderer with pre-formatted attributed text.
+    /// Preserves bold, italic, heading sizes, and other formatting through pagination.
+    /// Progress is preserved across reconfiguration.
+    ///
+    /// - Parameters:
+    ///   - attributedText: The attributed text to render. Formatting is preserved per page.
+    ///   - viewportSize: The available viewport size for layout.
+    ///   - layout: Scroll or paged mode (defaults to `.paged`).
+    func configureAttributed(
+        attributedText: NSAttributedString,
+        viewportSize: CGSize,
+        layout: EPUBLayoutPreference = .paged
+    ) {
+        let previousProgress = self.progress
+        self.layout = layout
+
+        if layout == .paged {
+            // Use the font from the attributed string's first character, or system default.
+            let fallbackFont = attributedText.length > 0
+                ? (attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+                   ?? UIFont.systemFont(ofSize: 17))
+                : UIFont.systemFont(ofSize: 17)
+
+            paginator.paginateAttributed(
+                attributedText: attributedText,
+                font: fallbackFont,
+                viewportSize: viewportSize
+            )
+            totalPages = paginator.totalPages
+
+            if totalPages > 1 {
+                let targetPage = Int((previousProgress * Double(totalPages - 1)).rounded())
+                currentPage = max(0, min(targetPage, totalPages - 1))
+            } else {
+                currentPage = 0
+            }
+        } else {
+            totalPages = 0
+            currentPage = 0
             currentScrollOffsetUTF16 = Int((previousProgress * Double(totalLengthUTF16)).rounded())
         }
     }

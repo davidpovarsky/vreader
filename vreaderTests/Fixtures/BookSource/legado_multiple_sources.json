@@ -1,0 +1,32 @@
+[
+    {
+        "bookSourceUrl": "https://www.source-a.com",
+        "bookSourceName": "Source A",
+        "bookSourceType": 0,
+        "enabled": true,
+        "ruleSearch": {
+            "bookList": "div.list",
+            "name": "h3"
+        }
+    },
+    {
+        "bookSourceUrl": "https://www.source-b.com",
+        "bookSourceName": "Source B",
+        "bookSourceType": 1,
+        "enabled": false,
+        "ruleSearch": {
+            "bookList": "div.results",
+            "name": "h4"
+        }
+    },
+    {
+        "bookSourceUrl": "https://www.source-c.com",
+        "bookSourceName": "Source C",
+        "bookSourceType": 0,
+        "enabled": true,
+        "ruleSearch": {
+            "bookList": "div.items",
+            "name": "span.title"
+        }
+    }
+]

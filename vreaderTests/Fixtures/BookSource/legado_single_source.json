@@ -1,0 +1,36 @@
+{
+    "bookSourceUrl": "https://www.example-novel.com",
+    "bookSourceName": "示例小说网",
+    "bookSourceGroup": "中文小说",
+    "bookSourceType": 0,
+    "enabled": true,
+    "searchUrl": "https://www.example-novel.com/search?q={{key}}",
+    "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+    "ruleSearch": {
+        "bookList": "div.result-list div.item",
+        "name": "h3.title",
+        "author": "span.author",
+        "bookUrl": "a@href",
+        "coverUrl": "img@src"
+    },
+    "ruleBookInfo": {
+        "name": "h1.book-title",
+        "author": "span.book-author",
+        "intro": "div.intro",
+        "coverUrl": "img.cover@src",
+        "tocUrl": "a.toc-link@href"
+    },
+    "ruleToc": {
+        "chapterList": "ul.chapter-list li",
+        "chapterName": "a",
+        "chapterUrl": "a@href",
+        "nextTocUrl": "a.next-page@href"
+    },
+    "ruleContent": {
+        "content": "div#chapter-content",
+        "nextContentUrl": "a.next-content@href",
+        "replaceRegex": "广告.*?移除"
+    },
+    "lastUpdateTime": 1700000000000,
+    "customOrder": 5
+}

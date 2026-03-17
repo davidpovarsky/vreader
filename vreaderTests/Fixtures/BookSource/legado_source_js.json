@@ -1,0 +1,10 @@
+{
+    "bookSourceUrl": "https://www.js-source.com",
+    "bookSourceName": "JS Source",
+    "bookSourceType": 0,
+    "enabled": true,
+    "ruleSearch": {
+        "bookList": "<js>document.querySelectorAll('.item')</js>",
+        "name": "{{result.title}}"
+    }
+}

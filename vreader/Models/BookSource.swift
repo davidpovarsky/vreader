@@ -10,7 +10,7 @@
 // - No built-in sources — all user-imported.
 //
 // @coordinates-with: BookSourceRules.swift, BookSourceListView.swift,
-//   BookSourceEditorView.swift, LegadoImporter.swift (future)
+//   BookSourceEditorView.swift, LegadoImporter.swift, LegadoBookSourceDTO.swift
 
 import Foundation
 import SwiftData
@@ -55,6 +55,14 @@ final class BookSource {
 
     /// Raw JSON bytes for content extraction rules.
     var ruleContentData: Data?
+
+    // MARK: - Compatibility
+
+    /// Compatibility level with VReader's rule engine: "Full", "Limited", "Unsupported".
+    /// - Full: CSS selectors + regex only (all rules supported).
+    /// - Limited: Contains XPath-only rules (deferred; source imported but flagged).
+    /// - Unsupported: Requires JS execution (imported but marked non-functional).
+    var compatibilityLevel: String?
 
     // MARK: - Metadata
 

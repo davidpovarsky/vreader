@@ -7,7 +7,7 @@
 // - Sendable for safe concurrent use in pipeline stages.
 // - Equatable for testing and diff detection.
 //
-// @coordinates-with: BookSource.swift, LegadoImporter.swift (future)
+// @coordinates-with: BookSource.swift, LegadoImporter.swift, LegadoBookSourceDTO.swift
 
 import Foundation
 

@@ -1,0 +1,11 @@
+{
+    "bookSourceUrl": "https://www.xpath-source.com",
+    "bookSourceName": "XPath Source",
+    "bookSourceType": 0,
+    "enabled": true,
+    "ruleSearch": {
+        "bookList": "//div[@class='result']",
+        "name": "//h3/text()",
+        "bookUrl": "//a/@href"
+    }
+}

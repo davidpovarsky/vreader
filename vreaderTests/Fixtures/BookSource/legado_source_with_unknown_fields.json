@@ -1,0 +1,14 @@
+{
+    "bookSourceUrl": "https://www.unknown-fields.com",
+    "bookSourceName": "Unknown Fields Source",
+    "bookSourceType": 0,
+    "enabled": true,
+    "futureField1": "some value",
+    "futureField2": 42,
+    "futureNestedObject": { "key": "value" },
+    "ruleSearch": {
+        "bookList": "div.list",
+        "name": "h3",
+        "futureSearchField": "should be ignored"
+    }
+}

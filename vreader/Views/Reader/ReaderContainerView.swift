@@ -66,6 +66,10 @@ struct ReaderContainerView: View {
     @State private var ttsService = TTSService()
     /// Text loaded for the unified reflow engine (WI-B04). Nil until loaded.
     @State private var unifiedTextContent: String?
+    /// Attributed text for unified MD/EPUB rendering (WI-B05, WI-B07). Nil until loaded.
+    @State private var unifiedAttributedText: NSAttributedString?
+    /// Whether EPUB unified loading completed (true = done loading, false = still loading).
+    @State private var epubUnifiedLoadComplete = false
     /// Reading progress for the unified renderer (WI-B04).
     @State private var unifiedReadingProgress: Double = 0
 
@@ -832,11 +836,15 @@ struct ReaderContainerView: View {
     }
 
     /// Dispatches to the unified reflow engine for supported formats,
-    /// or falls back to the placeholder for unsupported ones (e.g. EPUB).
+    /// or falls back to the placeholder for unsupported ones.
+    /// - TXT: plain text, no formatting.
+    /// - MD: attributed text with bold/italic/headings (WI-B05).
+    /// - EPUB (simple): HTML converted to attributed text (WI-B07).
+    /// - EPUB (complex): placeholder (stays in WKWebView via native mode).
     @ViewBuilder
     private func unifiedReaderView(fingerprint: DocumentFingerprint) -> some View {
         switch book.format.lowercased() {
-        case "txt", "md":
+        case "txt":
             if let text = unifiedTextContent {
                 UnifiedTextRenderer(
                     text: text,
@@ -848,26 +856,101 @@ struct ReaderContainerView: View {
                 ProgressView("Loading\u{2026}")
                     .task { await loadUnifiedTextContent() }
             }
+        case "md":
+            if let text = unifiedTextContent {
+                UnifiedTextRenderer(
+                    text: text,
+                    settingsStore: settingsStore,
+                    readingProgress: $unifiedReadingProgress,
+                    attributedText: unifiedAttributedText
+                )
+                .tapZoneOverlay(config: tapZoneStore.config)
+            } else {
+                ProgressView("Loading\u{2026}")
+                    .task { await loadUnifiedMDContent() }
+            }
+        case "epub":
+            if let text = unifiedTextContent {
+                UnifiedTextRenderer(
+                    text: text,
+                    settingsStore: settingsStore,
+                    readingProgress: $unifiedReadingProgress,
+                    attributedText: unifiedAttributedText
+                )
+                .tapZoneOverlay(config: tapZoneStore.config)
+            } else if epubUnifiedLoadComplete {
+                // EPUB has complex chapters — show placeholder
+                UnifiedPlaceholderView(settingsStore: settingsStore)
+            } else {
+                ProgressView("Loading\u{2026}")
+                    .task { await loadUnifiedEPUBContent() }
+            }
         default:
-            // EPUB unified mode not yet implemented
             UnifiedPlaceholderView(settingsStore: settingsStore)
         }
     }
 
-    /// Loads text content for the unified reflow engine from the book file.
+    /// Loads text content for the unified reflow engine from TXT files.
     private func loadUnifiedTextContent() async {
         let url = resolvedFileURL
-        let format = book.format.lowercased()
         let text: String? = await Task.detached {
-            switch format {
-            case "txt", "md":
-                return try? String(contentsOf: url, encoding: .utf8)
-            default:
-                return nil
-            }
+            try? String(contentsOf: url, encoding: .utf8)
         }.value
         if let text, !text.isEmpty {
             unifiedTextContent = text
+        }
+    }
+
+    /// Loads and renders Markdown content as attributed text for the unified engine (WI-B05).
+    private func loadUnifiedMDContent() async {
+        let url = resolvedFileURL
+        let rawText = await Task.detached {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
+        guard let rawText, !rawText.isEmpty else { return }
+
+        let parser = MDParser()
+        let docInfo = await parser.parse(text: rawText, config: .default)
+        unifiedTextContent = docInfo.renderedText
+        unifiedAttributedText = docInfo.renderedAttributedString
+    }
+
+    /// Loads simple EPUB chapters as attributed text for the unified engine (WI-B07).
+    /// Concatenates all simple chapters into one attributed string.
+    /// If any chapter is complex, falls back to placeholder.
+    private func loadUnifiedEPUBContent() async {
+        let url = resolvedFileURL
+        let parser = EPUBParser()
+        do {
+            let metadata = try await parser.open(url: url)
+            var combinedText = NSMutableAttributedString()
+            var allSimple = true
+
+            for item in metadata.spineItems {
+                guard let xhtml = try? await parser.contentForSpineItem(href: item.href) else {
+                    continue
+                }
+                if EPUBTextStripper.shouldUseNative(html: xhtml) {
+                    allSimple = false
+                    break
+                }
+                if let attrChapter = EPUBTextStripper.attributedString(from: xhtml) {
+                    if combinedText.length > 0 {
+                        combinedText.append(NSAttributedString(string: "\n\n"))
+                    }
+                    combinedText.append(attrChapter)
+                }
+            }
+            await parser.close()
+
+            if allSimple, combinedText.length > 0 {
+                unifiedTextContent = combinedText.string
+                unifiedAttributedText = combinedText
+            }
+            epubUnifiedLoadComplete = true
+        } catch {
+            await parser.close()
+            epubUnifiedLoadComplete = true
         }
     }
 

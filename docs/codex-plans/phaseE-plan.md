@@ -1,7 +1,7 @@
 # Phase E Implementation Plan (Forward)
 
 **Date**: 2026-03-17
-**Status**: FORWARD — 6 WIs planned
+**Status**: FORWARD — 7 WIs planned (E02 split into E02a + E02b)
 **Scope**: Cross-device sync (WebDAV + iCloud) and text transformation features
 
 **Reference**: iCloud design doc at `docs/codex-plans/icloud-backup-design.md`
@@ -25,6 +25,11 @@
 - `testBackup_includesMetadata`
 - `testBackup_includesAnnotations`
 - `testBackup_includesReadingPositions`
+- `testBackup_includesCollections`
+- `testBackup_includesBookSources`
+- `testBackup_includesReplacementRules`
+- `testBackup_includesPerBookSettings`
+- `testBackup_includesTxtTocRules`
 - `testBackup_progressReported`
 - `testRestore_extractsZIP`
 - `testRestore_restoresAnnotations`
@@ -45,7 +50,17 @@
 **Implementation approach**:
 1. WebDAVClient: URLSession-based, supports PROPFIND, PUT, GET, DELETE, MKCOL
 2. WebDAVProvider: implements BackupProvider protocol (already defined in WI-F04)
-3. Backup format: ZIP containing `metadata.json` + `annotations.json` + `positions.json` + `settings.json` + optional book files
+3. Backup format: ZIP containing:
+   - `metadata.json` — backup metadata (version, date, device)
+   - `annotations.json` — highlights, bookmarks, notes
+   - `positions.json` — reading positions per book
+   - `settings.json` — app settings/preferences
+   - `collections.json` — user collections (from C01)
+   - `book-sources.json` — imported book sources (from Phase D)
+   - `replacement-rules.json` — content replacement rules (from E05)
+   - `per-book-settings.json` — per-book reader settings (font, theme overrides)
+   - `txt-toc-rules.json` — custom TXT table-of-contents rules
+   - optional book files (if user opts in)
 4. ZIP created via Foundation's FileManager or ZIPFoundation
 5. Backup stored at `<webdav_root>/VReader/backups/<timestamp>.vreader.zip`
 6. Settings UI: server URL, username, password (stored in Keychain via KeychainService)
@@ -61,16 +76,53 @@
 
 ---
 
-## WI-E02: #10 iCloud Backup and Restore
+## WI-E02a: #10 iCloud Snapshot Backup (via BackupProvider)
 
-**Problem**: iOS-native backup via iCloud for users in the Apple ecosystem. Design doc at `docs/codex-plans/icloud-backup-design.md`.
+**Problem**: iOS-native backup via iCloud for users in the Apple ecosystem. Snapshot approach: create a ZIP archive and store it in iCloud Drive, reusing the BackupProvider protocol from E01.
 
 **Files to create/modify**:
-- Create: `vreader/Services/Backup/ICloudProvider.swift` — BackupProvider conformance
+- Create: `vreader/Services/Backup/ICloudBackupProvider.swift` — BackupProvider conformance (ZIP to iCloud Drive)
+- Create: `vreader/Views/Settings/ICloudBackupSettingsView.swift` — backup/restore UI
+- Create: `vreaderTests/Services/Backup/ICloudBackupProviderTests.swift`
+
+**Tests FIRST**:
+- `testICloudBackup_createsZIPInICloudDrive`
+- `testICloudBackup_includesAllBackupData`
+- `testICloudBackup_listBackups_fromICloudDrive`
+- `testICloudRestore_extractsZIPFromICloudDrive`
+- `testICloudBackup_noICloudAccount_returnsError`
+- `testICloudBackup_quotaExhausted_returnsError`
+- `testICloudBackup_progressReported`
+
+**Implementation approach**:
+1. ICloudBackupProvider implements BackupProvider protocol (same interface as WebDAVProvider)
+2. Uses FileManager.default.url(forUbiquityContainerIdentifier:) to access iCloud Drive
+3. Backup format: same ZIP as E01 — `metadata.json` + `annotations.json` + `positions.json` + `settings.json`
+4. Stored at `<iCloudContainer>/VReader/backups/<timestamp>.vreader.zip`
+5. No CloudKit API needed — just iCloud Drive file operations
+
+**Edge cases**: No iCloud account signed in, iCloud Drive disabled, quota full, slow upload (progress tracking).
+
+**Acceptance criteria**: Full backup/restore cycle via iCloud Drive. Same ZIP format as WebDAV. Progress reported. Error messages for no-account / quota-full.
+
+**Dependencies**: WI-F04 (BackupProvider protocol) — done.
+
+**Effort**: M
+
+---
+
+## WI-E02b: #10 iCloud Live Sync (via CloudKit)
+
+**Problem**: Live sync across devices (not just backup/restore) requires CloudKit for real-time propagation of settings, reading positions, and annotations. Design doc at `docs/codex-plans/icloud-backup-design.md`.
+
+**Note**: E02b is separate from E02a. Snapshot backup (E02a) is simpler and ships first. Live sync is a larger effort that builds on existing Sync infrastructure.
+
+**Files to create/modify**:
+- Create: `vreader/Services/Backup/CloudKitSyncProvider.swift` — CloudKit live sync
 - Create: `vreader/Services/Backup/CloudKitRecordMapper.swift` — SwiftData ↔ CloudKit mapping
 - Create: `vreader/Services/Backup/ICloudDocumentManager.swift` — book file sync
-- Create: `vreader/Views/Settings/ICloudSettingsView.swift` — sync toggle + status
-- Create: `vreaderTests/Services/Backup/ICloudProviderTests.swift`
+- Create: `vreader/Views/Settings/ICloudSyncSettingsView.swift` — sync toggle + status
+- Create: `vreaderTests/Services/Backup/CloudKitSyncProviderTests.swift`
 - Create: `vreaderTests/Services/Backup/CloudKitRecordMapperTests.swift`
 - Modify: `vreader/Services/Sync/SyncService.swift` — wire CloudKit integration
 - Modify: `vreader/Services/Sync/TombstoneStore.swift` — add SwiftData persistence
@@ -84,9 +136,9 @@
 - `testRecordMapper_readingSessionToCloudKit_roundTrip`
 - `testRecordMapper_locatorJSON_preservedOpaque`
 - `testRecordMapper_unknownFields_ignored`
-- `testICloudProvider_backup_createsRecords`
-- `testICloudProvider_restore_appliesRecords`
-- `testICloudProvider_conflictResolution_usesExistingResolver`
+- `testCloudKitSync_push_createsRecords`
+- `testCloudKitSync_pull_appliesRecords`
+- `testCloudKitSync_conflictResolution_usesExistingResolver`
 - `testTombstoneStore_persistsToSwiftData`
 - `testTombstoneStore_purgeAfter30Days`
 - `testNSUKVS_settingsSync_roundTrip`
@@ -137,6 +189,10 @@
 - `testTransform_CJKCharacters_correctMapping`
 - `testTransform_mixedScript_correctMapping`
 - `testLargeText_100KChars_performsUnder100ms`
+- `testSearchAfterTransform_resultsPointToCorrectSourcePositions`
+- `testHighlightRestoreAfterTransform_anchorsMappedCorrectly`
+
+**Integration dependencies**: SearchIndexStore (must re-index using display text, map results back to source offsets) and LocatorFactory (highlight anchors must survive round-trip through transforms).
 
 **Implementation approach**:
 1. OffsetMap: sorted array of `(sourceOffset, displayOffset, lengthDelta)` entries
@@ -150,7 +206,7 @@
 
 **Acceptance criteria**: After any text transform, highlight offsets map back to correct source text. Search results point to correct positions. Offset mapping round-trips correctly. Performance: 100K chars in <100ms.
 
-**Dependencies**: WI-F03 (ReflowableTextSource) — done.
+**Dependencies**: WI-F03 (ReflowableTextSource) — done. Also integrates with SearchIndexStore (search re-index after transform) and LocatorFactory (highlight anchor mapping).
 
 **Effort**: M
 
@@ -179,12 +235,13 @@
 - `testConversion_1MBText_under500ms`
 
 **Implementation approach**:
-1. Use CFStringTransform with `kCFStringTransformMandarinToLatin` as detection, then custom dictionary for accurate conversion
-2. Alternatively: bundle OpenCC (Open Chinese Convert) data files for accurate context-aware conversion
-3. SimpTradTransform conforms to TextTransform protocol from E03
-4. Produces OffsetMap for highlight/search preservation
-5. Toggle in ReaderSettingsStore: `.none`, `.simpToTrad`, `.tradToSimp`
-6. Applied at display time via ReflowableTextSource adapter
+1. Bundle OpenCC (Open Chinese Convert) conversion tables for accurate context-aware conversion. OpenCC handles context-dependent mappings (e.g., 发 → 發/髮) that simple character tables miss.
+2. ICU (via Foundation's CFStringTransform) as fallback for environments where bundled tables are unavailable.
+3. Note: `kCFStringTransformMandarinToLatin` is for pinyin romanization, NOT simp/trad conversion — do not use it here.
+4. SimpTradTransform conforms to TextTransform protocol from E03
+5. Produces OffsetMap for highlight/search preservation
+6. Toggle in ReaderSettingsStore: `.none`, `.simpToTrad`, `.tradToSimp`
+7. Applied at display time via ReflowableTextSource adapter
 
 **Edge cases**: Context-dependent characters (发 can be 發 or 髮), Japanese kanji (should not be converted), mixed simp+trad text, very large files, conversion of metadata (title, author).
 
@@ -192,7 +249,7 @@
 
 **Dependencies**: WI-E03 (text-mapping layer).
 
-**Effort**: S
+**Effort**: M
 
 ---
 
@@ -221,6 +278,8 @@
 - `testReplace_ruleEnabledDisabled_toggle`
 - `testReplace_perBookRules_isolated`
 - `testReplace_globalRules_applyToAll`
+- `testReplace_catastrophicBacktracking_timesOutAt1s`
+- `testReplace_timedOutRule_skippedGracefully`
 
 **Implementation approach**:
 1. ContentReplacementRule: SwiftData @Model with pattern (regex), replacement, isRegex, scope (global/per-book), enabled, order
@@ -232,11 +291,13 @@
 
 **Edge cases**: Catastrophic regex backtracking (timeout at 1s per rule), replacement that creates new matches (no re-application), empty replacement (deletion), replacement changing text length (offset map), Unicode regex features.
 
+**Regex timeout mechanism**: NSRegularExpression itself has no built-in timeout. Implement timeout via DispatchWorkItem: wrap each rule evaluation in a work item, cancel after 1 second. If cancelled, skip the rule and log a warning. This prevents catastrophic backtracking from freezing the UI.
+
 **Acceptance criteria**: String and regex replacements work. Rules persist. Per-book and global scopes. Highlights survive replacement. Invalid regex doesn't crash.
 
 **Dependencies**: WI-E03 (text-mapping layer).
 
-**Effort**: S
+**Effort**: M
 
 ---
 
@@ -254,6 +315,9 @@
 
 **Tests FIRST**:
 - `testHTTPTTS_synthesize_returnsAudioData`
+- `testHTTPTTS_chunkedSynthesis_splitsLongTextIntoSegments`
+- `testHTTPTTS_chunkedSynthesis_progressCallback_reportsPerChunk`
+- `testHTTPTTS_streamingAudio_playsWhileNextChunkFetches`
 - `testHTTPTTS_networkError_fallsBackToSystem`
 - `testHTTPTTS_rateLimiting_queuesRequests`
 - `testHTTPTTS_cancelDuringSynthesis_stops`
@@ -266,14 +330,24 @@
 - `testHTTPTTS_customAPI_configurableEndpoint`
 
 **Implementation approach**:
-1. TTSProviderProtocol: `synthesize(text: String, voice: String) async throws -> Data` (audio data)
+1. TTSProviderProtocol (expanded):
+   ```
+   protocol TTSProviderProtocol {
+       func synthesize(text: String, voice: String) async throws -> Data
+       func synthesizeChunked(text: String, voice: String, onChunk: @escaping (TTSChunk) -> Void, onProgress: @escaping (TTSProgress) -> Void) async throws
+       func cancel()
+   }
+   struct TTSChunk { let audioData: Data; let textRange: Range<String.Index>; let index: Int; let total: Int }
+   struct TTSProgress { let chunkIndex: Int; let totalChunks: Int; let bytesReceived: Int }
+   ```
 2. HTTPTTSProvider: URLSession-based, configurable endpoint/headers/voice
-3. Chunk text into sentences for streaming (don't send entire book at once)
-4. Cache audio chunks on disk (similar pattern to ChapterCache)
-5. Position tracking: calculate from audio duration + chunk offsets
-6. Fallback to system TTS on network failure
-7. Support Azure Cognitive Services and generic REST APIs
-8. API key stored in Keychain via KeychainService
+3. Chunked synthesis: split text into sentences, synthesize each chunk separately, stream audio (play chunk N while fetching chunk N+1)
+4. Progress callback fires per chunk with index/total for UI progress bar
+5. Cache audio chunks on disk (similar pattern to ChapterCache)
+6. Position tracking: calculate from audio duration + chunk offsets
+7. Fallback to system TTS on network failure
+8. Support Azure Cognitive Services and generic REST APIs
+9. API key stored in Keychain via KeychainService
 
 **Edge cases**: Very long sentences (split at 500 chars), network dropout mid-synthesis, API rate limits, audio format differences (MP3 vs WAV), CJK text chunking (sentence boundaries differ), API key rotation.
 
@@ -287,14 +361,16 @@
 
 ## Sprint Plan
 
-**Sprint E1** (parallel): E01 (WebDAV) + E02 (iCloud) + E06 (HTTP TTS) — independent.
+**Sprint E1** (parallel): E01 (WebDAV) + E02a (iCloud snapshot backup) + E06 (HTTP TTS) — independent.
+**Sprint E1b** (after E01/E02a): E02b (iCloud live sync) — builds on snapshot backup + existing sync infra.
 **Sprint E2** (sequential): E03 (text-mapping layer) — foundational for E04+E05.
 **Sprint E3** (parallel, after E03): E04 (simp/trad) + E05 (replacement rules) — both use E03.
 
 ## Checkpoint Criteria
 
 - WebDAV backup/restore works with Nutstore/NextCloud
-- iCloud sync works for settings + positions + annotations
+- iCloud snapshot backup/restore works via iCloud Drive (E02a)
+- iCloud live sync works for settings + positions + annotations (E02b)
 - Text transforms don't break highlights or search
 - Simp/Trad toggle works with correct character mapping
 - Content replacement rules apply at display time

@@ -1,7 +1,7 @@
 # Phase D Implementation Plan (Forward)
 
 **Date**: 2026-03-17
-**Status**: FORWARD — 8 WIs planned
+**Status**: FORWARD — 9 WIs planned (D07 split into D07a + D07b)
 **Scope**: Book source scraping — Legado-compatible rule engine for web novels
 
 **Reference**: Legado BookSource schema at `/Users/ll/.claude/projects/-Users-ll-Desktop-workspace-vreader/memory/reference_legado_book_source.md`
@@ -96,18 +96,21 @@
 
 ---
 
-## WI-D03: Rule Engine (CSS Selectors, XPath, Regex)
+## WI-D03: Rule Engine (CSS Selectors, Regex, Legado Syntax)
 
-**Problem**: BookSource rules specify how to extract data from HTML. Need a rule engine that supports CSS selectors, XPath, and regex — the three most common Legado rule types.
+**Problem**: BookSource rules specify how to extract data from HTML. Need a rule engine that supports CSS selectors, regex, and Legado-specific operators (`@`, `!`, chaining) — the core Legado rule types.
+
+**XPath deferral**: XPath support deferred to D08 spike. MVP uses CSS selectors + regex only. Sources with XPath-only rules are marked as "limited compatibility" on import (see D05 compatibility classification).
 
 **Files to create/modify**:
 - Create: `vreader/Services/BookSource/RuleEngine.swift` — main dispatcher
 - Create: `vreader/Services/BookSource/CSSRuleEvaluator.swift` — SwiftSoup CSS
-- Create: `vreader/Services/BookSource/XPathRuleEvaluator.swift` — XPath evaluation
 - Create: `vreader/Services/BookSource/RegexRuleEvaluator.swift` — regex extraction
+- Create: `vreader/Services/BookSource/LegadoSyntaxParser.swift` — parse Legado operators (`@`, `!`, chaining)
 - Create: `vreader/Services/BookSource/RuleParser.swift` — parse rule syntax to determine type
 - Create: `vreaderTests/Services/BookSource/RuleEngineTests.swift`
 - Create: `vreaderTests/Services/BookSource/CSSRuleEvaluatorTests.swift`
+- Create: `vreaderTests/Services/BookSource/LegadoSyntaxParserTests.swift`
 - Create: `vreaderTests/Services/BookSource/RuleParserTests.swift`
 - Add dependency: SwiftSoup (HTML parser with CSS selector support)
 
@@ -116,28 +119,36 @@
 - `testCSSRule_extractAttribute_href`
 - `testCSSRule_extractList_multipleMatches`
 - `testCSSRule_nestedSelector`
-- `testXPathRule_extractByPath`
-- `testXPathRule_extractAttribute`
 - `testRegexRule_extractGroup`
 - `testRegexRule_replacePattern`
 - `testRuleParser_detectsCSS`
-- `testRuleParser_detectsXPath` (starts with //)
+- `testRuleParser_detectsXPath_marksLimitedCompat` (starts with //, flags as deferred)
 - `testRuleParser_detectsRegex` (starts with :regex:)
 - `testRuleEngine_dispatchesCorrectly`
 - `testRuleEngine_emptyRule_returnsEmpty`
 - `testRuleEngine_invalidHTML_returnsEmpty`
 - `testRuleEngine_CJKContent_correctExtraction`
+- `testLegadoSyntax_atOperator_accessesAttribute` (e.g., `tag.a@href`)
+- `testLegadoSyntax_bangOperator_selectsByIndex` (e.g., `class.item!0`)
+- `testLegadoSyntax_paginationChaining_followsNextPage`
+- `testLegadoSyntax_cleanupRules_stripTagsAndWhitespace`
+- `testLegadoSyntax_relativeURL_resolvedAgainstBase`
 
 **Implementation approach**:
 1. SwiftSoup for CSS selector evaluation (pure Swift, no C dependencies)
-2. XPath via SwiftSoup's limited XPath support or custom evaluator mapping XPath to CSS where possible
-3. Regex via NSRegularExpression
-4. RuleParser detects type: `//{path}` = XPath, `:regex:{pattern}` = regex, otherwise CSS
-5. Legado rule syntax: `class.bookList@tag.a!0` — parse @ as attribute accessor, ! as index
+2. Regex via NSRegularExpression
+3. RuleParser detects type: `//{path}` = XPath (flagged as "limited compatibility", deferred to D08), `:regex:{pattern}` = regex, otherwise CSS + Legado syntax
+4. Legado rule syntax operators:
+   - `@` — attribute accessor (e.g., `tag.a@href` extracts the href attribute)
+   - `!` — index selector (e.g., `class.item!0` selects first match)
+   - Pagination chaining — rules that follow `nextTocUrl`/`nextContentUrl` for multi-page extraction
+   - Cleanup semantics — `##regex` for content cleanup, `@get:{rule}` for post-processing
+   - Relative URL resolution — extracted URLs resolved against page base URL
+5. LegadoSyntaxParser: tokenizes Legado rule strings into evaluable operations
 
 **Edge cases**: Malformed HTML (SwiftSoup is lenient), rules matching 0 elements, rules matching too many elements, nested rules (rule within rule result), Unicode in selectors, very large HTML documents (>5MB).
 
-**Acceptance criteria**: CSS selectors extract correct elements from fixture HTML. XPath rules work for common patterns. Regex extraction and replacement work. Rule type auto-detection is correct.
+**Acceptance criteria**: CSS selectors extract correct elements from fixture HTML. Legado operators (`@`, `!`, chaining, cleanup) work correctly. Regex extraction and replacement work. Rule type auto-detection is correct. XPath rules detected and flagged as "limited compatibility" (deferred to D08).
 
 **Dependencies**: WI-D01 (schema defines rule format).
 
@@ -202,7 +213,18 @@
 - Create: `vreaderTests/Services/BookSource/LegadoExporterTests.swift`
 - Add: `vreaderTests/Fixtures/legado_sample_source.json` — fixture
 
+**Compatibility classification**: On import, classify each source's rule compatibility:
+- **Full** — CSS selectors + regex only (all rules supported)
+- **Limited** — contains XPath-only rules (deferred to D08; source imported but flagged)
+- **Unsupported** — requires JS execution (imported but marked non-functional)
+
+Show a compatibility badge in the source list UI (green/yellow/red). Users can see at a glance which imported sources will work.
+
 **Tests FIRST**:
+- `testImportLegadoJSON_classifyCSSOnly_full`
+- `testImportLegadoJSON_classifyXPathRules_limited`
+- `testImportLegadoJSON_classifyJSRules_unsupported`
+- `testImportLegadoJSON_compatBadge_shownInList`
 - `testImportLegadoJSON_singleSource`
 - `testImportLegadoJSON_multipleSourcesArray`
 - `testImportLegadoJSON_unknownFields_ignored`
@@ -272,15 +294,13 @@
 
 ---
 
-## WI-D07: Update Detection + Source Sharing
+## WI-D07a: Update Detection
 
-**Problem**: Users need to know when web novels have new chapters. Sharing sources with other users is essential for the ecosystem.
+**Problem**: Users need to know when web novels have new chapters. Periodic background checks compare remote TOC against cached chapter list.
 
 **Files to create/modify**:
 - Create: `vreader/Services/BookSource/UpdateChecker.swift`
-- Create: `vreader/Services/BookSource/SourceSharingService.swift`
 - Create: `vreaderTests/Services/BookSource/UpdateCheckerTests.swift`
-- Create: `vreaderTests/Services/BookSource/SourceSharingServiceTests.swift`
 - Modify: `vreader/Views/Library/LibraryView.swift` — update badge
 
 **Tests FIRST**:
@@ -290,22 +310,20 @@
 - `testUpdateCheck_rateLimited_respectsInterval`
 - `testUpdateCheck_disabledSource_skipped`
 - `testUpdateCheck_batchCheck_allSources`
-- `testSharing_exportSourceAsJSON`
-- `testSharing_importSharedSource`
-- `testSharing_URLScheme_opens`
-- `testSharing_QRCode_generation`
+- `testUpdateCheck_chapterCountDecreased_handledGracefully`
+- `testUpdateCheck_backgroundTask_scheduledCorrectly`
 
 **Implementation approach**:
 1. UpdateChecker: fetch TOC, compare chapter count with cached count
-2. Background refresh on configurable interval (default: 6 hours, minimum: 1 hour)
-3. Badge on library books with new chapters
-4. Sharing: export single source as JSON via share sheet
-5. URL scheme: `vreader://import-source?url=...` for one-tap import
-6. Optional QR code for source sharing
+2. Background refresh via BGAppRefreshTask (requires `BGTaskSchedulerPermittedIdentifiers` in Info.plist)
+3. Configurable interval (default: 6 hours, minimum: 1 hour)
+4. Badge on library books with new chapters
+5. Schedule next check via `BGTaskScheduler.shared.submit()` after each run
+6. Respect system background execution limits (iOS may delay or skip)
 
-**Edge cases**: Source goes offline, chapter count decreases (removed chapters), very frequent updates (rate limit), background refresh permissions.
+**Edge cases**: Source goes offline, chapter count decreases (removed chapters), very frequent updates (rate limit), background refresh permissions denied, app killed before task completes.
 
-**Acceptance criteria**: New chapters detected and shown as badge. Background check works when app is in background. Source sharing via JSON/URL works.
+**Acceptance criteria**: New chapters detected and shown as badge. Background check scheduled via BGTaskScheduler. Rate limiting respected. Graceful degradation on network failure.
 
 **Dependencies**: WI-D04 (pipeline — needs TOC fetching).
 
@@ -313,9 +331,38 @@
 
 ---
 
-## WI-D08: Optional JS Execution Spike
+## WI-D07b: Source Sharing
 
-**Problem**: Some Legado sources use JavaScript rules (`<js>code</js>` or `{{code}}`). This is a spike to evaluate feasibility, not a committed feature.
+**Problem**: Sharing sources with other users is essential for the ecosystem. Users need to export/import individual sources easily.
+
+**Files to create/modify**:
+- Create: `vreader/Services/BookSource/SourceSharingService.swift`
+- Create: `vreaderTests/Services/BookSource/SourceSharingServiceTests.swift`
+
+**Tests FIRST**:
+- `testSharing_exportSourceAsJSON`
+- `testSharing_importSharedSource`
+- `testSharing_URLScheme_opens`
+- `testSharing_QRCode_generation`
+
+**Implementation approach**:
+1. Sharing: export single source as JSON via share sheet
+2. URL scheme: `vreader://import-source?url=...` for one-tap import
+3. Optional QR code for source sharing
+
+**Edge cases**: Malformed URL scheme, QR code too dense for complex sources, importing a source that already exists.
+
+**Acceptance criteria**: Source sharing via JSON/URL works. QR code generation works. URL scheme triggers import flow.
+
+**Dependencies**: WI-D05 (Legado import — reuses import logic).
+
+**Effort**: S
+
+---
+
+## WI-D08: Optional JS Execution + XPath Spike
+
+**Problem**: Some Legado sources use JavaScript rules (`<js>code</js>` or `{{code}}`). Others use XPath-only selectors (deferred from D03 MVP). This is a spike to evaluate feasibility of both, not a committed feature.
 
 **Files to create/modify**:
 - Create: `vreader/Services/BookSource/JSRuleEvaluator.swift` — JavaScriptCore evaluation
@@ -353,7 +400,8 @@
 **Sprint D1** (parallel): D01 (model) + D02 (HTTP client) — M + M
 **Sprint D2** (parallel, after D01): D03 (rule engine) + D05 (Legado import) — M + M
 **Sprint D3** (sequential, after D2+D2): D04 (pipeline MVP) — M
-**Sprint D4** (parallel, after D3): D06 (cache) + D07 (updates) — M + M
+**Sprint D4** (parallel, after D3): D06 (cache) + D07a (update detection) — M + M
+**Sprint D4b** (parallel with D4, after D5): D07b (source sharing) — S
 **Sprint D5** (optional, after D3): D08 (JS spike) — L
 
 ## Checkpoint Criteria
@@ -362,8 +410,8 @@
 - Legado JSON import/export works (500+ sources)
 - At least one real web novel source works end-to-end
 - Chapter caching enables offline reading
-- Update detection shows new chapter badges
-- Source sharing via JSON and URL scheme works
+- Update detection shows new chapter badges (D07a)
+- Source sharing via JSON and URL scheme works (D07b)
 - All existing tests pass
 
 ## Manual Testing

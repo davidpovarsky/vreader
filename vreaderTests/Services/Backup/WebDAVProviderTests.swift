@@ -114,8 +114,60 @@ final class MockBackupDataCollector: BackupDataCollecting, @unchecked Sendable {
         try JSONSerialization.data(withJSONObject: ["perBook": []])
     }
 
+    func collectReplacementRules() async throws -> Data {
+        try JSONSerialization.data(withJSONObject: ["rules": []])
+    }
+
     func getBookCount() async -> Int {
         bookCount
+    }
+}
+
+// MARK: - Mock Data Restorer
+
+/// Records which restore methods were called with what data.
+final class MockBackupDataRestorer: BackupDataRestoring, @unchecked Sendable {
+    var restoredAnnotations: Data?
+    var restoredPositions: Data?
+    var restoredSettings: Data?
+    var restoredCollections: Data?
+    var restoredBookSources: Data?
+    var restoredPerBookSettings: Data?
+    var restoredReplacementRules: Data?
+
+    /// Count of restore calls for verification.
+    var restoreCallCount: Int {
+        [restoredAnnotations, restoredPositions, restoredSettings,
+         restoredCollections, restoredBookSources, restoredPerBookSettings,
+         restoredReplacementRules].compactMap({ $0 }).count
+    }
+
+    func restoreAnnotations(from data: Data) async throws {
+        restoredAnnotations = data
+    }
+
+    func restorePositions(from data: Data) async throws {
+        restoredPositions = data
+    }
+
+    func restoreSettings(from data: Data) async throws {
+        restoredSettings = data
+    }
+
+    func restoreCollections(from data: Data) async throws {
+        restoredCollections = data
+    }
+
+    func restoreBookSources(from data: Data) async throws {
+        restoredBookSources = data
+    }
+
+    func restorePerBookSettings(from data: Data) async throws {
+        restoredPerBookSettings = data
+    }
+
+    func restoreReplacementRules(from data: Data) async throws {
+        restoredReplacementRules = data
     }
 }
 
@@ -128,23 +180,26 @@ struct WebDAVProviderTests {
 
     private func makeProvider(
         transport: MockWebDAVTransport? = nil,
-        dataCollector: MockBackupDataCollector? = nil
-    ) -> (WebDAVProvider, MockWebDAVTransport, MockBackupDataCollector) {
+        dataCollector: MockBackupDataCollector? = nil,
+        dataRestorer: MockBackupDataRestorer? = nil
+    ) -> (WebDAVProvider, MockWebDAVTransport, MockBackupDataCollector, MockBackupDataRestorer) {
         let t = transport ?? MockWebDAVTransport()
         let dc = dataCollector ?? MockBackupDataCollector()
+        let dr = dataRestorer ?? MockBackupDataRestorer()
         let provider = WebDAVProvider(
             transport: t,
             dataCollector: dc,
+            dataRestorer: dr,
             deviceName: "Test iPhone",
             appVersion: "1.0.0"
         )
-        return (provider, t, dc)
+        return (provider, t, dc, dr)
     }
 
     // MARK: - Backup
 
     @Test func backup_createsZIPArchive() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -154,7 +209,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_archiveStoredInCorrectPath() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -165,7 +220,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesMetadata() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         let metadata = try await provider.backup { _ in }
 
@@ -176,7 +231,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_metadataIncludedInArchive() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -188,7 +243,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesAnnotations() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -199,7 +254,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesPositions() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -210,7 +265,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesSettings() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -221,7 +276,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesCollections() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -232,7 +287,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesBookSources() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -243,7 +298,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_includesPerBookSettings() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
 
@@ -254,7 +309,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_progressReported() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
         let collector = BackupProgressCollector()
 
         _ = try await provider.backup { value in
@@ -276,7 +331,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func backup_multipleBackups_uniqueIDs() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
 
         let m1 = try await provider.backup { _ in }
         let m2 = try await provider.backup { _ in }
@@ -287,7 +342,7 @@ struct WebDAVProviderTests {
     @Test func backup_authFailure_throwsStorageError() async throws {
         let transport = MockWebDAVTransport()
         transport.simulateAuthFailure = true
-        let (provider, _, _) = makeProvider(transport: transport)
+        let (provider, _, _, _) = makeProvider(transport: transport)
 
         do {
             _ = try await provider.backup { _ in }
@@ -303,7 +358,7 @@ struct WebDAVProviderTests {
     // MARK: - Restore
 
     @Test func restore_extractsZIP() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
 
         let metadata = try await provider.backup { _ in }
         // Should not throw — proves ZIP was stored and can be retrieved
@@ -311,7 +366,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func restore_backupNotFound_error() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
         let bogusId = UUID()
 
         do {
@@ -327,7 +382,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func restore_progressReported() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
         let metadata = try await provider.backup { _ in }
         let collector = BackupProgressCollector()
 
@@ -341,10 +396,103 @@ struct WebDAVProviderTests {
         #expect(values.contains(1.0), "Should report 1.0 completion")
     }
 
+    @Test func restore_delegatesToRestorer_annotations() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredAnnotations != nil, "Annotations should be restored")
+    }
+
+    @Test func restore_delegatesToRestorer_positions() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredPositions != nil, "Positions should be restored")
+    }
+
+    @Test func restore_delegatesToRestorer_settings() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredSettings != nil, "Settings should be restored")
+    }
+
+    @Test func restore_delegatesToRestorer_collections() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredCollections != nil, "Collections should be restored")
+    }
+
+    @Test func restore_delegatesToRestorer_bookSources() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredBookSources != nil, "Book sources should be restored")
+    }
+
+    @Test func restore_delegatesToRestorer_perBookSettings() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredPerBookSettings != nil, "Per-book settings should be restored")
+    }
+
+    @Test func restore_delegatesToRestorer_replacementRules() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoredReplacementRules != nil, "Replacement rules should be restored")
+    }
+
+    @Test func restore_allFilesRestored() async throws {
+        let restorer = MockBackupDataRestorer()
+        let (provider, _, _, _) = makeProvider(dataRestorer: restorer)
+        let metadata = try await provider.backup { _ in }
+
+        try await provider.restore(backupId: metadata.id) { _ in }
+
+        #expect(restorer.restoreCallCount == 7, "All 7 data types should be restored")
+    }
+
+    // MARK: - Backup Includes Replacement Rules (Issue 2)
+
+    @Test func backup_includesReplacementRules() async throws {
+        let (provider, transport, _, _) = makeProvider()
+
+        _ = try await provider.backup { _ in }
+
+        let uploadedPaths = transport.files.keys.filter { $0.hasSuffix(".vreader.zip") }
+        let zipData = transport.files[uploadedPaths.first!]!
+        let entries = try ZIPWriter.listEntryNames(in: zipData)
+        #expect(entries.contains("replacement-rules.json"))
+    }
+
     // MARK: - List Backups
 
     @Test func listBackups_sortedNewestFirst() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
 
         _ = try await provider.backup { _ in }
         try await Task.sleep(for: .milliseconds(10))
@@ -360,14 +508,14 @@ struct WebDAVProviderTests {
     }
 
     @Test func listBackups_emptyServer_returnsEmpty() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
 
         let list = try await provider.listBackups()
         #expect(list.isEmpty)
     }
 
     @Test func listBackups_afterDelete_excludesDeleted() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
 
         let m1 = try await provider.backup { _ in }
         _ = try await provider.backup { _ in }
@@ -382,7 +530,7 @@ struct WebDAVProviderTests {
     // MARK: - Delete Backup
 
     @Test func deleteBackup_removesFromServer() async throws {
-        let (provider, transport, _) = makeProvider()
+        let (provider, transport, _, _) = makeProvider()
 
         let metadata = try await provider.backup { _ in }
         let fileCountBefore = transport.files.count
@@ -393,7 +541,7 @@ struct WebDAVProviderTests {
     }
 
     @Test func deleteBackup_unknownId_throwsNotFound() async throws {
-        let (provider, _, _) = makeProvider()
+        let (provider, _, _, _) = makeProvider()
         let bogusId = UUID()
 
         do {
@@ -412,7 +560,7 @@ struct WebDAVProviderTests {
 
     @Test func connectionTest_success() async throws {
         let transport = MockWebDAVTransport()
-        let (provider, _, _) = makeProvider(transport: transport)
+        let (provider, _, _, _) = makeProvider(transport: transport)
 
         // Should not throw
         try await provider.testConnection()
@@ -421,7 +569,7 @@ struct WebDAVProviderTests {
     @Test func connectionTest_authFailure_throwsError() async throws {
         let transport = MockWebDAVTransport()
         transport.simulateAuthFailure = true
-        let (provider, _, _) = makeProvider(transport: transport)
+        let (provider, _, _, _) = makeProvider(transport: transport)
 
         do {
             try await provider.testConnection()
@@ -434,7 +582,7 @@ struct WebDAVProviderTests {
     @Test func connectionTest_connectionFailure_throwsError() async throws {
         let transport = MockWebDAVTransport()
         transport.simulateConnectionFailure = true
-        let (provider, _, _) = makeProvider(transport: transport)
+        let (provider, _, _, _) = makeProvider(transport: transport)
 
         do {
             try await provider.testConnection()

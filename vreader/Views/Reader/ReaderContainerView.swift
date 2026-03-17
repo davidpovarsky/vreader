@@ -63,6 +63,9 @@ struct ReaderContainerView: View {
     @State private var searchCoordinator = ReaderSearchCoordinator()
     @State private var unifiedCoordinator = ReaderUnifiedCoordinator()
 
+    /// Shared content cache — loads book text once, shared across AI/search/TTS.
+    @State private var contentCache = BookContentCache()
+
     var body: some View {
         ZStack {
             if settingsStore.useCustomBackground {
@@ -138,10 +141,52 @@ struct ReaderContainerView: View {
             resolvedAICoordinator.setupIfNeeded()
         }
         .task {
-            await resolvedAICoordinator.loadBookTextContent(
-                fileURL: resolvedFileURL,
-                format: book.format.lowercased()
-            )
+            // Use shared cache for AI text loading when format supports it
+            let format = book.format.lowercased()
+            if format == "txt" || format == "md" {
+                if let text = await contentCache.getText(for: resolvedFileURL, format: format) {
+                    resolvedAICoordinator.loadedTextContent = text
+                    resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
+                } else {
+                    // Fallback for unsupported or empty content
+                    await resolvedAICoordinator.loadBookTextContent(
+                        fileURL: resolvedFileURL,
+                        format: format
+                    )
+                }
+            } else {
+                await resolvedAICoordinator.loadBookTextContent(
+                    fileURL: resolvedFileURL,
+                    format: format
+                )
+            }
+        }
+        .task {
+            // Load replacement rules and configure text transforms for the unified coordinator.
+            let bookKey = book.fingerprintKey
+            let container = modelContext.container
+            let rules: [ReplacementRuleDescriptor] = await Task.detached {
+                let ctx = ModelContext(container)
+                let descriptor = FetchDescriptor<ContentReplacementRule>(
+                    sortBy: [SortDescriptor(\.order)]
+                )
+                let allRules = (try? ctx.fetch(descriptor)) ?? []
+                return allRules
+                    .filter { $0.enabled && ($0.scopeKey.isEmpty || $0.scopeKey == bookKey) }
+                    .map { ReplacementRuleDescriptor(
+                        pattern: $0.pattern,
+                        replacement: $0.replacement,
+                        isRegex: $0.isRegex,
+                        enabled: $0.enabled,
+                        order: $0.order
+                    ) }
+            }.value
+
+            var transforms: [any TextTransform] = []
+            if !rules.isEmpty {
+                transforms.append(ReplacementTransform(rules: rules))
+            }
+            unifiedCoordinator.activeTransforms = transforms
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
             guard let locator = notification.object as? Locator else { return }

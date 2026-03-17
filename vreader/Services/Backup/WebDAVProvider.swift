@@ -1,10 +1,13 @@
 // Purpose: BackupProvider conformance for WebDAV storage backends.
 // Creates ZIP backups of app data and uploads/downloads via WebDAVTransport.
+// Restore delegates to BackupDataRestoring protocol for persistence-layer writes.
 //
 // Key decisions:
 // - Uses WebDAVTransport protocol for testability.
 // - Backup format: ZIP with JSON files. Path: VReader/backups/<ts>_<id>.vreader.zip
 // - Progress: collect (40%), archive (10%), upload (50%).
+// - Restore extracts ZIP entries and delegates to BackupDataRestoring for import.
+// - Missing entries during restore are silently skipped (forward compatibility).
 //
 // @coordinates-with: BackupProvider.swift, WebDAVClient.swift, ZIPWriter.swift
 
@@ -20,7 +23,22 @@ protocol BackupDataCollecting: Sendable {
     func collectCollections() async throws -> Data
     func collectBookSources() async throws -> Data
     func collectPerBookSettings() async throws -> Data
+    func collectReplacementRules() async throws -> Data
     func getBookCount() async -> Int
+}
+
+// MARK: - BackupDataRestoring Protocol
+
+/// Abstracts data restoration into the persistence layer for testability.
+/// Mirrors BackupDataCollecting for the restore path.
+protocol BackupDataRestoring: Sendable {
+    func restoreAnnotations(from data: Data) async throws
+    func restorePositions(from data: Data) async throws
+    func restoreSettings(from data: Data) async throws
+    func restoreCollections(from data: Data) async throws
+    func restoreBookSources(from data: Data) async throws
+    func restorePerBookSettings(from data: Data) async throws
+    func restoreReplacementRules(from data: Data) async throws
 }
 
 // MARK: - WebDAVProvider
@@ -30,6 +48,7 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
 
     private let transport: WebDAVTransport
     private let dataCollector: BackupDataCollecting
+    private let dataRestorer: BackupDataRestoring
     private let deviceName: String
     private let appVersion: String
     private let basePath = "VReader/backups"
@@ -40,11 +59,13 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
     init(
         transport: WebDAVTransport,
         dataCollector: BackupDataCollecting,
+        dataRestorer: BackupDataRestoring,
         deviceName: String,
         appVersion: String
     ) {
         self.transport = transport
         self.dataCollector = dataCollector
+        self.dataRestorer = dataRestorer
         self.deviceName = deviceName
         self.appVersion = appVersion
     }
@@ -58,16 +79,18 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
         let collected: [(String, Data)]
         let bookCount: Int
         do {
-            let a = try await dataCollector.collectAnnotations(); progress(0.07)
-            let p = try await dataCollector.collectPositions(); progress(0.14)
-            let s = try await dataCollector.collectSettings(); progress(0.20)
-            let c = try await dataCollector.collectCollections(); progress(0.26)
-            let bs = try await dataCollector.collectBookSources(); progress(0.32)
-            let pbs = try await dataCollector.collectPerBookSettings(); progress(0.38)
+            let a = try await dataCollector.collectAnnotations(); progress(0.06)
+            let p = try await dataCollector.collectPositions(); progress(0.12)
+            let s = try await dataCollector.collectSettings(); progress(0.18)
+            let c = try await dataCollector.collectCollections(); progress(0.24)
+            let bs = try await dataCollector.collectBookSources(); progress(0.30)
+            let pbs = try await dataCollector.collectPerBookSettings(); progress(0.35)
+            let rr = try await dataCollector.collectReplacementRules(); progress(0.38)
             bookCount = await dataCollector.getBookCount(); progress(0.40)
             collected = [
                 ("annotations.json", a), ("positions.json", p), ("settings.json", s),
                 ("collections.json", c), ("book-sources.json", bs), ("per-book-settings.json", pbs),
+                ("replacement-rules.json", rr),
             ]
         } catch {
             throw BackupError.archiveCreationFailed("Failed to collect data: \(error.localizedDescription)")
@@ -160,10 +183,27 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
             )
         }
 
-        progress(0.80)
+        progress(0.55)
 
-        // TODO: Apply restored data to local database (Phase E integration)
-        // For now, we validate the archive structure is correct.
+        // Apply restored data to local database via BackupDataRestoring delegate.
+        // Each file is optional — missing entries are silently skipped (forward compatibility).
+        let restoreFiles: [(String, (Data) async throws -> Void)] = [
+            ("annotations.json", dataRestorer.restoreAnnotations),
+            ("positions.json", dataRestorer.restorePositions),
+            ("settings.json", dataRestorer.restoreSettings),
+            ("collections.json", dataRestorer.restoreCollections),
+            ("book-sources.json", dataRestorer.restoreBookSources),
+            ("per-book-settings.json", dataRestorer.restorePerBookSettings),
+            ("replacement-rules.json", dataRestorer.restoreReplacementRules),
+        ]
+
+        let totalFiles = Double(restoreFiles.count)
+        for (index, (filename, restoreFunc)) in restoreFiles.enumerated() {
+            if let entryData = try? ZIPWriter.extractEntry(named: filename, from: zipData) {
+                try await restoreFunc(entryData)
+            }
+            progress(0.55 + 0.40 * Double(index + 1) / totalFiles)
+        }
 
         progress(1.0)
     }

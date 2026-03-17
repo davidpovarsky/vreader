@@ -1,9 +1,11 @@
 // Purpose: Manages unified reflow content loading and state.
 // Dispatches to format-specific loaders (TXT, MD, EPUB) and holds the loaded content.
+// Applies active text transforms (replacement rules, simp/trad) after loading.
 // Extracted from ReaderContainerView to reduce file size (pure refactor).
 //
 // @coordinates-with ReaderContainerView.swift, UnifiedTextRenderer.swift,
-//   MDParser.swift, EPUBParser.swift, EPUBTextStripper.swift
+//   MDParser.swift, EPUBParser.swift, EPUBTextStripper.swift,
+//   TextMapper.swift, ReplacementTransform.swift, SimpTradTransform.swift
 
 import SwiftUI
 
@@ -20,6 +22,21 @@ final class ReaderUnifiedCoordinator {
     var epubLoadComplete = false
     /// Warning message from EPUB unified loading (e.g., "3 of 10 chapters could not be loaded").
     var epubLoadWarning: String?
+    /// Offset map from text transforms, for highlight/search mapping.
+    var offsetMap: OffsetMap?
+
+    /// Active text transforms to apply after loading content.
+    /// Set by the container view before loading starts.
+    var activeTransforms: [any TextTransform] = []
+
+    /// Applies active text transforms (replacement rules, simp/trad) to loaded text.
+    /// Updates textContent and stores the offsetMap for bidirectional offset lookup.
+    private func applyTransforms(to text: String) -> String {
+        guard !activeTransforms.isEmpty else { return text }
+        let result = TextMapper.apply(transforms: activeTransforms, to: text)
+        offsetMap = result.offsetMap
+        return result.text
+    }
 
     /// Loads text content for the unified reflow engine from TXT files.
     func loadTextContent(fileURL: URL) async {
@@ -28,7 +45,7 @@ final class ReaderUnifiedCoordinator {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
         if let text, !text.isEmpty {
-            textContent = text
+            textContent = applyTransforms(to: text)
         }
     }
 
@@ -40,8 +57,11 @@ final class ReaderUnifiedCoordinator {
         }.value
         guard let rawText, !rawText.isEmpty else { return }
 
+        // Apply text transforms to raw text before parsing
+        let transformedText = applyTransforms(to: rawText)
+
         let parser = MDParser()
-        let docInfo = await parser.parse(text: rawText, config: .default)
+        let docInfo = await parser.parse(text: transformedText, config: .default)
         textContent = docInfo.renderedText
         attributedText = docInfo.renderedAttributedString
     }
@@ -88,8 +108,11 @@ final class ReaderUnifiedCoordinator {
             )
 
             if allSimple, combinedText.length > 0 {
-                textContent = combinedText.string
-                attributedText = combinedText
+                let displayText = applyTransforms(to: combinedText.string)
+                textContent = displayText
+                // Note: attributedText is not transform-aware yet (text-only transform).
+                // For display, textContent takes precedence when transforms are active.
+                attributedText = activeTransforms.isEmpty ? combinedText : nil
             }
             // Issue 10: Surface warning/error for skipped chapters
             if result.allChaptersFailed {

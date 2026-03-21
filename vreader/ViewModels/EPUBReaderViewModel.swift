@@ -5,13 +5,14 @@
 // - @Observable + @MainActor for SwiftUI integration.
 // - Position persistence delegated to ReaderPositionService (WI-008b).
 // - File loading delegated to EPUBFileLoader (WI-008b).
-// - Active reading time excludes background/pause intervals.
+// - Lifecycle operations (session, flush, time display) delegated to ReaderLifecycleHelper (R6).
 // - Uses protocol abstractions for testability (parser, persistence, tracker).
 // - Staged error handling: parser failure aborts, position/timestamp failures are non-fatal.
 //
-// @coordinates-with: EPUBFileLoader.swift, ReaderPositionService.swift,
-//   EPUBParserProtocol.swift, ReadingPositionPersisting.swift,
-//   ReadingSessionTracker.swift, LocatorFactory.swift
+// @coordinates-with: EPUBFileLoader.swift, ReaderLifecycleHelper.swift,
+//   ReaderPositionService.swift, EPUBParserProtocol.swift,
+//   ReadingPositionPersisting.swift, ReadingSessionTracker.swift,
+//   LocatorFactory.swift
 
 import Foundation
 
@@ -19,11 +20,6 @@ import Foundation
 @Observable
 @MainActor
 final class EPUBReaderViewModel {
-
-    // MARK: - Constants
-
-    /// Periodic flush interval for session duration (seconds).
-    static let sessionFlushInterval: TimeInterval = 60.0
 
     // MARK: - Published State
 
@@ -39,8 +35,8 @@ final class EPUBReaderViewModel {
     /// Error message from the last failed operation.
     private(set) var errorMessage: String?
 
-    /// Formatted session reading time (e.g., "5m").
-    private(set) var sessionTimeDisplay: String?
+    /// Formatted session reading time (e.g., "5m"). Delegated to lifecycle helper.
+    var sessionTimeDisplay: String? { lifecycle.sessionTimeDisplay }
 
     // Note: totalTimeDisplay and speedDisplay are deferred to WI-7
     // when cumulative reading stats are available from ReadingStats.
@@ -55,18 +51,11 @@ final class EPUBReaderViewModel {
 
     private let bookFingerprint: DocumentFingerprint
     let bookFingerprintKey: String
+    let lifecycle: ReaderLifecycleHelper
     private let parser: any EPUBParserProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
     private let positionService: ReaderPositionService
-
-    // MARK: - Private State
-
-    private var flushTask: Task<Void, Never>?
-    /// Date when the current active segment started (reset on resume).
-    private var segmentStartDate: Date?
-    /// Accumulated active reading seconds (excluding paused time).
-    private var accumulatedActiveSeconds: TimeInterval = 0
 
     // MARK: - Init
 
@@ -83,11 +72,18 @@ final class EPUBReaderViewModel {
         self.parser = parser
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.positionService = ReaderPositionService(
+        let posService = ReaderPositionService(
             bookFingerprintKey: bookFingerprint.canonicalKey,
             deviceId: deviceId,
             persistence: positionStore,
             debounceNanoseconds: positionSaveDebounceNs
+        )
+        self.positionService = posService
+        self.lifecycle = ReaderLifecycleHelper(
+            bookFingerprint: bookFingerprint,
+            positionService: posService,
+            sessionTracker: sessionTracker,
+            positionStore: positionStore
         )
     }
 
@@ -120,7 +116,7 @@ final class EPUBReaderViewModel {
 
         // Stage 3: Start reading session (rollback parser + state on failure)
         do {
-            try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
+            try lifecycle.beginSession()
         } catch {
             metadata = nil
             currentPosition = nil
@@ -129,41 +125,17 @@ final class EPUBReaderViewModel {
             errorMessage = "Failed to start reading session."
             return
         }
-        segmentStartDate = Date()
-        accumulatedActiveSeconds = 0
 
         // Stage 4: Update last opened (non-fatal)
-        try? await positionStore.updateLastOpened(
-            bookFingerprintKey: bookFingerprintKey,
-            date: Date()
-        )
-
-        startPeriodicFlush()
+        await lifecycle.updateLastOpened()
         isLoading = false
     }
 
     /// Closes the reader, ending the session and flushing state.
     /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
-        flushTask?.cancel()
-        flushTask = nil
-
-        if let position = currentPosition {
-            let locator = makeLocator(from: position)
-            await positionService.saveNow(locator: locator)
-            sessionTracker.recordProgress(locator: locator)
-        }
-
-        sessionTracker.endSessionIfNeeded()
-
-        if let persistence = positionStore as? PersistenceActor {
-            try? await persistence.recomputeStats(
-                bookFingerprintKey: bookFingerprintKey,
-                bookFingerprint: bookFingerprint
-            )
-        }
-
-        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+        let locator = currentPosition.map { makeLocator(from: $0) }
+        await lifecycle.close(locator: locator)
 
         await parser.close()
         metadata = nil
@@ -173,31 +145,15 @@ final class EPUBReaderViewModel {
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
     func onBackground() async {
-        if let position = currentPosition {
-            let locator = makeLocator(from: position)
-            await positionService.saveNow(locator: locator)
-        }
-
-        if let start = segmentStartDate {
-            accumulatedActiveSeconds += Date().timeIntervalSince(start)
-            segmentStartDate = nil
-        }
-
-        sessionTracker.pause()
-        flushTask?.cancel()
-        flushTask = nil
+        let locator = currentPosition.map { makeLocator(from: $0) }
+        await lifecycle.onBackground(locator: locator)
     }
 
     /// Called when the app returns to foreground with reader open.
     func onForeground() {
-        do {
-            try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
-        } catch {
-            errorMessage = "Failed to resume reading session."
-            return
+        if let error = lifecycle.onForeground() {
+            errorMessage = error
         }
-        if segmentStartDate == nil { segmentStartDate = Date() }
-        startPeriodicFlush()
     }
 
     // MARK: - Position Updates
@@ -206,9 +162,7 @@ final class EPUBReaderViewModel {
     func updatePosition(_ position: EPUBPosition) {
         currentPosition = position
         let locator = makeLocator(from: position)
-        sessionTracker.recordProgress(locator: locator)
-        updateTimeDisplays()
-        positionService.scheduleSave(locator: locator)
+        lifecycle.recordProgressAndScheduleSave(locator: locator)
     }
 
     // MARK: - Navigation
@@ -265,35 +219,6 @@ final class EPUBReaderViewModel {
             textContextBefore: nil,
             textContextAfter: nil
         )
-    }
-
-    // MARK: - Private: Session Time Tracking
-
-    private func startPeriodicFlush() {
-        flushTask?.cancel()
-        flushTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    guard let self else { break }
-                    try sessionTracker.periodicFlush()
-                    updateTimeDisplays()
-                } catch is CancellationError {
-                    break
-                } catch {
-                    // Non-fatal
-                }
-            }
-        }
-    }
-
-    private func updateTimeDisplays() {
-        var total = accumulatedActiveSeconds
-        if let start = segmentStartDate {
-            total += Date().timeIntervalSince(start)
-        }
-        let sessionSeconds = Int(total)
-        sessionTimeDisplay = ReadingTimeFormatter.formatReadingTime(totalSeconds: sessionSeconds)
     }
 
     // MARK: - Private: Navigation Helpers

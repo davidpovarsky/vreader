@@ -159,6 +159,7 @@ Each container creates its format-specific renderer and coordinator:
 7. **Shared state extraction** — `TextReaderUIState` eliminates duplicated `@State` between TXT/MD containers (Phase R3)
 8. **Format adapters** — `HighlightRenderer` protocol with per-format adapters decouples highlight lifecycle from rendering mechanism (Phase R4a)
 9. **Extension splitting** — Container views and bridges decomposed into `+Highlights`, `+Navigation`, `+Overlays`, `+Helpers` extensions. Core wiring stays in the main file; subviews and action methods live in extensions (Phase R5a/R5b)
+10. **Lifecycle composition** — `ReaderLifecycleHelper` owns session tracking, periodic flush, time display, and close/background/foreground sequences. Each format VM composes one instance and delegates shared lifecycle calls (Phase R6)
 
 ## Performance Optimizations
 

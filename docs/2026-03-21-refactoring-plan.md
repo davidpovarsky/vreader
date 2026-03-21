@@ -130,7 +130,7 @@ Rapid feature development across 6 phases accumulated debt that causes recurring
 
 **Effort**: Medium. Pure extraction.
 
-### Phase R6 — Shared Reader ViewModel Lifecycle
+### Phase R6 — Shared Reader ViewModel Lifecycle ✅
 
 **Goal**: Eliminate duplicated open/close/background/foreground logic across 4 VMs.
 

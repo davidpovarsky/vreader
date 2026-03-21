@@ -16,12 +16,13 @@
 //   Large/chunked files always use scroll mode (too expensive to paginate).
 // - AutoPageTurner (B10): wired when autoPageTurn is enabled + paged layout.
 // - PageTurnAnimator (B11): animation style from settingsStore.pageTurnAnimation.
+// - Phase R3: shared UI state (highlights, pagination, progress) lives in TextReaderUIState.
 //
 // @coordinates-with: TXTReaderViewModel.swift, TXTTextViewBridge.swift,
 //   TXTChunkedReaderBridge.swift, TXTTextChunker.swift, TXTAttributedStringBuilder.swift,
 //   ReadingProgressBar.swift, ScrollProgressHelper.swift,
 //   NativeTextPageNavigator.swift, NativeTextPagedView.swift,
-//   AutoPageTurner.swift, PageTurnAnimator.swift
+//   AutoPageTurner.swift, PageTurnAnimator.swift, TextReaderUIState.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -42,6 +43,8 @@ struct TXTReaderContainerView: View {
     /// Files with more UTF-16 code units than this use chunked rendering.
     static let largeFileThreshold = 500_000
 
+    // MARK: - TXT-Specific State
+
     /// Pre-built attributed string for small files, constructed off the main thread.
     @State private var preparedAttrString: NSAttributedString?
     /// True while the attributed string is being built for the first time.
@@ -55,32 +58,12 @@ struct TXTReaderContainerView: View {
     /// Using @State breaks the observation cycle that caused bug #15/#17:
     /// reading viewModel.currentOffsetUTF16 in body created a feedback loop.
     @State private var initialRestoreOffset: Int?
-    /// Navigation target from search results. Updated via notification.
-    @State private var scrollToOffset: Int?
-    /// Match highlight range for search navigation (bug #43).
-    @State private var highlightRange: NSRange?
-    /// Whether the current highlight is temporary (search nav) or persistent (user-created).
-    /// Temporary highlights auto-clear after 3s; persistent ones survive cell reuse (bug #54).
-    @State private var highlightIsTemporary: Bool = true
-    /// Pending annotation info for the "Add Note" flow (bug #44).
-    @State private var pendingAnnotationInfo: TextSelectionInfo?
-    /// Text input for the annotation note.
-    @State private var annotationNoteText: String = ""
-    /// Persisted highlight ranges loaded from DB on file open (bug #55).
-    @State private var persistedHighlightRanges: [NSRange] = []
 
-    /// Current reading progress for the scrubber bar (0.0-1.0).
-    /// Synced from viewModel.totalProgression via onChange.
-    @State private var readingProgress: Double = 0
+    // MARK: - Shared UI State (Phase R3) + Highlight Coordination (Phase R4)
 
-    // MARK: - Paged Mode State (B08, B10, B11)
-
-    /// Page navigator for paged mode. Nil when in scroll mode or large file.
-    @State private var pageNavigator: NativeTextPageNavigator?
-    /// Tracks the current page for SwiftUI reactivity (drives NativeTextPagedView updates).
-    @State private var pagedCurrentPage: Int = 0
-    /// Auto page turner instance (B10). Created when autoPageTurn is enabled.
-    @State private var autoPageTurner: AutoPageTurner?
+    @State private var uiState = TextReaderUIState()
+    @State private var highlightRenderer: TextHighlightRenderer?
+    @State private var highlightCoordinator: HighlightCoordinator?
 
     /// Whether paged mode is active (small file + paged layout preference).
     private var isPagedMode: Bool {
@@ -120,7 +103,7 @@ struct TXTReaderContainerView: View {
                 }
             } else if let text = viewModel.textContent, let attrStr = preparedAttrString {
                 // Small file → paged or scroll
-                if isPagedMode, let nav = pageNavigator {
+                if isPagedMode, let nav = uiState.pageNavigator {
                     pagedReaderContent(text: text, attributedText: attrStr, navigator: nav)
                 } else {
                     readerContent(text: text, attributedText: attrStr)
@@ -136,16 +119,16 @@ struct TXTReaderContainerView: View {
                 VStack(spacing: 0) {
                     Spacer()
                     ReadingProgressBar(
-                        progress: $readingProgress,
+                        progress: $uiState.readingProgress,
                         onSeek: { seekValue in
                             let charOffset = ScrollProgressHelper.charOffsetFromProgress(
                                 progress: seekValue,
                                 totalLengthUTF16: viewModel.totalTextLengthUTF16
                             )
-                            scrollToOffset = charOffset
+                            uiState.scrollToOffset = charOffset
                         },
                         isVisible: viewModel.totalTextLengthUTF16 > 0,
-                        label: ScrollProgressHelper.percentageLabel(readingProgress),
+                        label: ScrollProgressHelper.percentageLabel(uiState.readingProgress),
                         settingsStore: settingsStore
                     )
                     ReaderBottomOverlay(
@@ -162,19 +145,18 @@ struct TXTReaderContainerView: View {
             // Capture restored position once — do NOT read currentOffsetUTF16
             // in body, as it changes on every scroll and creates a feedback loop.
             initialRestoreOffset = viewModel.currentOffsetUTF16
-            // Load persisted highlights from DB for visual rendering (bug #55)
+            // Phase R4: set up highlight coordinator + restore highlights
+            let renderer = TextHighlightRenderer(uiState: uiState)
+            highlightRenderer = renderer
             if let container = modelContainer {
                 let persistence = PersistenceActor(modelContainer: container)
-                if let records = try? await persistence.fetchHighlights(
-                    forBookWithKey: viewModel.bookFingerprintKey
-                ) {
-                    persistedHighlightRanges = records.compactMap { record in
-                        guard let start = record.locator.charRangeStartUTF16,
-                              let end = record.locator.charRangeEndUTF16,
-                              end > start else { return nil }
-                        return NSRange(location: start, length: end - start)
-                    }
-                }
+                let coordinator = HighlightCoordinator(
+                    renderer: renderer,
+                    persistence: persistence,
+                    bookFingerprintKey: viewModel.bookFingerprintKey
+                )
+                highlightCoordinator = coordinator
+                await coordinator.restoreAll()
             }
         }
         .task(id: attrStringKey) {
@@ -244,7 +226,7 @@ struct TXTReaderContainerView: View {
             }
         }
         .onChange(of: viewModel.totalProgression) { _, newValue in
-            readingProgress = newValue ?? 0
+            uiState.readingProgress = newValue ?? 0
             // Notify ReaderContainerView of the live position for AI panel.
             let locator = viewModel.makeLocator()
             NotificationCenter.default.post(
@@ -254,21 +236,25 @@ struct TXTReaderContainerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
             // Pause auto page turner on user interaction (B10)
-            autoPageTurner?.pause()
+            uiState.autoPageTurner?.pause()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
             guard isPagedMode else { return }
-            pageNavigator?.nextPage()
-            syncPagedState()
+            uiState.pageNavigator?.nextPage()
+            if let offset = uiState.syncPagedState() {
+                viewModel.updateScrollPosition(charOffsetUTF16: offset)
+            }
             // Pause auto page turner on user interaction (B10)
-            autoPageTurner?.pause()
+            uiState.autoPageTurner?.pause()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
             guard isPagedMode else { return }
-            pageNavigator?.previousPage()
-            syncPagedState()
+            uiState.pageNavigator?.previousPage()
+            if let offset = uiState.syncPagedState() {
+                viewModel.updateScrollPosition(charOffsetUTF16: offset)
+            }
             // Pause auto page turner on user interaction (B10)
-            autoPageTurner?.pause()
+            uiState.autoPageTurner?.pause()
         }
         .onChange(of: settingsStore?.epubLayout) { _, _ in
             updatePaginationIfNeeded()
@@ -277,16 +263,16 @@ struct TXTReaderContainerView: View {
             updatePaginationIfNeeded()
         }
         .onChange(of: settingsStore?.autoPageTurn) { _, newValue in
-            updateAutoPageTurner(enabled: newValue ?? false)
+            uiState.updateAutoPageTurner(
+                enabled: newValue ?? false,
+                isPagedMode: isPagedMode,
+                interval: settingsStore?.autoPageTurnInterval ?? 5.0
+            )
         }
         .readerNotificationHandlers(
             deps: makeNotificationDeps(),
-            scrollToOffset: $scrollToOffset,
-            highlightRange: $highlightRange,
-            highlightIsTemporary: $highlightIsTemporary,
-            persistedHighlightRanges: $persistedHighlightRanges,
-            pendingAnnotationInfo: $pendingAnnotationInfo,
-            annotationNoteText: $annotationNoteText
+            uiState: uiState,
+            highlightCoordinator: highlightCoordinator ?? makeNoOpCoordinator()
         )
         // highlightRemoved now handled by ReaderNotificationModifier (Phase R2)
         .accessibilityIdentifier("txtReaderContainer")
@@ -353,13 +339,13 @@ struct TXTReaderContainerView: View {
                 fullText: text,
                 fullAttributedText: attributedText,
                 config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-                currentPage: pagedCurrentPage,
+                currentPage: uiState.pagedCurrentPage,
                 pageTurnAnimation: settingsStore?.pageTurnAnimation ?? .none
             )
 
             // Page indicator
             if navigator.totalPages > 0 {
-                Text("Page \(pagedCurrentPage + 1) of \(navigator.totalPages)")
+                Text("Page \(uiState.pagedCurrentPage + 1) of \(navigator.totalPages)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 4)
@@ -377,10 +363,10 @@ struct TXTReaderContainerView: View {
             attributedText: attributedText,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
             restoreOffset: initialRestoreOffset,
-            scrollToOffset: scrollToOffset,
-            highlightRange: highlightRange,
-            highlightIsTemporary: highlightIsTemporary,
-            persistedHighlights: persistedHighlightRanges,
+            scrollToOffset: uiState.scrollToOffset,
+            highlightRange: uiState.highlightRange,
+            highlightIsTemporary: uiState.highlightIsTemporary,
+            persistedHighlights: uiState.persistedHighlightRanges,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)
@@ -406,10 +392,10 @@ struct TXTReaderContainerView: View {
             restoreIntraChunkOffset: intraFraction,
             delegate: viewModel,
             chunkStartOffsets: offsets,
-            scrollToOffset: scrollToOffset,
-            highlightRange: highlightRange,
-            highlightIsTemporary: highlightIsTemporary,
-            persistedHighlights: persistedHighlightRanges
+            scrollToOffset: uiState.scrollToOffset,
+            highlightRange: uiState.highlightRange,
+            highlightIsTemporary: uiState.highlightIsTemporary,
+            persistedHighlights: uiState.persistedHighlightRanges
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("txtReaderChunkedContent")
@@ -430,65 +416,32 @@ struct TXTReaderContainerView: View {
         return lo
     }
 
+    // MARK: - Highlight Coordinator (Phase R4)
+
+    /// Fallback coordinator used before the real one is initialized in .task.
+    private func makeNoOpCoordinator() -> HighlightCoordinator {
+        let renderer = highlightRenderer ?? TextHighlightRenderer(uiState: uiState)
+        return HighlightCoordinator(
+            renderer: renderer,
+            persistence: NoOpHighlightStore(),
+            bookFingerprintKey: viewModel.bookFingerprintKey
+        )
+    }
+
     // MARK: - Paged Mode Helpers (B08, B10)
 
     /// Creates or updates the page navigator when entering paged mode.
     private func updatePaginationIfNeeded() {
-        guard isPagedMode,
-              let text = viewModel.textContent,
-              let attrStr = preparedAttrString,
-              let settings = settingsStore else {
-            // Not in paged mode or text not ready — tear down paging state
-            autoPageTurner?.stop()
-            pageNavigator = nil
-            return
-        }
-
-        let nav = pageNavigator ?? NativeTextPageNavigator()
-        nav.paginateAttributed(
-            attributedText: attrStr,
-            viewportSize: UIScreen.main.bounds.size
+        uiState.updatePagination(
+            isPagedMode: isPagedMode,
+            attributedText: preparedAttrString,
+            initialRestoreOffset: initialRestoreOffset,
+            autoPageTurnEnabled: settingsStore?.autoPageTurn ?? false,
+            autoPageTurnInterval: settingsStore?.autoPageTurnInterval ?? 5.0
         )
-
-        // Restore position from saved offset on first paginate
-        if pageNavigator == nil, let offset = initialRestoreOffset {
-            nav.jumpToOffset(utf16Offset: offset)
+        if let offset = uiState.syncPagedState() {
+            viewModel.updateScrollPosition(charOffsetUTF16: offset)
         }
-
-        pageNavigator = nav
-        syncPagedState()
-
-        // Wire auto page turner (B10)
-        if settings.autoPageTurn {
-            updateAutoPageTurner(enabled: true)
-        }
-    }
-
-    /// Syncs the @State page counter from the navigator for SwiftUI reactivity.
-    private func syncPagedState() {
-        guard let nav = pageNavigator else { return }
-        pagedCurrentPage = nav.currentPage
-        // Update reading progress from page position
-        if nav.totalPages > 1 {
-            readingProgress = nav.progression
-        }
-        // Update viewModel position for persistence
-        if let range = nav.currentPageCharRange {
-            viewModel.updateScrollPosition(charOffsetUTF16: range.location)
-        }
-    }
-
-    /// Starts or stops the auto page turner (B10).
-    private func updateAutoPageTurner(enabled: Bool) {
-        guard enabled, isPagedMode, let nav = pageNavigator else {
-            autoPageTurner?.stop()
-            return
-        }
-
-        let turner = autoPageTurner ?? AutoPageTurner()
-        turner.interval = settingsStore?.autoPageTurnInterval ?? 5.0
-        turner.start(navigator: nav)
-        autoPageTurner = turner
     }
 }
 #endif

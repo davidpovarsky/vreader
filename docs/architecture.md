@@ -114,14 +114,50 @@ All cross-component communication uses NotificationCenter:
 | `.readerPreviousPage` | nil | TapZoneOverlay → Container |
 | `.readerNextPage` | nil | TapZoneOverlay → Container |
 
+## Shared Reader UI State (Phase R3)
+
+`TextReaderUIState` (`@Observable`) holds UI state shared between TXT and MD containers:
+- Highlight/annotation state: `scrollToOffset`, `highlightRange`, `persistedHighlightRanges`, `pendingAnnotationInfo`, `annotationNoteText`
+- Pagination state: `pageNavigator`, `pagedCurrentPage`, `autoPageTurner`
+- Reading progress: `readingProgress`
+- Helper methods: `syncPagedState()`, `updatePagination()`, `updateAutoPageTurner()`, `refreshPersistedHighlights()`
+
+Conforms to `ReaderNotificationHandlerStateProtocol` so `ReaderNotificationModifier` mutates it directly.
+
+Format-specific state remains in each container:
+- TXT: chunking, chunk offsets, attributed string building, large-file detection
+- MD: rendered attributed string (from `MDReaderViewModel`)
+
+## Highlight System (Phase R4a/R4b)
+
+`HighlightRenderer` protocol defines format-agnostic visual operations: `apply(record:)`, `remove(id:)`, `restore(records:)`.
+
+| Adapter | Format | Mechanism |
+|---------|--------|-----------|
+| `TextHighlightRenderer` | TXT, MD | Mutates `TextReaderUIState.persistedHighlightRanges` |
+| `EPUBHighlightRenderer` | EPUB | Generates CSS Highlight API JS via `onInjectJS` callback |
+| `PDFHighlightRenderer` | PDF | Creates/removes `PDFAnnotation` objects; tracks `highlightId → [PDFAnnotation]` map |
+
+`HighlightCoordinator` orchestrates the highlight lifecycle:
+- `create()` — persists via `HighlightPersisting`, then calls `renderer.apply()`
+- `handleRemoval()` — calls `renderer.remove()`, re-fetches, calls `renderer.restore()`
+- `restoreAll()` — fetches from persistence, calls `renderer.restore()`
+
+Each container creates its format-specific renderer and coordinator:
+- TXT/MD: via `ReaderNotificationModifier` (handles `readerHighlightRequested` / `readerHighlightRemoved`)
+- EPUB: coordinator for persistence, renderer for JS injection
+- PDF: coordinator + renderer with annotation map (fixes bug #87: highlight deletion)
+
 ## Key Design Patterns
 
 1. **Bridge** — UIKit views (UITextView, WKWebView, PDFView) wrapped in `UIViewRepresentable` with Coordinator for delegate/gesture handling
-2. **Coordinator** — Complex multi-subsystem flows managed by dedicated coordinator objects (AI, Search, Unified, Lifecycle)
-3. **Protocol injection** — `LibraryPersisting`, `BookImporting`, `PreferenceStoring`, `TTSProviderProtocol` enable testing
+2. **Coordinator** — Complex multi-subsystem flows managed by dedicated coordinator objects (AI, Search, Unified, Highlight, Lifecycle)
+3. **Protocol injection** — `LibraryPersisting`, `BookImporting`, `PreferenceStoring`, `TTSProviderProtocol`, `HighlightRenderer` enable testing
 4. **Actor isolation** — `PersistenceActor` serializes all SwiftData writes; `TXTService` is actor-isolated
 5. **Deferred setup** — AI, search indexing, TOC building triggered on first use, not reader open
 6. **Observer** — NotificationCenter decouples format-specific readers from chrome and coordinators
+7. **Shared state extraction** — `TextReaderUIState` eliminates duplicated `@State` between TXT/MD containers (Phase R3)
+8. **Format adapters** — `HighlightRenderer` protocol with per-format adapters decouples highlight lifecycle from rendering mechanism (Phase R4a)
 
 ## Performance Optimizations
 

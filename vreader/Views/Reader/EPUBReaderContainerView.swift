@@ -63,6 +63,9 @@ struct EPUBReaderContainerView: View {
     @State private var pageNavigator = BasePageNavigator()
     /// Current page in paged mode (drives bridge navigation).
     @State private var currentPaginationPage: Int?
+    /// Phase R4: highlight renderer and coordinator.
+    @State private var highlightRenderer = EPUBHighlightRenderer()
+    @State private var highlightCoordinator: HighlightCoordinator?
 
     /// Whether paged layout is active.
     private var isPaged: Bool {
@@ -95,6 +98,19 @@ struct EPUBReaderContainerView: View {
             }
         }
         .task {
+            // Phase R4: set up highlight renderer + coordinator
+            highlightRenderer.onInjectJS = { [self] js in
+                pendingHighlightJS = js
+            }
+            if let container = modelContainer {
+                let persistence = PersistenceActor(modelContainer: container)
+                highlightCoordinator = HighlightCoordinator(
+                    renderer: highlightRenderer,
+                    persistence: persistence,
+                    bookFingerprintKey: viewModel.bookFingerprintKey
+                )
+            }
+
             let task = Task {
                 await viewModel.open(url: fileURL)
                 guard !Task.isCancelled else { return }
@@ -210,9 +226,16 @@ struct EPUBReaderContainerView: View {
             }
         }
         // Remove highlight visual when deleted from annotations panel (bug #78)
+        // Phase R4b: delegate to coordinator (renderer generates remove JS)
         .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
-            guard let idString = notification.object as? String else { return }
-            pendingHighlightJS = EPUBHighlightBridge.removeHighlightJS(id: idString)
+            guard let idString = notification.object as? String,
+                  let highlightId = UUID(uuidString: idString) else { return }
+            if let coordinator = highlightCoordinator {
+                Task { await coordinator.handleRemoval(highlightId: highlightId) }
+            } else {
+                // Fallback: direct JS injection if coordinator not ready
+                pendingHighlightJS = EPUBHighlightBridge.removeHighlightJS(id: idString)
+            }
         }
         .confirmationDialog(
             "Text Selection",
@@ -474,6 +497,7 @@ struct EPUBReaderContainerView: View {
     // MARK: - Highlight Actions
 
     /// Persists a highlight and injects the CSS highlight into the WKWebView.
+    /// Phase R4b: delegates to coordinator (which calls renderer for JS injection).
     private func handleHighlightAction(
         event: ReaderSelectionEvent,
         container: ModelContainer
@@ -482,23 +506,26 @@ struct EPUBReaderContainerView: View {
             pendingSelectionEvent = nil
             return
         }
-        let persistence = PersistenceActor(modelContainer: container)
-        let bookKey = viewModel.bookFingerprintKey
 
-        Task {
-            do {
-                let record = try await EPUBHighlightActions.persistHighlight(
-                    event: event,
+        if let coordinator = highlightCoordinator {
+            Task {
+                await coordinator.create(
                     locator: locator,
-                    persistence: persistence,
-                    bookKey: bookKey
+                    anchor: event.anchor,
+                    selectedText: event.selectedText,
+                    color: "yellow"
                 )
-                // Inject CSS highlight via JS
-                if let js = EPUBHighlightActions.createHighlightJS(for: record) {
+            }
+        } else {
+            // Fallback: direct persistence if coordinator not ready
+            let persistence = PersistenceActor(modelContainer: container)
+            Task {
+                if let record = try? await EPUBHighlightActions.persistHighlight(
+                    event: event, locator: locator,
+                    persistence: persistence, bookKey: viewModel.bookFingerprintKey
+                ), let js = EPUBHighlightActions.createHighlightJS(for: record) {
                     pendingHighlightJS = js
                 }
-            } catch {
-                // Non-fatal: highlight not saved, user can retry
             }
         }
         pendingSelectionEvent = nil
@@ -558,6 +585,7 @@ struct EPUBReaderContainerView: View {
     }
 
     /// Persists a highlight with an attached note.
+    /// Phase R4b: delegates to coordinator.
     private func handleHighlightWithNote(
         event: ReaderSelectionEvent,
         container: ModelContainer,
@@ -567,48 +595,60 @@ struct EPUBReaderContainerView: View {
             pendingSelectionEvent = nil
             return
         }
-        let persistence = PersistenceActor(modelContainer: container)
-        let bookKey = viewModel.bookFingerprintKey
 
-        Task {
-            do {
-                let record = try await persistence.addHighlight(
+        if let coordinator = highlightCoordinator {
+            Task {
+                await coordinator.create(
                     locator: locator,
                     anchor: event.anchor,
                     selectedText: event.selectedText,
                     color: "yellow",
-                    note: note,
-                    toBookWithKey: bookKey
+                    note: note
                 )
-                if let js = EPUBHighlightActions.createHighlightJS(for: record) {
+            }
+        } else {
+            // Fallback: direct persistence if coordinator not ready
+            let persistence = PersistenceActor(modelContainer: container)
+            Task {
+                if let record = try? await persistence.addHighlight(
+                    locator: locator, anchor: event.anchor,
+                    selectedText: event.selectedText, color: "yellow",
+                    note: note, toBookWithKey: viewModel.bookFingerprintKey
+                ), let js = EPUBHighlightActions.createHighlightJS(for: record) {
                     pendingHighlightJS = js
                 }
-            } catch {
-                // Non-fatal: highlight+note not saved, user can retry
             }
         }
         pendingSelectionEvent = nil
     }
 
     /// Restores saved highlights for the current chapter after a page finishes loading.
+    /// Phase R4b: delegates to coordinator which calls EPUBHighlightRenderer.
     private func restoreHighlightsOnLoad(evaluateJS: @escaping (String) -> Void) {
-        guard let container = modelContainer,
-              let href = viewModel.currentPosition?.href else { return }
-        let persistence = PersistenceActor(modelContainer: container)
-        let bookKey = viewModel.bookFingerprintKey
+        guard let href = viewModel.currentPosition?.href else { return }
+        highlightRenderer.currentHref = href
 
-        Task {
-            do {
-                let highlights = try await persistence.fetchHighlights(forBookWithKey: bookKey)
+        if let coordinator = highlightCoordinator {
+            // Temporarily redirect renderer output to the evaluateJS closure
+            // for immediate injection (page is ready now).
+            let originalCallback = highlightRenderer.onInjectJS
+            highlightRenderer.onInjectJS = evaluateJS
+            Task {
+                await coordinator.restoreAll()
+                highlightRenderer.onInjectJS = originalCallback
+            }
+        } else {
+            // Fallback: direct fetch if coordinator not ready
+            guard let container = modelContainer else { return }
+            let persistence = PersistenceActor(modelContainer: container)
+            Task {
+                let highlights = (try? await persistence.fetchHighlights(
+                    forBookWithKey: viewModel.bookFingerprintKey
+                )) ?? []
                 let js = EPUBHighlightActions.restoreHighlightsJS(
-                    highlights: highlights,
-                    currentHref: href
+                    highlights: highlights, currentHref: href
                 )
-                if !js.isEmpty {
-                    evaluateJS(js)
-                }
-            } catch {
-                // Non-fatal: highlights not restored, user can still read
+                if !js.isEmpty { evaluateJS(js) }
             }
         }
     }

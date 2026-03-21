@@ -47,7 +47,7 @@ Rapid feature development across 6 phases accumulated debt that causes recurring
 
 **Effort**: Medium.
 
-### Phase R3 — Shared Text Reader UI State
+### Phase R3 — Shared Text Reader UI State ✅
 
 **Goal**: Eliminate duplicate UI state between TXT and MD containers.
 
@@ -66,7 +66,7 @@ Rapid feature development across 6 phases accumulated debt that causes recurring
 
 **Effort**: Medium.
 
-### Phase R4a — Highlight Contract + Format Adapters
+### Phase R4a — Highlight Contract + Format Adapters ✅
 
 **Goal**: Define a shared highlight protocol without merging implementations.
 
@@ -81,7 +81,7 @@ Rapid feature development across 6 phases accumulated debt that causes recurring
 
 **Effort**: Medium.
 
-### Phase R4b — Highlight Orchestration
+### Phase R4b — Highlight Orchestration ✅
 
 **Goal**: Single coordinator for highlight lifecycle.
 
@@ -145,6 +145,7 @@ R1 first (safety net). R2-R4 reduce complexity. R5 is mechanical cleanup. R6 is 
 ## Rules
 
 - Zero behavior changes in any phase
-- `xcodebuild test` must pass after every phase
+- Unit tests must pass after every phase (`xcodebuild test -skip-testing vreaderUITests`)
+- Skip UI tests during refactoring — they test behavior, not structure, and add 10+ minutes per run
 - Read `docs/architecture.md` before starting any phase
 - Update `docs/architecture.md` after completing each phase

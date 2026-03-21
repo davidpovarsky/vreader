@@ -54,6 +54,9 @@ struct PDFReaderContainerView: View {
     @State private var pendingHighlightId: Int = 0
     /// Whether the note input sheet is visible.
     @State private var showNoteSheet = false
+    /// Phase R4: highlight renderer and coordinator.
+    @State private var highlightRenderer = PDFHighlightRenderer()
+    @State private var highlightCoordinator: HighlightCoordinator?
     /// Text input for the note being added.
     @State private var noteText = ""
     /// Temporary search highlight text quote for navigating to search results (bug #43).
@@ -74,7 +77,8 @@ struct PDFReaderContainerView: View {
                 highlightRecords: savedHighlightRecords,
                 pendingHighlight: pendingHighlightPayload,
                 pendingHighlightId: pendingHighlightId,
-                searchHighlightText: searchHighlightText
+                searchHighlightText: searchHighlightText,
+                highlightRenderer: highlightRenderer
             )
             .ignoresSafeArea(edges: .bottom)
             .accessibilityIdentifier("pdfReaderContent")
@@ -140,8 +144,14 @@ struct PDFReaderContainerView: View {
                     pageNavigator.syncCurrentPage(page)
                 }
                 // Restore saved highlights as visible annotations
+                // Phase R4: also set up coordinator for highlight lifecycle
                 if let container = modelContainer {
                     let persistence = PersistenceActor(modelContainer: container)
+                    highlightCoordinator = HighlightCoordinator(
+                        renderer: highlightRenderer,
+                        persistence: persistence,
+                        bookFingerprintKey: viewModel.bookFingerprintKey
+                    )
                     let records = try? await persistence.fetchHighlights(
                         forBookWithKey: viewModel.bookFingerprintKey
                     )
@@ -208,6 +218,15 @@ struct PDFReaderContainerView: View {
             guard let event = notification.object as? ReaderSelectionEvent else { return }
             pendingSelectionEvent = event
             showHighlightSheet = true
+        }
+        // Phase R4a: handle highlight removal — fixes bug #87 (PDF highlight delete)
+        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
+            guard let idString = notification.object as? String,
+                  let highlightId = UUID(uuidString: idString) else { return }
+            // Remove annotation visually via renderer
+            highlightRenderer.remove(id: highlightId)
+            // Update savedHighlightRecords so bridge stays consistent
+            savedHighlightRecords?.removeAll { $0.highlightId == highlightId }
         }
         .confirmationDialog(
             "Text Selection",
@@ -345,29 +364,37 @@ struct PDFReaderContainerView: View {
 
     // MARK: - Highlight Actions
 
+    /// Phase R4b: delegates to coordinator (persists → renderer.apply() with real ID).
     private func handleHighlightAction(
         event: ReaderSelectionEvent,
         container: ModelContainer
     ) {
-        let persistence = PersistenceActor(modelContainer: container)
         let locator = viewModel.makeCurrentLocator()
-        let anchor = event.anchor
 
-        Task {
-            try? await persistence.addHighlight(
-                locator: locator,
-                anchor: anchor,
-                selectedText: event.selectedText,
-                color: "yellow",
-                note: nil,
-                toBookWithKey: viewModel.bookFingerprintKey
+        if let coordinator = highlightCoordinator {
+            Task {
+                await coordinator.create(
+                    locator: locator,
+                    anchor: event.anchor,
+                    selectedText: event.selectedText,
+                    color: "yellow"
+                )
+            }
+        } else {
+            // Fallback: direct persistence + bridge-driven create if coordinator not ready
+            let persistence = PersistenceActor(modelContainer: container)
+            Task {
+                try? await persistence.addHighlight(
+                    locator: locator, anchor: event.anchor,
+                    selectedText: event.selectedText, color: "yellow",
+                    note: nil, toBookWithKey: viewModel.bookFingerprintKey
+                )
+            }
+            pendingHighlightPayload = PDFHighlightNotificationPayload(
+                anchor: event.anchor, color: "yellow"
             )
+            pendingHighlightId += 1
         }
-        // Create visible annotation immediately (bridge processes in updateUIView)
-        pendingHighlightPayload = PDFHighlightNotificationPayload(
-            anchor: anchor, color: "yellow"
-        )
-        pendingHighlightId += 1
         pendingSelectionEvent = nil
     }
 
@@ -424,30 +451,38 @@ struct PDFReaderContainerView: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// Persists a highlight with an attached note and creates a visible annotation.
+    /// Phase R4b: delegates to coordinator for highlight with note.
     private func handleHighlightWithNote(
         event: ReaderSelectionEvent,
         container: ModelContainer,
         note: String?
     ) {
-        let persistence = PersistenceActor(modelContainer: container)
         let locator = viewModel.makeCurrentLocator()
-        let anchor = event.anchor
 
-        Task {
-            try? await persistence.addHighlight(
-                locator: locator,
-                anchor: anchor,
-                selectedText: event.selectedText,
-                color: "yellow",
-                note: note,
-                toBookWithKey: viewModel.bookFingerprintKey
+        if let coordinator = highlightCoordinator {
+            Task {
+                await coordinator.create(
+                    locator: locator,
+                    anchor: event.anchor,
+                    selectedText: event.selectedText,
+                    color: "yellow",
+                    note: note
+                )
+            }
+        } else {
+            let persistence = PersistenceActor(modelContainer: container)
+            Task {
+                try? await persistence.addHighlight(
+                    locator: locator, anchor: event.anchor,
+                    selectedText: event.selectedText, color: "yellow",
+                    note: note, toBookWithKey: viewModel.bookFingerprintKey
+                )
+            }
+            pendingHighlightPayload = PDFHighlightNotificationPayload(
+                anchor: event.anchor, color: "yellow"
             )
+            pendingHighlightId += 1
         }
-        pendingHighlightPayload = PDFHighlightNotificationPayload(
-            anchor: anchor, color: "yellow"
-        )
-        pendingHighlightId += 1
         pendingSelectionEvent = nil
     }
 }

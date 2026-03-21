@@ -5,26 +5,25 @@
 // - Owns AddNoteSheet presentation (single owner — containers must NOT attach their own).
 // - contentTapped stays local in each container (chrome toggle is container-specific).
 // - Uses ReaderNotificationHandlers for testable pure logic.
-// - Bindings are mutated directly in the modifier (no snapshot+syncBack — audit fix).
+// - Takes a TextReaderUIState object (Phase R3) — mutates properties directly.
+// - Phase R4b: highlight create/delete delegated to HighlightCoordinator.
+//   Coordinator calls TextHighlightRenderer which mutates the same uiState.
 //
-// @coordinates-with ReaderNotificationHandlers.swift,
+// @coordinates-with ReaderNotificationHandlers.swift, TextReaderUIState.swift,
 //   TXTReaderContainerView.swift, MDReaderContainerView.swift,
-//   ReaderNotifications.swift, AddNoteSheet.swift
+//   ReaderNotifications.swift, AddNoteSheet.swift, HighlightCoordinator.swift
 
 import SwiftUI
 
-/// ViewModifier that attaches 4 notification handlers + AddNoteSheet.
+/// ViewModifier that attaches 5 notification handlers + AddNoteSheet.
 struct ReaderNotificationModifier: ViewModifier {
     let deps: ReaderNotificationDeps
-
-    @Binding var scrollToOffset: Int?
-    @Binding var highlightRange: NSRange?
-    @Binding var highlightIsTemporary: Bool
-    @Binding var persistedHighlightRanges: [NSRange]
-    @Binding var pendingAnnotationInfo: TextSelectionInfo?
-    @Binding var annotationNoteText: String
+    let uiState: TextReaderUIState
+    let highlightCoordinator: HighlightCoordinator
 
     func body(content: Content) -> some View {
+        @Bindable var bindableState = uiState
+
         content
             .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
                 // Bookmark is fire-and-forget — no UI state mutation needed
@@ -34,15 +33,15 @@ struct ReaderNotificationModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
                 guard let locator = notification.object as? Locator else { return }
-                // Sync handler — mutate bindings directly (no race)
+                // Sync handler — mutate state directly (no race)
                 guard let offset = locator.charOffsetUTF16 ?? locator.charRangeStartUTF16 else { return }
-                scrollToOffset = offset
-                highlightIsTemporary = true
+                uiState.scrollToOffset = offset
+                uiState.highlightIsTemporary = true
                 if let start = locator.charRangeStartUTF16,
                    let end = locator.charRangeEndUTF16, end > start {
-                    highlightRange = NSRange(location: start, length: end - start)
+                    uiState.highlightRange = NSRange(location: start, length: end - start)
                 } else {
-                    highlightRange = nil
+                    uiState.highlightRange = nil
                 }
                 deps.onNavigate(offset)
             }
@@ -52,68 +51,56 @@ struct ReaderNotificationModifier: ViewModifier {
                 guard let locator = deps.locatorFactory(
                     deps.bookFingerprint, info.startUTF16, info.endUTF16, deps.sourceText()
                 ) else { return }
-                // Mutate UI state synchronously before async persistence
-                highlightIsTemporary = false
-                let newRange = NSRange(location: info.startUTF16, length: info.endUTF16 - info.startUTF16)
-                highlightRange = newRange
-                persistedHighlightRanges.append(newRange)
-                // Fire-and-forget persistence
+                // Phase R4b: delegate to coordinator (persists + applies via renderer)
                 Task {
-                    try? await deps.highlightPersistence.addHighlight(
+                    await highlightCoordinator.create(
                         locator: locator,
                         selectedText: info.selectedText,
-                        color: "yellow",
-                        note: nil,
-                        toBookWithKey: deps.bookFingerprintKey
+                        color: "yellow"
                     )
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .readerAnnotationRequested)) { notification in
                 guard let info = notification.object as? TextSelectionInfo else { return }
-                pendingAnnotationInfo = info
-                annotationNoteText = ""
+                uiState.pendingAnnotationInfo = info
+                uiState.annotationNoteText = ""
             }
-            // Re-fetch persisted highlights when one is deleted (bug #78, Phase R2)
-            .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { _ in
-                // Clear active highlight in case the deleted one is currently shown
-                highlightRange = nil
+            // Phase R4b: delegate removal to coordinator (removes visual + re-fetches)
+            .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
+                guard let idString = notification.object as? String,
+                      let highlightId = UUID(uuidString: idString) else {
+                    // Fallback: clear active highlight if UUID parsing fails
+                    uiState.highlightRange = nil
+                    return
+                }
                 Task {
-                    if let records = try? await deps.highlightPersistence.fetchHighlights(
-                        forBookWithKey: deps.bookFingerprintKey
-                    ) {
-                        persistedHighlightRanges = records.compactMap { record in
-                            guard let start = record.locator.charRangeStartUTF16,
-                                  let end = record.locator.charRangeEndUTF16,
-                                  end > start else { return nil }
-                            return NSRange(location: start, length: end - start)
-                        }
-                    }
+                    await highlightCoordinator.handleRemoval(highlightId: highlightId)
                 }
             }
             .sheet(isPresented: .init(
-                get: { pendingAnnotationInfo != nil },
-                set: { if !$0 { pendingAnnotationInfo = nil } }
+                get: { uiState.pendingAnnotationInfo != nil },
+                set: { if !$0 { uiState.pendingAnnotationInfo = nil } }
             )) {
                 AddNoteSheet(
-                    selectedText: pendingAnnotationInfo?.selectedText ?? "",
-                    noteText: $annotationNoteText,
+                    selectedText: uiState.pendingAnnotationInfo?.selectedText ?? "",
+                    noteText: $bindableState.annotationNoteText,
                     onSave: {
-                        guard let info = pendingAnnotationInfo else {
-                            pendingAnnotationInfo = nil
+                        guard let info = uiState.pendingAnnotationInfo else {
+                            uiState.pendingAnnotationInfo = nil
                             return
                         }
-                        let trimmed = annotationNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmed = uiState.annotationNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else {
-                            pendingAnnotationInfo = nil
+                            uiState.pendingAnnotationInfo = nil
                             return
                         }
                         guard let locator = deps.locatorFactory(
                             deps.bookFingerprint, info.startUTF16, info.endUTF16, deps.sourceText()
                         ) else {
-                            pendingAnnotationInfo = nil
+                            uiState.pendingAnnotationInfo = nil
                             return
                         }
-                        pendingAnnotationInfo = nil
+                        uiState.pendingAnnotationInfo = nil
                         Task {
                             try? await deps.annotationPersistence.addAnnotation(
                                 locator: locator,
@@ -123,7 +110,7 @@ struct ReaderNotificationModifier: ViewModifier {
                         }
                     },
                     onCancel: {
-                        pendingAnnotationInfo = nil
+                        uiState.pendingAnnotationInfo = nil
                     }
                 )
                 .presentationDetents([.medium])
@@ -137,21 +124,13 @@ extension View {
     /// Attaches shared reader notification handlers and AddNoteSheet.
     func readerNotificationHandlers(
         deps: ReaderNotificationDeps,
-        scrollToOffset: Binding<Int?>,
-        highlightRange: Binding<NSRange?>,
-        highlightIsTemporary: Binding<Bool>,
-        persistedHighlightRanges: Binding<[NSRange]>,
-        pendingAnnotationInfo: Binding<TextSelectionInfo?>,
-        annotationNoteText: Binding<String>
+        uiState: TextReaderUIState,
+        highlightCoordinator: HighlightCoordinator
     ) -> some View {
         modifier(ReaderNotificationModifier(
             deps: deps,
-            scrollToOffset: scrollToOffset,
-            highlightRange: highlightRange,
-            highlightIsTemporary: highlightIsTemporary,
-            persistedHighlightRanges: persistedHighlightRanges,
-            pendingAnnotationInfo: pendingAnnotationInfo,
-            annotationNoteText: annotationNoteText
+            uiState: uiState,
+            highlightCoordinator: highlightCoordinator
         ))
     }
 }

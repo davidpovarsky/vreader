@@ -111,11 +111,19 @@ This PR delivers the complete V2 roadmap (Phases A–E) plus 78 bug fixes from i
 - [ ] Bookmarks save and navigate correctly
 - [ ] Search results navigate to correct location
 
-### Known Open Issues
-- [ ] Bug #77: EPUB native highlight — code verified correct, may need iOS 26 investigation
-- [ ] Feature #12: TXT TOC generation (deferred by design)
-- [ ] Feature #21: Paginated reading mode (placeholder only)
-- [ ] Feature #38: Hierarchical TOC display (new request)
+### Known Open Issues — Bugs
+- [ ] Bug #77: EPUB native highlight — code verified correct, needs iOS 26 on-device repro
+
+### Known Open Issues — Features (code committed but not working)
+- [ ] Feature #21: Paginated mode — user reports "still scrolling"
+- [ ] Feature #23: TXT TOC — user reports "cannot recognise"
+- [ ] Feature #25: Tap zones — left/right not wired in native mode
+- [ ] Feature #37: Per-book settings — affects all books instead of one
+
+### Unimplemented Features (tracked in features.md)
+- [ ] Feature #10: iCloud backup
+- [ ] Feature #38: Hierarchical TOC display
+- [ ] Feature #39: Custom background image
 
 ---
 

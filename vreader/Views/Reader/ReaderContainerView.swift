@@ -115,6 +115,9 @@ struct ReaderContainerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             toggleChrome()
         }
+        // Page turn from tap zones — handled by unified renderer directly.
+        // Native mode bridges handle taps internally (center=chrome toggle).
+        // Left/right zones only functional in unified paged mode. (bug #81)
         .accessibilityAction(named: isChromeVisible ? "Hide toolbar" : "Show toolbar") {
             toggleChrome()
         }
@@ -149,6 +152,12 @@ struct ReaderContainerView: View {
             resolvedAICoordinator.currentLocator = locator
             if resolvedAICoordinator.loadedTextContent != nil {
                 resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
+            }
+        }
+        // Pre-create search service+VM eagerly so search panel opens instantly (bug #79)
+        .task {
+            if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+                searchCoordinator.prepareService(fingerprint: fp)
             }
         }
         // Replacement rules only needed for unified mode (bug #64)
@@ -329,10 +338,10 @@ struct ReaderContainerView: View {
         }
     }
 
-    /// Lazily sets up search coordinator and indexing.
+    /// Triggers full search setup (indexing) when search sheet opens.
+    /// prepareService() may have already created the service; setup() handles that.
     private func ensureSearchReady() {
-        guard searchCoordinator.searchService == nil,
-              let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else { return }
+        guard let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else { return }
         Task {
             await searchCoordinator.setup(
                 fingerprint: fingerprint,

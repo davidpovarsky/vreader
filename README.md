@@ -1,43 +1,78 @@
 # VReader
 
-An iOS reader app for EPUB, PDF, TXT, and Markdown files — built with Swift 6, SwiftUI, and SwiftData.
+**Built entirely by AI — coded, tested, and debugged by AI agents. Human-directed.**
+
+An iOS reader for EPUB, PDF, TXT, and Markdown — built entirely by AI coding agents, with Swift 6, SwiftUI, and SwiftData.
 
 ## About
 
-VReader is a modern reading app designed for iPhone and iPad. It provides a unified reading experience across multiple document formats with features like reading position persistence, bookmarks, highlights, full-text search, and reading time tracking. Documents sync across devices via iCloud.
+VReader is a modern reading app designed for iPhone and iPad, built entirely by AI coding agents (Claude Code + Codex CLI) with human direction on requirements and testing. It provides a dual-mode reading experience (native UIKit + unified TextKit 2 reflow) across multiple document formats with annotations, full-text search, AI assistant, TTS, book source scraping, and WebDAV backup.
 
 ## Features
 
-- **Multi-format support** — Read EPUB, PDF, TXT, and Markdown files in a single app
-- **Reading position persistence** — Automatically saves and restores your scroll position per book, surviving app backgrounding, kills, and relaunches
-- **CJK & encoding support** — Automatic encoding detection for GBK, Big5, Shift-JIS, EUC-KR, and other non-UTF-8 files
-- **Large file performance** — Chunked rendering (UITableView) for TXT files over 500K characters; no glyph storage blowup
-- **Bookmarks & highlights** — Save your place and annotate passages with color-coded highlights and notes
-- **EPUB/PDF annotation** — Text selection + highlight/note actions in EPUB (CSS Highlight API) and PDF (PDFAnnotation). Persists across sessions via unified AnnotationAnchor schema
-- **Full-text search** — Search across your entire library with SQLite FTS5 and CJK-aware tokenization. Highlights match at destination
-- **Reading progress bar** — Draggable scrubber in all 4 formats: continuous for TXT/MD, page-based for PDF, chapter-based for EPUB
-- **Table of contents** — Auto-generated for Markdown (heading extraction), built-in for EPUB/PDF
-- **AI assistant** — Summarize sections, multi-turn chat with book context, bilingual translation (9 languages), general AI chat. OpenAI-compatible API
-- **Reading time tracking** — Automatic session tracking with per-book statistics and reading speed calculations
-- **Reader settings** — Configurable font size, font family, line spacing, letter spacing, and theme
-- **Library management** — Grid/list view with persistent preferences, book info sheet, share, context menu
-- **Import from anywhere** — Open files via Share Sheet, Files app, or direct download
+### Reading
+- **Multi-format** — EPUB, PDF, TXT, Markdown in a single app
+- **Dual-mode engine** — Native (UIKit bridges) + Unified (TextKit 2 reflow) rendering
+- **Reading position** — Auto-saves scroll position, survives app kills and relaunches
+- **CJK encoding** — Auto-detect GBK, Big5, Shift-JIS, EUC-KR (8KB sample-based)
+- **Large file support** — Chunked UITableView for TXT files >500K characters
+- **Paginated mode** — CSS columns (EPUB), TextKit containers (TXT/MD), PDFKit pages (has known bugs)
+- **Page turn animations** — Slide, cover-flip, or instant
+- **Auto page turning** — Timer-based advancement with configurable interval
+
+### Annotations
+- **Bookmarks, highlights, notes** — Full CRUD for TXT/MD/PDF (EPUB highlight has a known bug)
+- **EPUB highlights** — CSS Highlight API with JS bridge
+- **PDF highlights** — PDFAnnotation-based with selection detection
+- **TXT/MD highlights** — NSAttributedString with persistent rendering
+- **Export/import** — Markdown + JSON export, VReader JSON round-trip import
+
+### Search & Navigation
+- **Full-text search** — SQLite FTS5 with CJK tokenization, persistent index
+- **Reading progress bar** — Draggable scrubber (continuous, page-based, chapter-based)
+- **Table of contents** — EPUB nav/NCX, PDF outline, TXT auto-detection (25 Legado rules), MD headings
+- **Dictionary** — System dictionary lookup + AI translation on text selection
+
+### AI
+- **Summarization** — Section and chapter summaries via OpenAI-compatible API
+- **Chat** — Multi-turn conversation with book context
+- **Translation** — Bilingual view (9 languages)
+- **General chat** — AI chat without book context
+
+### Library
+- **Grid/list view** — Persistent sort order and view mode
+- **Collections** — Tags, series, custom groups
+- **Custom covers** — Set from photo library
+- **Context menu** — Info, share, set cover, delete
+- **OPDS catalog** — Browse and download from OPDS 1.2 feeds
+- **Book sources** — Legado-compatible rule engine for web novel scraping
+
+### Text Processing
+- **TTS** — System (AVSpeechSynthesizer) + cloud HTTP TTS with playback controls
+- **Simp/Trad Chinese** — Toggle conversion via ICU
+- **Content replacement** — Regex rules for text cleanup
+- **Reading time tracking** — Per-book session stats and speed calculations
+
+### Sync & Backup
+- **WebDAV backup** — Archive to any WebDAV server (Nutstore compatible)
+- **Reading settings** — Font, theme, spacing, letter spacing (global)
 
 ## Tech Stack
 
 | Component   | Technology                                         |
 | ----------- | -------------------------------------------------- |
 | UI          | SwiftUI                                            |
-| Persistence | SwiftData + CloudKit                               |
+| Persistence | SwiftData (SchemaV3)                               |
 | EPUB        | WKWebView bridge with CSS theme injection + JS highlight API |
 | PDF         | PDFKit + PDFAnnotation for highlights              |
 | TXT         | TextKit 1 (UITextView) + chunked UITableView       |
 | Markdown    | NSAttributedString rendering via MDParser           |
 | Search      | SQLite FTS5 with CJK tokenization                  |
 | AI          | OpenAI-compatible API (summarize, chat, translate) |
+| TTS         | AVSpeechSynthesizer + HTTP cloud TTS               |
+| Backup      | WebDAV client                                      |
 | Encoding    | ICU + heuristic detection (UTF-8/GBK/Big5/Shift-JIS) |
 | Concurrency | Swift 6 strict concurrency                         |
-| Project gen | XcodeGen                                           |
 
 ## Requirements
 
@@ -59,27 +94,27 @@ Then select a simulator or device and run.
 
 ## Architecture
 
+See [`docs/architecture.md`](docs/architecture.md) for the full architecture document.
+
 ```
 vreader/
-├── App/                 # App entry point, configuration
-├── Models/              # SwiftData models (Book, ReadingPosition, Bookmark, etc.)
+├── App/                 # App entry point, SwiftData schema init
+├── Models/              # SwiftData models, DocumentFingerprint, Locator
+├── ViewModels/          # Library and per-format reader view models
 ├── Views/
-│   ├── Reader/          # Reader views per format (EPUB, PDF, TXT, MD)
-│   ├── Library/          # Library views, book info, context menu
-│   ├── Settings/         # AI settings, preferences
-│   └── AI/               # Chat view
-├── ViewModels/          # Per-reader and per-feature view models
+│   ├── Reader/          # Reader container, format bridges, chrome overlay
+│   ├── Bookmarks/       # BookmarkListView, TOCListView
+│   ├── Annotations/     # HighlightListView, AnnotationListView
+│   └── Settings/        # ReaderSettingsPanel, AI/TTS/WebDAV settings
 ├── Services/
-│   ├── EPUB/            # EPUB parsing and rendering
-│   ├── TXT/             # TXT service, chunker, attributed string builder
-│   ├── MD/              # Markdown parser and renderer
-│   ├── Search/          # FTS5 indexing, text extraction, tokenization
-│   ├── AI/              # AI service, configuration, context extraction
-│   ├── Sync/            # iCloud sync coordination
-│   └── Locator/         # Reading position model (Readium-inspired)
-└── Utils/               # Helpers, extensions, encoding detection
-vreaderTests/            # Unit tests (2040+ test cases)
-vreaderUITests/          # UI tests (XCTest)
+│   ├── TXT/, EPUB/      # Format-specific parsing and loading
+│   ├── Search/          # FTS5 indexing, text extraction
+│   ├── AI/, TTS/        # AI service, TTS providers
+│   ├── Backup/          # WebDAV client, BackupProvider
+│   ├── TextMapping/     # Simp/Trad, replacement rules
+│   └── Locator/         # Reading position (Readium-inspired)
+vreaderTests/            # Unit tests (3135+ test cases)
+vreaderUITests/          # UI tests (XCUITest)
 ```
 
 ### Key Design Decisions
@@ -92,7 +127,7 @@ vreaderUITests/          # UI tests (XCTest)
 
 ## AI-Powered Development
 
-VReader is built using an AI-assisted coding workflow with multiple agents collaborating through structured processes.
+All code, tests, bug fixes, and documentation are produced by AI coding agents. The human role is directing requirements, reporting bugs, and verifying on device.
 
 ### Tools
 
@@ -129,6 +164,10 @@ Shared rules for all AI agents live in [`AGENTS.md`](AGENTS.md):
 - `CLAUDE.md` — Claude Code project instructions
 - `AGENTS.md` — Shared instructions for all AI coding agents
 
+## Status
+
+Active development. See [features](docs/features.md) (33 done, 4 in progress) and [bugs](docs/bugs.md) for current state.
+
 ## License
 
-TBD
+MIT

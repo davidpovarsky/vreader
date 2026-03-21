@@ -21,65 +21,78 @@ final class ReaderSearchCoordinator {
     private(set) var searchService: SearchService?
     /// The search view model. Nil until setup completes.
     private(set) var searchViewModel: SearchViewModel?
+    /// Whether full setup (indexing) has been started. Prevents double-indexing. (bug #79)
+    private var setupStarted = false
 
     /// Sets up the search pipeline for a book:
     /// creates the persistent index store, SearchService, and SearchViewModel,
     /// then enqueues background indexing if the book is not already indexed.
+    /// Lightweight setup: creates store + service + VM without indexing. (bug #79)
+    /// Call on reader open so the search panel has a VM immediately when opened.
+    func prepareService(fingerprint: DocumentFingerprint) {
+        guard searchService == nil else { return }
+        do {
+            let store = try Self.makePersistentStore()
+            let service = SearchService(store: store)
+            searchService = service
+            persistentStore = store
+            searchViewModel = SearchViewModel(
+                searchService: service,
+                bookFingerprint: fingerprint
+            )
+        } catch {
+            Self.logger.error("Search prepare failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Persistent store reference for deferred indexing. (bug #79)
+    private var persistentStore: SearchIndexStore?
+
     func setup(
         fingerprint: DocumentFingerprint,
         fileURL: URL,
         format: String
     ) async {
-        guard searchService == nil else { return }
-        do {
-            // Use persistent file-backed index (WI-F06)
-            let store = try Self.makePersistentStore()
-            let service = SearchService(store: store)
-            searchService = service
+        guard !setupStarted else { return }
+        setupStarted = true
 
-            // Create ViewModel immediately so the search panel opens instantly.
-            // Searching before indexing returns empty results (acceptable UX).
-            let vm = SearchViewModel(
-                searchService: service,
-                bookFingerprint: fingerprint
-            )
-            searchViewModel = vm
+        // Ensure service exists (may already be created by prepareService)
+        if searchService == nil {
+            prepareService(fingerprint: fingerprint)
+        }
+        guard let service = searchService, let store = persistentStore else { return }
 
-            // Check persistent index -- skip if already indexed (WI-F06)
-            let alreadyPersisted = store.isBookIndexed(
+        // Check persistent index — skip if already indexed (WI-F06)
+        let alreadyPersisted = store.isBookIndexed(
+            fingerprintKey: fingerprint.canonicalKey
+        )
+        let inMemoryIndexed = await service.isIndexed(fingerprint: fingerprint)
+        let alreadyIndexed = alreadyPersisted || inMemoryIndexed
+
+        if alreadyIndexed {
+            // Restore persisted segment offsets for valid locators (bug #61)
+            if let offsets = store.getSegmentBaseOffsets(
                 fingerprintKey: fingerprint.canonicalKey
-            )
-            let inMemoryIndexed = await service.isIndexed(fingerprint: fingerprint)
-            let alreadyIndexed = alreadyPersisted || inMemoryIndexed
-
-            if alreadyIndexed {
-                // Restore persisted segment offsets so search results have valid
-                // locators without re-indexing. (bug #61)
-                if let offsets = store.getSegmentBaseOffsets(
-                    fingerprintKey: fingerprint.canonicalKey
-                ) {
-                    await service.restoreSegmentOffsets(
-                        fingerprint: fingerprint,
-                        offsets: offsets
-                    )
-                }
-            } else {
-                // Defer indexing to background (WI-F05)
-                let coordinator = BackgroundIndexingCoordinator(
-                    searchService: service
-                )
-                await Self.enqueueBookIndexing(
-                    coordinator: coordinator,
-                    store: store,
-                    fileURL: fileURL,
+            ) {
+                await service.restoreSegmentOffsets(
                     fingerprint: fingerprint,
-                    format: format
+                    offsets: offsets
                 )
-                // Re-trigger search if user typed a query while indexing
-                vm.retriggerIfNeeded()
             }
-        } catch {
-            Self.logger.error("Search setup failed: \(error.localizedDescription)")
+        } else {
+            // Defer indexing to background (WI-F05)
+            let coordinator = BackgroundIndexingCoordinator(
+                searchService: service
+            )
+            await Self.enqueueBookIndexing(
+                coordinator: coordinator,
+                store: store,
+                fileURL: fileURL,
+                fingerprint: fingerprint,
+                format: format
+            )
+            // Re-trigger search if user typed a query while indexing
+            searchViewModel?.retriggerIfNeeded()
         }
     }
 

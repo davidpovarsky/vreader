@@ -38,6 +38,42 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-03-21 | bug #101 | Imported 2000+ book sources but list empty and search button grey — BookSource records may not persist or UI not refreshing after import
+
+2026-03-21 | bug #92 | AI only reads book title, not selected section — AIContextExtractor may not receive current locator or loaded text
+2026-03-21 | bug #93 | Chat sessions not persisted — multi-turn history lost on panel dismiss or book close
+2026-03-21 | bug #94 | Keyboard cannot be dismissed while chatting — AIChatView input field missing dismiss gesture
+2026-03-21 | bug #95 | "Translate" opens AI Summarize panel instead of translation — wrong tab/view presented from readerTranslateRequested
+2026-03-21 | bug #96 | TTS produces no sound and no error indication — AVSpeechSynthesizer may fail silently (no audio route, empty text, or system error)
+2026-03-21 | bug #97 | TTS control bar overlaps bottom bar — TTSControlBar z-order or spacing conflict with reader bottom overlay
+
+> 2026-03-21 | NEEDS-INFO | "Does TTS work for all languages?" — System TTS supports languages installed on device. HTTP TTS depends on provider. Which language failed?
+> 2026-03-21 | feature #40 | TTS sentence highlighting — highlight current sentence/word while TTS reads. Not implemented
+> 2026-03-21 | feature #41 | TTS auto-scroll/paginate — scroll content to follow TTS reading position. Not implemented
+> 2026-03-21 | DUPLICATE OF bug #89 | Books still slow to open — already tracked
+> 2026-03-21 | bug #98 | Text Transforms (simp/trad or replacement rules) fail — transform not applied or crashes
+> 2026-03-21 | bug #99 | Search results not highlighted in some TXT files — highlight navigation may fail for specific encoding/chunking edge cases
+> 2026-03-21 | bug #100 | Book source cannot be saved — BookSource persistence or UI save action broken
+
+> 2026-03-21 | DUPLICATE OF bug #72 | Library nav bar appears during loading — already tracked and FIXED
+> 2026-03-21 | bug #87 | PDF highlights still visible after deletion — readerHighlightRemoved handler missing in PDFReaderContainerView
+> 2026-03-21 | NEEDS-INFO | "Is it normal for annotations to be exported as JSON?" — Yes, JSON is one of two export formats (Markdown + JSON). Is there a specific issue?
+> 2026-03-21 | bug #88 | Exported annotations not highlighted when imported — import restores DB records but doesn't refresh visual highlights in reader
+> 2026-03-21 | bug #89 | Books still slow to open — may be regression or remaining startup overhead after bug #64 fix
+> 2026-03-21 | bug #90 | AI buttons visible when consent is off — AIReaderAvailability doesn't check consent; buttons should hide or show consent prompt
+> 2026-03-21 | bug #91 | Blank panel when tapping Translate without AI configured — no guard for missing API key/consent before opening AI panel
+
+2026-03-21 | bug #85 | Cannot add books to collections — no UI to assign books to a collection. CollectionSidebar can create/delete but not add books
+2026-03-21 | bug #86 | Tags never shown — LibraryView passes allTags:[] to CollectionSidebar. No UI to add tags to books. PersistenceActor.addTag exists but unwired
+
+2026-03-21 | bug #79 | Search panel still slow to open — deferred setup (bug #64) adds visible delay when search sheet opens
+2026-03-21 | bug #80 | Cannot set custom book cover — PhotosPicker in context menu not working
+2026-03-21 | bug #81 | Tap zones do nothing in native mode — center/left/right taps unresponsive after TapZoneOverlay removal (#70)
+
+> 2026-03-21 | feature #39 | Custom background image for reader — never implemented, only solid colors/themes exist
+> 2026-03-21 | DUPLICATE OF feature #37 | Per-book font size affects all books — per-book settings not implemented
+> 2026-03-21 | DUPLICATE OF feature #12 | TXT files without TOC — TXT TOC generation never implemented
+
 2026-03-21 | bug #77 | Cannot add highlight in native EPUB — regression of feature #11 (EPUB highlighting)
 2026-03-21 | bug #78 | Highlight visual persists after deletion — removal doesn't clear rendered highlight
 

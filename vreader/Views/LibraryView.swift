@@ -41,6 +41,7 @@ struct LibraryView: View {
     @State private var booksWithUpdates: Set<String> = []
     @State private var coverPickerItem: PhotosPickerItem?
     @State private var bookForCover: LibraryBookItem?
+    @State private var isShowingCoverPicker = false
     /// Incremented when a custom cover is set or removed, to force card/row views to reload.
     @State private var coverVersion: Int = 0
     let syncMonitor: SyncStatusMonitor?
@@ -187,13 +188,16 @@ struct LibraryView: View {
                 }
             }
             .photosPicker(
-                isPresented: .init(
-                    get: { bookForCover != nil },
-                    set: { if !$0 { bookForCover = nil } }
-                ),
+                isPresented: $isShowingCoverPicker,
                 selection: $coverPickerItem,
                 matching: .images
             )
+            // Present picker after bookForCover is set (waits for context menu dismiss). (bug #80)
+            .onChange(of: bookForCover) { _, newBook in
+                if newBook != nil {
+                    isShowingCoverPicker = true
+                }
+            }
             .onChange(of: coverPickerItem) { _, newItem in
                 guard let item = newItem, let book = bookForCover else { return }
                 Task {
@@ -204,6 +208,7 @@ struct LibraryView: View {
                     }
                     coverPickerItem = nil
                     bookForCover = nil
+                    isShowingCoverPicker = false
                 }
             }
         }

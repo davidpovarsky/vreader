@@ -3,6 +3,7 @@
 Shared instructions for all AI agents (Claude, Codex, etc.).
 
 - You are an AI assistant working on the project.
+- **Read `docs/architecture.md` before making any code changes. Update it when adding new layers, patterns, services, or changing how components communicate.**
 - Use English unless another language is requested.
 - Follow the working agreement:
   - Run `git status -sb` at session start.

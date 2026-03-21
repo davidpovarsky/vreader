@@ -1,123 +1,131 @@
-# V2 Manual Test Checklist
+# Manual Test Checklist
 
-Test on device after each phase. Check off as verified.
+Test on device. Check off as verified. BLOCKED section at the bottom has known bugs — skip until fixed.
 
-## Phase 0 — Foundation
+## Library
 
-- [ ] Large TXT file (~15MB) opens in under 2s
-- [ ] Second open of same book skips indexing (instant search available)
-- [ ] Search works after reopening a previously indexed book
-- [ ] ReadingMode toggle appears in settings (Native / Unified)
-- [ ] Unified mode shows placeholder for EPUB (Phase B replaces this)
-- [ ] PDF ignores Unified setting (always Native)
-
-## Phase A — Quick Wins
-
-- [ ] Search results bold/highlight the query term in snippets
-- [ ] Multi-word query highlights each word independently
-- [ ] Long-press book → "Set Cover" → pick photo → cover appears in library
-- [ ] Long-press book → "Remove Cover" → reverts to default
-- [ ] Tap left zone → previous page action fires (no-op until Phase B pagination)
-- [ ] Tap center zone → toggles toolbar
-- [ ] Tap right zone → next page action fires
-- [ ] Settings → enable custom background → pick image → shows behind reader text
-- [ ] Background opacity slider works
-- [ ] Per-book settings toggle → change font size → only affects this book
-- [ ] Other books still use global settings
-
-## Phase B — Reader Core
-
-### TXT TOC (B01)
-- [ ] Open TXT file with Chinese chapters (第一章...) → TOC populated
-- [ ] Open TXT file with English chapters (Chapter 1...) → TOC populated
-- [ ] Tap TOC entry → navigates to correct position
-- [ ] TXT file without chapters → empty TOC (no crash)
-
-### Dictionary (B02)
-- [ ] Select word in TXT → edit menu shows "Define" and "Translate"
-- [ ] Tap "Define" → system dictionary sheet opens
-- [ ] Tap "Translate" → AI translation panel opens with selected text
-
-### TTS (B03)
-- [ ] Tap speaker icon in toolbar → TTS starts reading
-- [ ] TTS control bar appears at bottom (play/pause, stop, speed slider)
-- [ ] Pause → resume works
-- [ ] Speed slider changes reading speed
-- [ ] Stop → control bar hides
-- [ ] TTS button hidden for PDF (no .tts capability)
-
-### Native EPUB Paged (B06)
-- [ ] Settings → EPUB Layout → Paged
-- [ ] EPUB renders as pages (no vertical scroll)
-- [ ] Tap right zone → next page
-- [ ] Tap left zone → previous page
-- [ ] Switch back to Scroll → continuous scroll restored
-
-### Native TXT/MD Paged (B08)
-- [ ] Paged layout mode → TXT shows as pages
-- [ ] Page navigation via tap zones works
-
-### Native PDF Page Nav (B09)
-- [ ] Tap right zone → next PDF page
-- [ ] Tap left zone → previous PDF page
-- [ ] At last page → right tap is no-op
-- [ ] At first page → left tap is no-op
-
-### Unified TXT Engine (B04)
-- [ ] Settings → Engine: Unified → TXT file renders via TextKit 2
-- [ ] Scroll mode → continuous scroll works
-- [ ] Paged mode → pages display correctly
-- [ ] Font size change → pages recalculate
-- [ ] Switch back to Native → original UITextView renderer
-- [ ] Reading position preserved across mode switch
-- [ ] CJK text renders correctly
-
-### Unified MD (B05)
-- [ ] Unified mode → MD file renders via TextKit 2
-- [ ] Attributed text (bold, italic, headings) preserved
-
-### Unified EPUB (B07)
-- [ ] Simple EPUB → renders in Unified engine
-- [ ] Complex EPUB (tables/math) → falls back to Native WKWebView
-
-### Auto Page Turn (B10)
-- [ ] Enable auto page → pages turn automatically at set interval
-
-### Page Turn Animations (B11)
-- [ ] Slide animation → page slides horizontally
-- [ ] Cover animation → page cover-flips
-- [ ] None → instant page switch
-
-### Pagination Cache (B13)
-- [ ] Change font size while paged → pages recalculate immediately
-- [ ] Rotate device → pages recalculate for new viewport
-
-## Phase C — Library
-
-- [ ] Create collection → add books → collection appears in library
+- [x] Sort order persists across app restart
+- [x] View mode (grid/list) persists across restart
+- [x] Long-press book → "Set Cover" → pick photo → cover appears
+- [x] Long-press book → "Remove Cover" → reverts to default
+- [x] Long-press book → Info sheet shows metadata
+- [x] Long-press book → Share works
+- [ ] Create collection → add books → collection appears
 - [ ] Tag books → filter by tag
-- [ ] Export annotations → Markdown file with highlights + notes
-- [ ] Import annotations → highlights restored from file
-- [ ] Add OPDS catalog URL → browse available books
+- [ ] Add OPDS catalog URL → browse books
 - [ ] Download book from OPDS → appears in library
 
-## Phase D — Web Content (Book Source)
+## Reader — Chrome & Navigation
 
-- [ ] Import Legado source JSON → source appears in list
-- [ ] Search via source → book results displayed
-- [ ] Tap book → info page with chapters
-- [ ] Tap chapter → content loads and displays
-- [ ] Chapters cached for offline reading
-- [ ] Close and reopen → cached chapters load instantly
-- [ ] Enable/disable source → affects search results
+- [x] Content scrolls normally in native mode
+- [x] Tap center → toggles toolbar
+- [x] Chrome toggle doesn't shift content
+- [x] Top bar below Dynamic Island, matches bottom bar styling
+- [ ] Library nav bar hidden during push transition
+- [x] Reading progress bar visible and draggable
+- [x] Bookmark button → haptic feedback + bookmark saved
+- [x] Annotations tab order: Contents → Bookmarks → Highlights → Notes
 
-## Phase E — Sync & Text
+## Reader — TOC
 
-- [ ] WebDAV backup → creates archive on server
-- [ ] WebDAV restore → data recovered
-- [ ] iCloud backup → data syncs
-- [ ] Toggle Simp→Trad → Chinese text converts in reader
+- [x] EPUB 3 nav.xhtml → real chapter titles (not "Section N")
+- [x] EPUB 2 toc.ncx → real chapter titles
+- [x] MD file → headings appear as TOC entries
+- [x] TOC entries show indentation by level
+- [x] Tap TOC entry → navigates to correct position
+
+## Reader — Highlights & Annotations
+
+- [x] TXT: select text → Highlight/Add Note in edit menu
+- [x] PDF: select text → highlight annotation
+- [ ] Delete highlight from panel → visual clears
+- [x] Highlights visible on file reopen
+- [ ] Export annotations → Markdown file
+- [ ] Import annotations → highlights restored
+
+## Reader — Dictionary & Translation
+
+- [x] Select word → "Define" → system dictionary sheet
+- [ ] Select word → "Translate" → AI translation panel
+
+## Reader — AI
+
+- [x] AI button visible when API key configured
+- [ ] Summarize section → summary returned
+- [x] Chat with book → multi-turn conversation works
+- [x] General AI chat (from library) → works without book context
+
+## Reader — TTS
+
+- [ ] Tap speaker icon → TTS starts reading
+- [ ] Control bar: play/pause, stop, speed slider
+- [x] TTS button hidden for PDF
+
+## Reader — Text Transforms
+
+- [ ] Toggle Simp→Trad → Chinese text converts
 - [ ] Toggle Trad→Simp → converts back
-- [ ] Highlights/search still work after text conversion
-- [ ] Add replacement rule → text cleaned in reader
-- [ ] HTTP TTS → cloud voice reads text
+- [ ] Add replacement rule → text cleaned
+- [ ] Highlights/search still work after transforms
+
+## Reader — Performance
+
+- [ ] Large TXT (\~15MB) opens in under 2s
+- [ ] Search panel opens instantly
+- [ ] Second open skips indexing
+- [ ] AI/search/TOC only load when invoked
+
+## Reader — Search
+
+- [x] Search results show with query terms highlighted
+- [x] Tap result → navigates to correct location
+- [ ] Search highlight auto-clears on next action
+
+## Book Sources (#24)
+
+- [ ] Import Legado source JSON → source appears
+- [ ] Search via source → results displayed
+- [ ] Tap chapter → content loads
+- [ ] Chapters cached for offline reading
+
+## Sync
+
+- [ ] WebDAV backup → archive on server
+- [ ] WebDAV restore → data recovered
+- [ ] HTTP TTS → cloud voice reads
+
+---
+
+## BLOCKED — Known Bugs / Missing UI (skip until fixed)
+
+### Paged Mode (bug #82)
+
+- [ ] Settings → paged layout → content paginates (not scrolls)
+- [ ] Page turn animations (slide/cover/none)
+- [ ] Auto page turn at configurable interval
+
+### TXT TOC (bug #83)
+
+- [ ] TXT with Chinese chapters (第一章) → TOC populated
+- [ ] TXT with English chapters (Chapter 1) → TOC populated
+
+### EPUB Highlights (bug #77)
+
+- [ ] EPUB: select text → highlight confirmation dialog
+
+### Per-Book Settings (feature #37, bug #84)
+
+- [ ] Toggle "Custom settings for this book" → only affects this book
+
+### Tap Zone Settings (feature #25 — no settings UI)
+
+- [ ] Configurable in settings (left/center/right actions)
+
+### Theme Background Image (feature #32 — no image picker UI)
+
+- [ ] Pick background image from photos
+
+### iCloud Backup (feature #10 — not implemented)
+
+- [ ] iCloud backup and restore
+

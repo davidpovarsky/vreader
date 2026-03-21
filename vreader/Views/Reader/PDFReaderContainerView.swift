@@ -33,32 +33,32 @@ struct PDFReaderContainerView: View {
     let viewModel: PDFReaderViewModel
     var modelContainer: ModelContainer?
 
-    @State private var password: String = ""
-    @State private var submittedPassword: String?
-    @State private var passwordAttemptId: Int = 0
-    @State private var restoredPage: Int?
-    @State private var readingProgress: Double = 0
-    @Environment(\.dismiss) private var dismiss
+    @State var password: String = ""
+    @State var submittedPassword: String?
+    @State var passwordAttemptId: Int = 0
+    @State var restoredPage: Int?
+    @State var readingProgress: Double = 0
+    @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
     @State private var isChromeVisible = true
     /// Pending PDF text selection event for highlight action menu.
-    @State private var pendingSelectionEvent: ReaderSelectionEvent?
+    @State var pendingSelectionEvent: ReaderSelectionEvent?
     /// Whether the highlight action sheet is visible.
     @State private var showHighlightSheet = false
     /// Saved highlights to restore as visible annotations when the document loads.
-    @State private var savedHighlightRecords: [HighlightRecord]?
+    @State var savedHighlightRecords: [HighlightRecord]?
     /// Pending highlight to create as a visible annotation after persist.
-    @State private var pendingHighlightPayload: PDFHighlightNotificationPayload?
+    @State var pendingHighlightPayload: PDFHighlightNotificationPayload?
     /// Incremented each time a new highlight is persisted, triggers updateUIView.
-    @State private var pendingHighlightId: Int = 0
+    @State var pendingHighlightId: Int = 0
     /// Whether the note input sheet is visible.
-    @State private var showNoteSheet = false
+    @State var showNoteSheet = false
     /// Phase R4: highlight renderer and coordinator.
     @State private var highlightRenderer = PDFHighlightRenderer()
-    @State private var highlightCoordinator: HighlightCoordinator?
+    @State var highlightCoordinator: HighlightCoordinator?
     /// Text input for the note being added.
-    @State private var noteText = ""
+    @State var noteText = ""
     /// Temporary search highlight text quote for navigating to search results (bug #43).
     /// Set when receiving .readerNavigateToLocator with textQuote, cleared after display.
     @State private var searchHighlightText: String?
@@ -256,234 +256,5 @@ struct PDFReaderContainerView: View {
         .accessibilityIdentifier("pdfReaderContainer")
     }
 
-    // MARK: - Overlays
-
-    @ViewBuilder
-    private var passwordOverlay: some View {
-        Color.black.opacity(0.4)
-            .ignoresSafeArea()
-        PDFPasswordPromptView(
-            password: $password,
-            errorMessage: viewModel.errorMessage,
-            onSubmit: {
-                passwordAttemptId += 1
-                submittedPassword = password
-            },
-            onCancel: {
-                dismiss()
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var loadingOverlay: some View {
-        Color(.systemBackground).opacity(0.9)
-            .ignoresSafeArea()
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Loading\u{2026}")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityIdentifier("pdfReaderLoading")
-    }
-
-    private func errorOverlay(message: String) -> some View {
-        ZStack {
-            Color(.systemBackground).opacity(0.9)
-                .ignoresSafeArea()
-            VStack(spacing: 16) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
-                Text(message)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-            }
-            .accessibilityIdentifier("pdfReaderError")
-        }
-    }
-
-    @ViewBuilder
-    private var progressBar: some View {
-        ReadingProgressBar(
-            progress: $readingProgress,
-            onSeek: { seekValue in
-                let targetPage = PDFProgressHelper.pageForSeekValue(
-                    seekValue: seekValue, totalPages: viewModel.totalPages
-                )
-                restoredPage = targetPage
-                viewModel.pageDidChange(to: targetPage)
-            },
-            discreteSteps: PDFProgressHelper.discreteSteps(totalPages: viewModel.totalPages),
-            isVisible: PDFProgressHelper.shouldShowProgressBar(
-                isDocumentLoaded: viewModel.isDocumentLoaded,
-                totalPages: viewModel.totalPages
-            ),
-            label: PDFProgressHelper.pageLabel(
-                currentPageIndex: viewModel.currentPageIndex,
-                totalPages: viewModel.totalPages
-            )
-        )
-        .accessibilityIdentifier("pdfReadingProgressBar")
-    }
-
-    @ViewBuilder
-    private var bottomOverlay: some View {
-        HStack {
-            Text(viewModel.pageIndicator)
-                .font(.caption)
-                .monospacedDigit()
-                .accessibilityLabel("Page \(viewModel.currentPageIndex + 1) of \(viewModel.totalPages)")
-                .accessibilityIdentifier("pdfPageIndicator")
-
-            Spacer()
-
-            if let sessionTime = viewModel.sessionTimeDisplay {
-                Text(sessionTime)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("pdfSessionTime")
-            }
-
-            if let pph = viewModel.pagesPerHour {
-                Text("~\(Int(pph.rounded())) pages/hr")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("pdfPagesPerHour")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.regularMaterial)
-        .accessibilityIdentifier("pdfBottomOverlay")
-    }
-
-    // MARK: - Highlight Actions
-
-    /// Phase R4b: delegates to coordinator (persists → renderer.apply() with real ID).
-    private func handleHighlightAction(
-        event: ReaderSelectionEvent,
-        container: ModelContainer
-    ) {
-        let locator = viewModel.makeCurrentLocator()
-
-        if let coordinator = highlightCoordinator {
-            Task {
-                await coordinator.create(
-                    locator: locator,
-                    anchor: event.anchor,
-                    selectedText: event.selectedText,
-                    color: "yellow"
-                )
-            }
-        } else {
-            // Fallback: direct persistence + bridge-driven create if coordinator not ready
-            let persistence = PersistenceActor(modelContainer: container)
-            Task {
-                try? await persistence.addHighlight(
-                    locator: locator, anchor: event.anchor,
-                    selectedText: event.selectedText, color: "yellow",
-                    note: nil, toBookWithKey: viewModel.bookFingerprintKey
-                )
-            }
-            pendingHighlightPayload = PDFHighlightNotificationPayload(
-                anchor: event.anchor, color: "yellow"
-            )
-            pendingHighlightId += 1
-        }
-        pendingSelectionEvent = nil
-    }
-
-    // MARK: - Note Input Sheet
-
-    @ViewBuilder
-    private var pdfNoteInputSheet: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                if let event = pendingSelectionEvent {
-                    Text(event.selectedText)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                }
-                TextEditor(text: $noteText)
-                    .frame(minHeight: 100)
-                    .padding(.horizontal)
-                    .accessibilityIdentifier("pdfNoteTextEditor")
-                Spacer()
-            }
-            .padding(.top)
-            .navigationTitle("Add Note")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        showNoteSheet = false
-                        pendingSelectionEvent = nil
-                    }
-                    .accessibilityIdentifier("pdfNoteCancelButton")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") {
-                        guard let event = pendingSelectionEvent,
-                              let container = modelContainer else {
-                            showNoteSheet = false
-                            return
-                        }
-                        handleHighlightWithNote(
-                            event: event,
-                            container: container,
-                            note: noteText.isEmpty ? nil : noteText
-                        )
-                        showNoteSheet = false
-                    }
-                    .accessibilityIdentifier("pdfNoteSaveButton")
-                }
-            }
-        }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
-    }
-
-    /// Phase R4b: delegates to coordinator for highlight with note.
-    private func handleHighlightWithNote(
-        event: ReaderSelectionEvent,
-        container: ModelContainer,
-        note: String?
-    ) {
-        let locator = viewModel.makeCurrentLocator()
-
-        if let coordinator = highlightCoordinator {
-            Task {
-                await coordinator.create(
-                    locator: locator,
-                    anchor: event.anchor,
-                    selectedText: event.selectedText,
-                    color: "yellow",
-                    note: note
-                )
-            }
-        } else {
-            let persistence = PersistenceActor(modelContainer: container)
-            Task {
-                try? await persistence.addHighlight(
-                    locator: locator, anchor: event.anchor,
-                    selectedText: event.selectedText, color: "yellow",
-                    note: note, toBookWithKey: viewModel.bookFingerprintKey
-                )
-            }
-            pendingHighlightPayload = PDFHighlightNotificationPayload(
-                anchor: event.anchor, color: "yellow"
-            )
-            pendingHighlightId += 1
-        }
-        pendingSelectionEvent = nil
-    }
 }
 #endif

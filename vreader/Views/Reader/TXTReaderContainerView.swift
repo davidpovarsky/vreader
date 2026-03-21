@@ -1,28 +1,9 @@
-// Purpose: SwiftUI container for the TXT reader. Composes the TXTTextViewBridge
-// (small files) or TXTChunkedReaderBridge (large files) with loading/error overlays.
-// When layout is .paged (and file is small), uses NativeTextPagedView instead of scroll.
-//
-// Key decisions:
-// - Owns TXTReaderViewModel lifecycle (open on appear, close on disappear).
-// - Delegates scroll/selection events from bridge to ViewModel.
-// - Shows loading spinner during file open.
-// - Shows error message on failure.
-// - Passes theme config to bridge (font size, line spacing).
-// - Builds NSAttributedString on a background thread to avoid blocking the main
-//   thread for large files. The bridge receives the pre-built attributed string.
-// - Files over `largeFileThreshold` UTF-16 code units use chunked rendering
-//   (UITableView) to avoid TextKit 1 glyph storage blowup.
-// - Paged mode (B08): small files use NativeTextPageNavigator + NativeTextPagedView.
-//   Large/chunked files always use scroll mode (too expensive to paginate).
-// - AutoPageTurner (B10): wired when autoPageTurn is enabled + paged layout.
-// - PageTurnAnimator (B11): animation style from settingsStore.pageTurnAnimation.
-// - Phase R3: shared UI state (highlights, pagination, progress) lives in TextReaderUIState.
+// Purpose: SwiftUI container for the TXT reader. Composes TXTTextViewBridge
+// (small files) or TXTChunkedReaderBridge (large files) with paged/scroll modes.
 //
 // @coordinates-with: TXTReaderViewModel.swift, TXTTextViewBridge.swift,
-//   TXTChunkedReaderBridge.swift, TXTTextChunker.swift, TXTAttributedStringBuilder.swift,
-//   ReadingProgressBar.swift, ScrollProgressHelper.swift,
-//   NativeTextPageNavigator.swift, NativeTextPagedView.swift,
-//   AutoPageTurner.swift, PageTurnAnimator.swift, TextReaderUIState.swift
+//   TXTChunkedReaderBridge.swift, TXTReaderContainerView+Helpers.swift,
+//   TextReaderUIState.swift, HighlightCoordinator.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -46,7 +27,7 @@ struct TXTReaderContainerView: View {
     // MARK: - TXT-Specific State
 
     /// Pre-built attributed string for small files, constructed off the main thread.
-    @State private var preparedAttrString: NSAttributedString?
+    @State var preparedAttrString: NSAttributedString?
     /// True while the attributed string is being built for the first time.
     /// Subsequent rebuilds (e.g., settings changes) keep old content visible.
     @State private var isBuildingInitialAttrString = false
@@ -57,16 +38,16 @@ struct TXTReaderContainerView: View {
     /// Captured scroll position for one-shot restore. Set once after file opens.
     /// Using @State breaks the observation cycle that caused bug #15/#17:
     /// reading viewModel.currentOffsetUTF16 in body created a feedback loop.
-    @State private var initialRestoreOffset: Int?
+    @State var initialRestoreOffset: Int?
 
     // MARK: - Shared UI State (Phase R3) + Highlight Coordination (Phase R4)
 
-    @State private var uiState = TextReaderUIState()
-    @State private var highlightRenderer: TextHighlightRenderer?
-    @State private var highlightCoordinator: HighlightCoordinator?
+    @State var uiState = TextReaderUIState()
+    @State var highlightRenderer: TextHighlightRenderer?
+    @State var highlightCoordinator: HighlightCoordinator?
 
     /// Whether paged mode is active (small file + paged layout preference).
-    private var isPagedMode: Bool {
+    var isPagedMode: Bool {
         settingsStore?.epubLayout == .paged && !isLargeFile
     }
 
@@ -279,26 +260,6 @@ struct TXTReaderContainerView: View {
         .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
     }
 
-    // MARK: - Notification Dependencies
-
-    private func makeNotificationDeps() -> ReaderNotificationDeps {
-        let container = modelContainer
-        return ReaderNotificationDeps(
-            bookFingerprintKey: viewModel.bookFingerprintKey,
-            bookFingerprint: viewModel.bookFingerprint,
-            bookmarkPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpBookmarkStore(),
-            highlightPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpHighlightStore(),
-            annotationPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpAnnotationStore(),
-            locatorFactory: { fp, start, end, text in
-                LocatorFactory.txtRange(fingerprint: fp, charRangeStartUTF16: start, charRangeEndUTF16: end, sourceText: text)
-            },
-            sourceText: { [viewModel] in viewModel.textContent },
-            makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
-            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) },
-            hapticFeedback: HapticFeedbackProvider()
-        )
-    }
-
     // MARK: - Subviews
 
     @ViewBuilder
@@ -373,75 +334,5 @@ struct TXTReaderContainerView: View {
         .accessibilityIdentifier("txtReaderContent")
     }
 
-    @ViewBuilder
-    private func chunkedReaderContent(chunks: [String], offsets: [Int]) -> some View {
-        let chunkIdx = Self.chunkIndex(for: initialRestoreOffset ?? 0, in: offsets)
-        let intraFraction: CGFloat? = {
-            guard let idx = chunkIdx, let offset = initialRestoreOffset else { return nil }
-            let chunkStart = offsets[idx]
-            let nextStart = idx + 1 < offsets.count ? offsets[idx + 1] : viewModel.totalTextLengthUTF16
-            let chunkLen = nextStart - chunkStart
-            guard chunkLen > 0 else { return nil }
-            return CGFloat(offset - chunkStart) / CGFloat(chunkLen)
-        }()
-
-        TXTChunkedReaderBridge(
-            chunks: chunks,
-            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-            restoreChunkIndex: chunkIdx,
-            restoreIntraChunkOffset: intraFraction,
-            delegate: viewModel,
-            chunkStartOffsets: offsets,
-            scrollToOffset: uiState.scrollToOffset,
-            highlightRange: uiState.highlightRange,
-            highlightIsTemporary: uiState.highlightIsTemporary,
-            persistedHighlights: uiState.persistedHighlightRanges
-        )
-        .ignoresSafeArea(edges: .bottom)
-        .accessibilityIdentifier("txtReaderChunkedContent")
-    }
-
-    /// Finds the chunk index containing the given character offset.
-    static func chunkIndex(for charOffset: Int, in offsets: [Int]) -> Int? {
-        guard charOffset > 0, !offsets.isEmpty else { return nil }
-        var lo = 0, hi = offsets.count - 1
-        while lo < hi {
-            let mid = (lo + hi + 1) / 2
-            if offsets[mid] <= charOffset {
-                lo = mid
-            } else {
-                hi = mid - 1
-            }
-        }
-        return lo
-    }
-
-    // MARK: - Highlight Coordinator (Phase R4)
-
-    /// Fallback coordinator used before the real one is initialized in .task.
-    private func makeNoOpCoordinator() -> HighlightCoordinator {
-        let renderer = highlightRenderer ?? TextHighlightRenderer(uiState: uiState)
-        return HighlightCoordinator(
-            renderer: renderer,
-            persistence: NoOpHighlightStore(),
-            bookFingerprintKey: viewModel.bookFingerprintKey
-        )
-    }
-
-    // MARK: - Paged Mode Helpers (B08, B10)
-
-    /// Creates or updates the page navigator when entering paged mode.
-    private func updatePaginationIfNeeded() {
-        uiState.updatePagination(
-            isPagedMode: isPagedMode,
-            attributedText: preparedAttrString,
-            initialRestoreOffset: initialRestoreOffset,
-            autoPageTurnEnabled: settingsStore?.autoPageTurn ?? false,
-            autoPageTurnInterval: settingsStore?.autoPageTurnInterval ?? 5.0
-        )
-        if let offset = uiState.syncPagedState() {
-            viewModel.updateScrollPosition(charOffsetUTF16: offset)
-        }
-    }
 }
 #endif

@@ -83,6 +83,18 @@ final class SearchService: SearchProviding, @unchecked Sendable {
         self.store = store
     }
 
+    /// Restores segment offsets from persistence without re-indexing. (bug #61)
+    func restoreSegmentOffsets(
+        fingerprint: DocumentFingerprint,
+        offsets: [Int: Int]
+    ) {
+        let key = fingerprint.canonicalKey
+        state.withLock { s in
+            s.segmentOffsets[key] = offsets
+            s.indexedKeys.insert(key)
+        }
+    }
+
     func indexBook(
         fingerprint: DocumentFingerprint,
         textUnits: [TextUnit],

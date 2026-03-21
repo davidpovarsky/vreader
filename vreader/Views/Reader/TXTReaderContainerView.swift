@@ -288,6 +288,10 @@ struct TXTReaderContainerView: View {
             pendingAnnotationInfo: $pendingAnnotationInfo,
             annotationNoteText: $annotationNoteText
         )
+        // Re-fetch persisted highlights when one is deleted (bug #78)
+        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { _ in
+            refreshPersistedHighlights()
+        }
         .accessibilityIdentifier("txtReaderContainer")
         .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
     }
@@ -310,6 +314,24 @@ struct TXTReaderContainerView: View {
             onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) },
             hapticFeedback: HapticFeedbackProvider()
         )
+    }
+
+    /// Re-fetches persisted highlight ranges from DB after deletion (bug #78).
+    private func refreshPersistedHighlights() {
+        guard let container = modelContainer else { return }
+        Task {
+            let persistence = PersistenceActor(modelContainer: container)
+            if let records = try? await persistence.fetchHighlights(
+                forBookWithKey: viewModel.bookFingerprintKey
+            ) {
+                persistedHighlightRanges = records.compactMap { record in
+                    guard let start = record.locator.charRangeStartUTF16,
+                          let end = record.locator.charRangeEndUTF16,
+                          end > start else { return nil }
+                    return NSRange(location: start, length: end - start)
+                }
+            }
+        }
     }
 
     // MARK: - Subviews

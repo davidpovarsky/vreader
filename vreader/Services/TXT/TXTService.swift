@@ -27,7 +27,21 @@ actor TXTService: TXTServiceProtocol {
         // Use mappedIfSafe to avoid copying entire file into heap memory
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
 
-        guard let (text, encoding) = Self.decodeText(data) else {
+        // Phase 1: Detect encoding from 8KB sample (fast — avoids scanning full
+        // 15MB file with wrong encodings like UTF-8 on a GBK file). (bug #60)
+        let hintName = Self.detectEncodingFromSample(data)
+        let text: String
+        let detectedEncoding: String
+
+        if let hintEnc = Self.encodingFromName(hintName),
+           let decoded = String(data: data, encoding: hintEnc) {
+            text = decoded
+            detectedEncoding = hintName
+        } else if let (decoded, enc) = Self.decodeText(data) {
+            // Fallback to full detection if sample hint was wrong
+            text = decoded
+            detectedEncoding = enc
+        } else {
             throw TXTServiceError.decodingFailed(
                 "Could not decode the file with any supported encoding"
             )
@@ -35,12 +49,15 @@ actor TXTService: TXTServiceProtocol {
 
         _isOpen = true
 
+        // Phase 2: Defer word count to background (bug #60)
+        let wordCount = await Task.detached { Self.countWords(text) }.value
+
         return TXTFileMetadata(
             text: text,
             fileByteCount: Int64(data.count),
-            detectedEncoding: encoding,
+            detectedEncoding: detectedEncoding,
             totalTextLengthUTF16: text.utf16.count,
-            totalWordCount: Self.countWords(text)
+            totalWordCount: wordCount
         )
     }
 
@@ -225,6 +242,23 @@ actor TXTService: TXTServiceProtocol {
             }
         }
         return count
+    }
+
+    /// Maps a human-readable encoding name back to a String.Encoding.
+    /// Reverse of `encodingName(_:)`. Returns nil for unknown names.
+    static func encodingFromName(_ name: String) -> String.Encoding? {
+        switch name {
+        case "UTF-8": return .utf8
+        case "UTF-16": return .utf16
+        case "ISO-8859-1": return .isoLatin1
+        case "Windows-1252": return .windowsCP1252
+        case "EUC-JP": return .japaneseEUC
+        case "Shift_JIS": return .shiftJIS
+        case "GBK": return gbkEncoding
+        case "Big5": return big5Encoding
+        case "EUC-KR": return eucKREncoding
+        default: return nil
+        }
     }
 
     /// Maps a String.Encoding to a human-readable name.

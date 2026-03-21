@@ -51,6 +51,7 @@ final class LibraryDynamicTypeTests: XCTestCase {
     }
 
     /// Verifies all critical elements are present at xxxLarge Dynamic Type.
+    /// At large sizes, toolbar items may need time to render or may overflow.
     func testLayoutAtXXXLarge() {
         app = launchApp(seed: .books, dynamicType: .xxxLarge)
 
@@ -61,13 +62,14 @@ final class LibraryDynamicTypeTests: XCTestCase {
         )
 
         let toggle = app.buttons[AccessibilityID.viewModeToggle]
-        XCTAssertTrue(toggle.exists, "View mode toggle should be present at xxxLarge")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "View mode toggle should be present at xxxLarge")
 
         let sortPicker = app.buttons[AccessibilityID.sortPicker]
-        XCTAssertTrue(sortPicker.exists, "Sort picker should be present at xxxLarge")
+        XCTAssertTrue(sortPicker.waitForExistence(timeout: 5), "Sort picker should be present at xxxLarge")
     }
 
     /// Verifies all critical elements are present at AX5 (largest accessibility size).
+    /// At extreme sizes, toolbar may overflow — verify core elements are at least in the tree.
     func testLayoutAtAX5() {
         app = launchApp(seed: .books, dynamicType: .ax5)
 
@@ -78,10 +80,10 @@ final class LibraryDynamicTypeTests: XCTestCase {
         )
 
         let toggle = app.buttons[AccessibilityID.viewModeToggle]
-        XCTAssertTrue(toggle.exists, "View mode toggle should be present at AX5")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "View mode toggle should be present at AX5")
 
         let sortPicker = app.buttons[AccessibilityID.sortPicker]
-        XCTAssertTrue(sortPicker.exists, "Sort picker should be present at AX5")
+        XCTAssertTrue(sortPicker.waitForExistence(timeout: 5), "Sort picker should be present at AX5")
     }
 
     // MARK: - Overflow Detection

@@ -71,6 +71,36 @@ struct TapZoneConfigTests {
     @Test func actionAllCases() { #expect(TapAction.allCases.count == 4) }
 }
 
+// MARK: - TapZoneModifier tests (bug #63)
+// Verifies that the modifier exposes a bottomInset parameter so taps in the
+// bottom control zone pass through to the progress bar Slider.
+@Suite("TapZoneModifier")
+struct TapZoneModifierTests {
+    @Test func defaultBottomInsetIs100() {
+        // Default must match the actual height of progress bar (~60pt) + bottom overlay (~36pt)
+        let modifier = TapZoneModifier(config: .default)
+        #expect(modifier.bottomInset == 100)
+    }
+
+    @Test func customBottomInsetIsStored() {
+        let modifier = TapZoneModifier(config: .default, bottomInset: 150)
+        #expect(modifier.bottomInset == 150)
+    }
+
+    @Test func zeroBottomInsetIsAllowed() {
+        // Zero means no exclusion zone — full area is tappable
+        let modifier = TapZoneModifier(config: .default, bottomInset: 0)
+        #expect(modifier.bottomInset == 0)
+    }
+
+    @Test func configIsPreservedInModifier() {
+        let custom = TapZoneConfig(leftAction: .toggleChrome, centerAction: .none, rightAction: .none)
+        let modifier = TapZoneModifier(config: custom)
+        #expect(modifier.config.leftAction == .toggleChrome)
+        #expect(modifier.config.centerAction == .none)
+    }
+}
+
 @Suite("TapZoneStore")
 @MainActor
 struct TapZoneStoreTests {

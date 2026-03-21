@@ -102,7 +102,8 @@ struct VReaderApp: App {
             self.contentView = ContentView(
                 viewModel: LibraryViewModel(
                     persistence: persistence,
-                    importer: importer
+                    importer: importer,
+                    preferenceStore: UserDefaultsPreferenceStore()
                 ),
                 syncMonitor: syncMonitor
             )

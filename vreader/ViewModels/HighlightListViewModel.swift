@@ -103,6 +103,11 @@ final class HighlightListViewModel {
             try await store.removeHighlight(highlightId: highlightId)
             highlights.removeAll { $0.highlightId == highlightId }
             outOfBoundsHighlightIds.remove(highlightId)
+            // Notify reader to clear the visual highlight immediately (bug #78)
+            NotificationCenter.default.post(
+                name: .readerHighlightRemoved,
+                object: highlightId.uuidString
+            )
         } catch {
             errorMessage = "Failed to remove highlight."
         }

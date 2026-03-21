@@ -34,7 +34,7 @@ final class LibraryEmptyStateTests: XCTestCase {
         XCTAssertTrue(title.exists, "Empty state title should be visible")
 
         // Description text
-        let description = app.staticTexts["Import books to start reading. Supports EPUB, PDF, and TXT formats."]
+        let description = app.staticTexts["Import books to start reading. Supports EPUB, PDF, TXT, and Markdown formats."]
         XCTAssertTrue(description.exists, "Empty state description should be visible")
 
         // Import button

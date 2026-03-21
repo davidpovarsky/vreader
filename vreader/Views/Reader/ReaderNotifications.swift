@@ -49,6 +49,10 @@ extension Notification.Name {
     /// Posted by text view bridges when the user selects "Translate" from the edit menu.
     /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
     static let readerTranslateRequested = Notification.Name("vreader.readerTranslateRequested")
+    /// Posted by HighlightListViewModel when a highlight is deleted from the annotations panel.
+    /// The notification's `object` is the highlight UUID string. (bug #78)
+    /// Reader containers observe this to remove the visual highlight immediately.
+    static let readerHighlightRemoved = Notification.Name("vreader.readerHighlightRemoved")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

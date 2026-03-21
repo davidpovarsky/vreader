@@ -18,8 +18,8 @@ import UniformTypeIdentifiers
 
 /// Tabs for the annotations panel.
 enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
-    case bookmarks = "Bookmarks"
     case toc = "Contents"
+    case bookmarks = "Bookmarks"
     case highlights = "Highlights"
     case annotations = "Notes"
 
@@ -46,7 +46,7 @@ struct AnnotationsPanelView: View {
     let onNavigate: (Locator) -> Void
     let onDismiss: () -> Void
 
-    @State private var selectedTab: AnnotationsPanelTab = .bookmarks
+    @State private var selectedTab: AnnotationsPanelTab = .toc
     @State private var bookmarkVM: BookmarkListViewModel?
     @State private var highlightVM: HighlightListViewModel?
     @State private var annotationVM: AnnotationListViewModel?

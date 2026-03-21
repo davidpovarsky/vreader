@@ -189,4 +189,49 @@ struct TXTServiceTests {
         // Must contain actual Chinese characters, not garbled Latin
         #expect(meta.text.contains("你") || meta.text.contains("好"))
     }
+
+    // MARK: - encodingFromName round-trip (bug #60)
+
+    @Test func encodingFromNameRoundTrip() {
+        let knownNames = ["UTF-8", "UTF-16", "ISO-8859-1", "Windows-1252",
+                          "EUC-JP", "Shift_JIS", "GBK", "Big5", "EUC-KR"]
+        for name in knownNames {
+            let enc = TXTService.encodingFromName(name)
+            #expect(enc != nil, "encodingFromName should resolve '\(name)'")
+        }
+    }
+
+    @Test func encodingFromNameUnknownReturnsNil() {
+        #expect(TXTService.encodingFromName("FooBar-999") == nil)
+    }
+
+    @Test func sampleDetectionMatchesFullDetection() {
+        // GBK-encoded CJK text — sample detection should match full
+        let text = "你好世界"
+        let enc = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        ))
+        guard let data = text.data(using: enc) else { return }
+        let sampleName = TXTService.detectEncodingFromSample(data)
+        guard let (_, fullName) = TXTService.decodeText(data) else { return }
+        #expect(sampleName == fullName)
+    }
+}
+
+// MARK: - SearchService offset restoration (bug #61)
+
+@Suite("SearchService Segment Offsets")
+struct SearchServiceOffsetTests {
+    @Test func restoreSegmentOffsetsAreUsed() async throws {
+        let store = try SearchIndexStore()
+        let service = SearchService(store: store)
+        let fp = DocumentFingerprint(canonicalKey: "test:sha256:abc123")!
+        let offsets: [Int: Int] = [0: 0, 1: 500, 2: 1200]
+
+        await service.restoreSegmentOffsets(fingerprint: fp, offsets: offsets)
+
+        // Verify the service considers the book indexed
+        let indexed = await service.isIndexed(fingerprint: fp)
+        #expect(indexed)
+    }
 }

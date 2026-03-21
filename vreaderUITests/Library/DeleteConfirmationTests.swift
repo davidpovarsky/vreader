@@ -35,17 +35,23 @@ final class DeleteConfirmationTests: XCTestCase {
     }
 
     /// Finds the first book row element in list mode.
+    /// SwiftUI List items may appear as buttons or cells depending on iOS version.
     private func findFirstRow() -> XCUIElement? {
-        // In SwiftUI List, NavigationLink items appear as buttons with bookRow_ identifiers
         let rowPredicate = NSPredicate(format: "identifier BEGINSWITH 'bookRow_'")
-        let row = app.buttons.matching(rowPredicate).firstMatch
-        return row.waitForExistence(timeout: 5) ? row : nil
+        // Try buttons first (iOS 17), then cells (iOS 18+/26)
+        let buttonRow = app.buttons.matching(rowPredicate).firstMatch
+        if buttonRow.waitForExistence(timeout: 5) { return buttonRow }
+        let cellRow = app.cells.matching(rowPredicate).firstMatch
+        if cellRow.waitForExistence(timeout: 3) { return cellRow }
+        return nil
     }
 
     /// Returns the count of book rows in the library.
     private func bookRowCount() -> Int {
         let rowPredicate = NSPredicate(format: "identifier BEGINSWITH 'bookRow_'")
-        return app.buttons.matching(rowPredicate).count
+        let buttonCount = app.buttons.matching(rowPredicate).count
+        if buttonCount > 0 { return buttonCount }
+        return app.cells.matching(rowPredicate).count
     }
 
     // MARK: - Context Menu Delete (Grid Mode)
@@ -217,10 +223,11 @@ final class DeleteConfirmationTests: XCTestCase {
         // Wait for alert to dismiss
         _ = alert.waitForDisappearance(timeout: 3)
 
-        // Verify the specific deleted row no longer exists
-        let deletedRow = app.buttons[deletedIdentifier]
+        // Verify the specific deleted row no longer exists (check both buttons and cells)
+        let deletedButton = app.buttons[deletedIdentifier]
+        let deletedCell = app.cells[deletedIdentifier]
         XCTAssertTrue(
-            deletedRow.waitForDisappearance(timeout: 5),
+            deletedButton.waitForDisappearance(timeout: 5) && deletedCell.waitForDisappearance(timeout: 3),
             "Deleted book row should no longer exist"
         )
     }

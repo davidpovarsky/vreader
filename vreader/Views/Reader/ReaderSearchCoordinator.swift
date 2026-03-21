@@ -52,7 +52,18 @@ final class ReaderSearchCoordinator {
             let inMemoryIndexed = await service.isIndexed(fingerprint: fingerprint)
             let alreadyIndexed = alreadyPersisted || inMemoryIndexed
 
-            if !alreadyIndexed {
+            if alreadyIndexed {
+                // Restore persisted segment offsets so search results have valid
+                // locators without re-indexing. (bug #61)
+                if let offsets = store.getSegmentBaseOffsets(
+                    fingerprintKey: fingerprint.canonicalKey
+                ) {
+                    await service.restoreSegmentOffsets(
+                        fingerprint: fingerprint,
+                        offsets: offsets
+                    )
+                }
+            } else {
                 // Defer indexing to background (WI-F05)
                 let coordinator = BackgroundIndexingCoordinator(
                     searchService: service

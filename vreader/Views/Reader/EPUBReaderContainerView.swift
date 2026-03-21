@@ -209,6 +209,11 @@ struct EPUBReaderContainerView: View {
                 }
             }
         }
+        // Remove highlight visual when deleted from annotations panel (bug #78)
+        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
+            guard let idString = notification.object as? String else { return }
+            pendingHighlightJS = EPUBHighlightBridge.removeHighlightJS(id: idString)
+        }
         .confirmationDialog(
             "Text Selection",
             isPresented: $showHighlightSheet,

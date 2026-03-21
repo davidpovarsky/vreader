@@ -9,7 +9,7 @@
 // - DocumentFingerprint parsed from the canonical key string.
 // - Format host views (TXTReaderHost, etc.) extracted to ReaderFormatHosts.swift (WI-004).
 // - AnnotationsPanelView extracted to AnnotationsPanelView.swift (WI-004).
-// - Provides navigation bar with back button, search, bookmark, annotations, AI, settings.
+// - Custom chrome overlay (ReaderChromeBar) replaces system nav bar for stable content layout.
 // - TOC entries computed per format: EPUB from spine items, PDF from outline tree, TXT from Legado rules.
 // - Search sheet wired with SearchService, SearchViewModel, and SearchView.
 // - Book content is indexed for search on first open using format-specific extractors.
@@ -23,9 +23,9 @@
 //
 // - ThemeBackgroundView shown behind reader content when useCustomBackground is ON.
 //
-// @coordinates-with: ReaderFormatHosts.swift, AnnotationsPanelView.swift,
-//   ReaderSettingsStore.swift, ReaderSettingsPanel.swift, DocumentFingerprint.swift,
-//   SearchView.swift, ThemeBackgroundView.swift,
+// @coordinates-with: ReaderChromeBar.swift, ReaderFormatHosts.swift,
+//   AnnotationsPanelView.swift, ReaderSettingsStore.swift, ReaderSettingsPanel.swift,
+//   DocumentFingerprint.swift, SearchView.swift, ThemeBackgroundView.swift,
 //   ReaderAICoordinator.swift, ReaderSearchCoordinator.swift,
 //   ReaderUnifiedCoordinator.swift, ReaderTOCBuilder.swift
 
@@ -84,12 +84,20 @@ struct ReaderContainerView: View {
                         && resolvedBookFormat.capabilities.contains(.unifiedReflow) {
                         unifiedReaderView(fingerprint: fingerprint)
                     } else {
+                        // Native mode: tap handling lives in each UIKit bridge
+                        // (UITapGestureRecognizer with shouldRecognizeSimultaneously).
+                        // Do NOT add a SwiftUI overlay — it blocks scroll gestures. (bug #70)
                         nativeReaderView(fingerprint: fingerprint)
-                            .tapZoneOverlay(config: tapZoneStore.config)
                     }
                 } else {
                     fingerprintErrorView
                 }
+            }
+
+            // Custom chrome overlay — floats on top of content, never changes layout. (bug #62 v3)
+            if isChromeVisible {
+                readerChromeOverlay
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             // TTS control bar at the bottom (WI-B03)
@@ -105,21 +113,14 @@ struct ReaderContainerView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isChromeVisible.toggle()
-            }
+            toggleChrome()
         }
         .accessibilityAction(named: isChromeVisible ? "Hide toolbar" : "Show toolbar") {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isChromeVisible.toggle()
-            }
+            toggleChrome()
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(isChromeVisible ? .visible : .hidden, for: .navigationBar)
-        .toolbarColorScheme(settingsStore.theme.preferredColorScheme, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(!isChromeVisible)
-        .ignoresSafeArea(edges: isChromeVisible ? [] : [.top])
-        .toolbar { toolbarContent }
+        .ignoresSafeArea(edges: .top)
         .sheet(isPresented: $showAIPanel) { aiSheet }
         .onReceive(NotificationCenter.default.publisher(for: .readerDefineRequested)) { notification in
             guard let info = notification.object as? TextSelectionInfo else { return }
@@ -130,7 +131,7 @@ struct ReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerTranslateRequested)) { notification in
             guard let info = notification.object as? TextSelectionInfo else { return }
-            resolvedAICoordinator.setupIfNeeded()
+            ensureAIReady()
             if let transVM = resolvedAICoordinator.translationViewModel {
                 transVM.originalText = info.selectedText
             }
@@ -139,74 +140,28 @@ struct ReaderContainerView: View {
         .sheet(isPresented: $showDictionary) {
             DictionarySheet(word: dictionaryWord)
         }
-        .task {
-            resolvedAICoordinator.setupIfNeeded()
+        // AI setup + text loading deferred until AI/TTS is invoked (bug #64)
+        .onChange(of: showAIPanel) { _, isShowing in
+            if isShowing { ensureAIReady() }
         }
-        .task {
-            // Use shared cache for AI text loading when format supports it
-            let format = book.format.lowercased()
-            if format == "txt" || format == "md" {
-                if let text = await contentCache.getText(for: resolvedFileURL, format: format) {
-                    resolvedAICoordinator.loadedTextContent = text
-                    resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
-                } else {
-                    // Fallback for unsupported or empty content
-                    await resolvedAICoordinator.loadBookTextContent(
-                        fileURL: resolvedFileURL,
-                        format: format
-                    )
-                }
-            } else {
-                await resolvedAICoordinator.loadBookTextContent(
-                    fileURL: resolvedFileURL,
-                    format: format
-                )
+        .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
+            guard let locator = notification.object as? Locator else { return }
+            resolvedAICoordinator.currentLocator = locator
+            if resolvedAICoordinator.loadedTextContent != nil {
+                resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
             }
         }
+        // Replacement rules only needed for unified mode (bug #64)
         .task {
-            // Load replacement rules and configure text transforms for the unified coordinator.
-            let bookKey = book.fingerprintKey
-            let container = modelContext.container
-            let rules: [ReplacementRuleDescriptor] = await Task.detached {
-                let ctx = ModelContext(container)
-                let descriptor = FetchDescriptor<ContentReplacementRule>(
-                    sortBy: [SortDescriptor(\.order)]
-                )
-                let allRules = (try? ctx.fetch(descriptor)) ?? []
-                return allRules
-                    .filter { $0.enabled && ($0.scopeKey.isEmpty || $0.scopeKey == bookKey) }
-                    .map { ReplacementRuleDescriptor(
-                        pattern: $0.pattern,
-                        replacement: $0.replacement,
-                        isRegex: $0.isRegex,
-                        enabled: $0.enabled,
-                        order: $0.order
-                    ) }
-            }.value
-
-            var transforms: [any TextTransform] = []
-            if !rules.isEmpty {
-                transforms.append(ReplacementTransform(rules: rules))
-            }
-            // E04: Add SimpTrad transform if configured
-            if settingsStore.chineseConversion != .none {
-                transforms.append(SimpTradTransform(direction: settingsStore.chineseConversion))
-            }
-            unifiedCoordinator.activeTransforms = transforms
+            guard settingsStore.readingMode == .unified else { return }
+            await loadReplacementRules()
         }
         .onChange(of: settingsStore.chineseConversion) { _, newDirection in
-            // Re-apply transforms when Chinese conversion setting changes
             var transforms = unifiedCoordinator.activeTransforms.filter { !($0 is SimpTradTransform) }
             if newDirection != .none {
                 transforms.append(SimpTradTransform(direction: newDirection))
             }
             unifiedCoordinator.activeTransforms = transforms
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
-            guard let locator = notification.object as? Locator else { return }
-            resolvedAICoordinator.currentLocator = locator
-            // Update chat VM with extracted context around new position
-            resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
         }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel(
@@ -240,26 +195,13 @@ struct ReaderContainerView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .task {
-            guard let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
-                return
-            }
-            await searchCoordinator.setup(
-                fingerprint: fingerprint,
-                fileURL: resolvedFileURL,
-                format: book.format.lowercased()
-            )
+        // Search setup deferred until search sheet opens (bug #64)
+        .onChange(of: showSearch) { _, isShowing in
+            if isShowing { ensureSearchReady() }
         }
-        .task {
-            guard tocEntries.isEmpty,
-                  let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else {
-                return
-            }
-            tocEntries = await ReaderTOCFactory.buildTOC(
-                format: book.format.lowercased(),
-                fileURL: resolvedFileURL,
-                fingerprint: fingerprint
-            )
+        // TOC deferred until annotations panel opens (bug #64)
+        .onChange(of: showAnnotationsPanel) { _, isShowing in
+            if isShowing { ensureTOCReady() }
         }
     }
 
@@ -285,11 +227,22 @@ struct ReaderContainerView: View {
         return coordinator
     }
 
+    // MARK: - Chrome Toggle (bug #62 v3)
+
+    /// Toggles chrome overlay visibility. Content is pixel-stable because we use
+    /// a custom overlay (ReaderChromeBar) instead of the system nav bar.
+    private func toggleChrome() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isChromeVisible.toggle()
+        }
+    }
+
     // MARK: - TTS Integration (WI-B03)
 
     /// Starts or stops TTS read-aloud. If currently speaking, stops.
     /// Otherwise, loads text from the book file and starts speaking.
     private func startTTS() {
+        ensureAIReady()
         let ai = resolvedAICoordinator
         if ttsService.state != .idle {
             ttsService.stop()
@@ -353,6 +306,85 @@ struct ReaderContainerView: View {
         return UUID().uuidString
         #endif
     }()
+
+    // MARK: - Deferred Setup (bug #64)
+
+    /// Lazily sets up AI coordinator and loads book text for AI context.
+    private func ensureAIReady() {
+        let ai = resolvedAICoordinator
+        ai.setupIfNeeded()
+        guard ai.loadedTextContent == nil else { return }
+        Task {
+            let format = book.format.lowercased()
+            if format == "txt" || format == "md" {
+                if let text = await contentCache.getText(for: resolvedFileURL, format: format) {
+                    ai.loadedTextContent = text
+                    ai.chatViewModel?.bookContext = ai.currentTextContent
+                } else {
+                    await ai.loadBookTextContent(fileURL: resolvedFileURL, format: format)
+                }
+            } else {
+                await ai.loadBookTextContent(fileURL: resolvedFileURL, format: format)
+            }
+        }
+    }
+
+    /// Lazily sets up search coordinator and indexing.
+    private func ensureSearchReady() {
+        guard searchCoordinator.searchService == nil,
+              let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else { return }
+        Task {
+            await searchCoordinator.setup(
+                fingerprint: fingerprint,
+                fileURL: resolvedFileURL,
+                format: book.format.lowercased()
+            )
+        }
+    }
+
+    /// Lazily builds TOC entries.
+    private func ensureTOCReady() {
+        guard tocEntries.isEmpty,
+              let fingerprint = DocumentFingerprint(canonicalKey: book.fingerprintKey) else { return }
+        Task {
+            tocEntries = await ReaderTOCFactory.buildTOC(
+                format: book.format.lowercased(),
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint
+            )
+        }
+    }
+
+    /// Loads replacement rules for the unified coordinator.
+    private func loadReplacementRules() async {
+        let bookKey = book.fingerprintKey
+        let container = modelContext.container
+        let rules: [ReplacementRuleDescriptor] = await Task.detached {
+            let ctx = ModelContext(container)
+            let descriptor = FetchDescriptor<ContentReplacementRule>(
+                sortBy: [SortDescriptor(\.order)]
+            )
+            let allRules = (try? ctx.fetch(descriptor)) ?? []
+            return allRules
+                .filter { $0.enabled && ($0.scopeKey.isEmpty || $0.scopeKey == bookKey) }
+                .map { ReplacementRuleDescriptor(
+                    pattern: $0.pattern,
+                    replacement: $0.replacement,
+                    isRegex: $0.isRegex,
+                    enabled: $0.enabled,
+                    order: $0.order
+                ) }
+        }.value
+
+        var transforms: [any TextTransform] = []
+        if !rules.isEmpty {
+            transforms.append(ReplacementTransform(rules: rules))
+        }
+        if settingsStore.chineseConversion != .none {
+            transforms.append(SimpTradTransform(direction: settingsStore.chineseConversion))
+        }
+        unifiedCoordinator.activeTransforms = transforms
+    }
 
     // MARK: - Sheets & Placeholders
 
@@ -490,10 +522,9 @@ struct ReaderContainerView: View {
                     .tapZoneOverlay(config: tapZoneStore.config)
                 }
             } else if unifiedCoordinator.epubLoadComplete {
-                // EPUB has complex chapters — fall back to native WKWebView reader
-                // instead of showing a placeholder, so the user can still read.
+                // EPUB has complex chapters — fall back to native WKWebView reader.
+                // No tapZoneOverlay — WKWebView has its own JS click handler. (bug #70)
                 nativeReaderView(fingerprint: fingerprint)
-                    .tapZoneOverlay(config: tapZoneStore.config)
             } else {
                 ProgressView("Loading\u{2026}")
                     .task { await unifiedCoordinator.loadEPUBContent(fileURL: resolvedFileURL) }
@@ -527,78 +558,23 @@ struct ReaderContainerView: View {
         .accessibilityIdentifier("unsupportedFormatView")
     }
 
-    // MARK: - Toolbar
+    // MARK: - Custom Chrome Overlay (bug #62 v3)
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            .accessibilityLabel("Back to library")
-            .accessibilityIdentifier("readerBackButton")
-        }
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button {
-                showSearch = true
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-            .accessibilityLabel("Search in book")
-            .accessibilityIdentifier("readerSearchButton")
-
-            Button {
-                NotificationCenter.default.post(
-                    name: .readerBookmarkRequested, object: nil
-                )
-            } label: {
-                Image(systemName: "bookmark")
-            }
-            .accessibilityLabel("Add bookmark")
-            .accessibilityIdentifier("readerBookmarkButton")
-
-            Button {
-                showAnnotationsPanel = true
-            } label: {
-                Image(systemName: "list.bullet.rectangle")
-            }
-            .accessibilityLabel("Bookmarks and annotations")
-            .accessibilityIdentifier("readerAnnotationsButton")
-
-            if resolvedAICoordinator.isAIAvailable {
-                Button {
-                    showAIPanel = true
-                } label: {
-                    Image(systemName: "sparkles")
-                }
-                .accessibilityLabel("AI Assistant")
-                .accessibilityIdentifier("readerAIButton")
-            }
-
-            if resolvedBookFormat.capabilities.contains(.tts) {
-                Button {
-                    startTTS()
-                } label: {
-                    Image(systemName: ttsService.state == .idle
-                          ? "speaker.wave.2"
-                          : "speaker.wave.2.fill")
-                }
-                .accessibilityLabel(ttsService.state == .idle
-                                    ? "Read aloud"
-                                    : "TTS active")
-                .accessibilityIdentifier("readerTTSButton")
-            }
-
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "textformat.size")
-            }
-            .accessibilityLabel("Reading settings")
-            .accessibilityIdentifier("readerSettingsButton")
-        }
+    private var readerChromeOverlay: some View {
+        ReaderChromeBar(
+            onBack: { dismiss() },
+            onSearch: { showSearch = true },
+            onBookmark: {
+                NotificationCenter.default.post(name: .readerBookmarkRequested, object: nil)
+            },
+            onAnnotations: { showAnnotationsPanel = true },
+            onAI: resolvedAICoordinator.isAIAvailable ? { showAIPanel = true } : nil,
+            onTTS: resolvedBookFormat.capabilities.contains(.tts) ? { startTTS() } : nil,
+            onSettings: { showSettings = true },
+            backgroundColor: Color(settingsStore.theme.backgroundColor),
+            foregroundColor: Color(settingsStore.theme.textColor),
+            ttsActive: ttsService.state != .idle
+        )
     }
 
     // MARK: - AI Sheet

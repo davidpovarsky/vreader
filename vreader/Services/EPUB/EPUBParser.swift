@@ -74,8 +74,20 @@ actor EPUBParser: EPUBParserProtocol {
         let opfData = try Data(contentsOf: opfURL)
         let result = try Self.parseOPF(opfData)
 
+        // Parse nav/NCX for real TOC titles (bug #74)
+        let opfDirURL = opfURL.deletingLastPathComponent()
+        var metadata = result.metadata
+        let navTitles = Self.extractNavTitles(
+            navHref: result.navHref,
+            ncxHref: result.ncxHref,
+            opfDir: opfDirURL
+        )
+        if !navTitles.isEmpty {
+            metadata = metadata.withResolvedTitles(navTitles)
+        }
+
         _isOpen = true
-        return result.metadata
+        return metadata
     }
 
     func close() async {
@@ -133,6 +145,54 @@ actor EPUBParser: EPUBParserProtocol {
         }
     }
 
+    // MARK: - Nav / NCX Title Extraction (bug #74)
+
+    /// Extracts chapter titles from EPUB 3 nav.xhtml or EPUB 2 toc.ncx.
+    /// Returns a mapping of href → title. Empty if neither is available.
+    private static func extractNavTitles(
+        navHref: String?,
+        ncxHref: String?,
+        opfDir: URL
+    ) -> [String: String] {
+        // EPUB 3: nav.xhtml
+        if let href = navHref {
+            let url = opfDir.appendingPathComponent(href)
+            if let data = try? Data(contentsOf: url) {
+                let titles = parseNavXHTML(data)
+                if !titles.isEmpty { return titles }
+            }
+        }
+        // EPUB 2: toc.ncx
+        if let href = ncxHref {
+            let url = opfDir.appendingPathComponent(href)
+            if let data = try? Data(contentsOf: url) {
+                let titles = parseNCX(data)
+                if !titles.isEmpty { return titles }
+            }
+        }
+        return [:]
+    }
+
+    /// Parses EPUB 3 nav.xhtml for TOC entries.
+    /// Extracts <a href="...">title</a> from the <nav epub:type="toc"> element.
+    private static func parseNavXHTML(_ data: Data) -> [String: String] {
+        let delegate = NavXHTMLDelegate()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        _ = parser.parse()
+        return delegate.titles
+    }
+
+    /// Parses EPUB 2 toc.ncx for TOC entries.
+    /// Extracts navLabel/text + content@src from navPoint elements.
+    private static func parseNCX(_ data: Data) -> [String: String] {
+        let delegate = NCXDelegate()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        _ = parser.parse()
+        return delegate.titles
+    }
+
     // MARK: - container.xml Parsing
 
     /// Extracts the rootfile full-path from META-INF/container.xml.
@@ -154,6 +214,10 @@ actor EPUBParser: EPUBParserProtocol {
 
     struct OPFResult {
         let metadata: EPUBMetadata
+        /// Manifest href of the EPUB 3 nav document (properties="nav"), if any.
+        let navHref: String?
+        /// Manifest href of the EPUB 2 NCX file (spine toc attribute → manifest), if any.
+        let ncxHref: String?
     }
 
     private static func parseOPF(_ data: Data) throws -> OPFResult {
@@ -194,7 +258,16 @@ actor EPUBParser: EPUBParserProtocol {
             spineItems: spineItems
         )
 
-        return OPFResult(metadata: metadata)
+        // Detect nav/NCX references for TOC title extraction (bug #74)
+        let navHref = delegate.navItemHref
+        let ncxHref: String?
+        if let tocId = delegate.spineTocId, let href = delegate.manifest[tocId] {
+            ncxHref = href
+        } else {
+            ncxHref = nil
+        }
+
+        return OPFResult(metadata: metadata, navHref: navHref, ncxHref: ncxHref)
     }
 }
 
@@ -230,6 +303,10 @@ private final class OPFXMLDelegate: NSObject, XMLParserDelegate, @unchecked Send
     var spineIdrefs: [String] = []
     /// nav titles by href (populated if NCX/nav is found)
     var navTitles: [String: String] = [:]
+    /// EPUB 3 nav document href (manifest item with properties="nav"). (bug #74)
+    var navItemHref: String?
+    /// EPUB 2 NCX id from spine toc attribute. (bug #74)
+    var spineTocId: String?
 
     private var currentElement = ""
     private var currentText = ""
@@ -253,6 +330,10 @@ private final class OPFXMLDelegate: NSObject, XMLParserDelegate, @unchecked Send
         case "item":
             if let id = attributes["id"], let href = attributes["href"] {
                 manifest[id] = href
+                // EPUB 3: detect nav document (bug #74)
+                if let props = attributes["properties"], props.contains("nav") {
+                    navItemHref = href
+                }
             }
 
         case "itemref":
@@ -263,6 +344,10 @@ private final class OPFXMLDelegate: NSObject, XMLParserDelegate, @unchecked Send
         case "spine":
             if let dir = attributes["page-progression-direction"] {
                 direction = ReadingDirection(rawValue: dir)
+            }
+            // EPUB 2: NCX toc reference (bug #74)
+            if let tocId = attributes["toc"] {
+                spineTocId = tocId
             }
 
         default:
@@ -295,6 +380,129 @@ private final class OPFXMLDelegate: NSObject, XMLParserDelegate, @unchecked Send
         }
 
         currentText = ""
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+}
+
+// MARK: - EPUB 3 Nav XHTML Delegate (bug #74)
+
+/// Parses nav.xhtml to extract <a> elements inside <nav epub:type="toc">.
+private final class NavXHTMLDelegate: NSObject, XMLParserDelegate, @unchecked Sendable {
+    var titles: [String: String] = [:]
+
+    private var inTocNav = false
+    private var currentHref: String?
+    private var currentText = ""
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName: String?,
+        attributes: [String: String]
+    ) {
+        let local = elementName.components(separatedBy: ":").last ?? elementName
+        if local == "nav" {
+            let epubType = attributes["epub:type"] ?? attributes["type"] ?? ""
+            if epubType.contains("toc") {
+                inTocNav = true
+            }
+        }
+        if inTocNav && local == "a" {
+            currentHref = attributes["href"]
+            currentText = ""
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName: String?
+    ) {
+        let local = elementName.components(separatedBy: ":").last ?? elementName
+        if local == "nav" {
+            inTocNav = false
+        }
+        if inTocNav && local == "a" {
+            let title = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let href = currentHref, !title.isEmpty {
+                // Strip fragment identifier for matching against spine hrefs
+                let baseHref = href.components(separatedBy: "#").first ?? href
+                titles[baseHref] = title
+            }
+            currentHref = nil
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+}
+
+// MARK: - EPUB 2 NCX Delegate (bug #74)
+
+/// Parses toc.ncx to extract navPoint > navLabel > text + content@src.
+private final class NCXDelegate: NSObject, XMLParserDelegate, @unchecked Sendable {
+    var titles: [String: String] = [:]
+
+    private var inNavPoint = false
+    private var inNavLabel = false
+    private var currentSrc: String?
+    private var currentText = ""
+    private var pendingTitle: String?
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName: String?,
+        attributes: [String: String]
+    ) {
+        let local = elementName.components(separatedBy: ":").last ?? elementName
+        switch local {
+        case "navPoint":
+            inNavPoint = true
+            pendingTitle = nil
+            currentSrc = nil
+        case "navLabel":
+            if inNavPoint { inNavLabel = true; currentText = "" }
+        case "text":
+            if inNavLabel { currentText = "" }
+        case "content":
+            if inNavPoint, let src = attributes["src"] {
+                currentSrc = src.components(separatedBy: "#").first ?? src
+            }
+        default:
+            break
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName: String?
+    ) {
+        let local = elementName.components(separatedBy: ":").last ?? elementName
+        switch local {
+        case "text":
+            if inNavLabel {
+                pendingTitle = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        case "navLabel":
+            inNavLabel = false
+        case "navPoint":
+            if let title = pendingTitle, let src = currentSrc, !title.isEmpty {
+                titles[src] = title
+            }
+            inNavPoint = false
+        default:
+            break
+        }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {

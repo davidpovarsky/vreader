@@ -38,12 +38,40 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
-2026-03-15 | bug #56 | PDF crash after adding highlight and reopening — WI-008 restore flow may crash on reopen. Needs repro + crash log
-2026-03-15 | bug #57 | EPUB and TXT font sizes render differently at same setting value — font size settings implemented but inconsistent cross-format
-2026-03-15 | bug #58 | EPUB reading position only chapter-level, not intra-chapter — position save exists but loses scroll offset within chapter on reopen
-2026-03-15 | bug #59 | Gap between progress bar (WI-004) and bottom bar — layout/spacing UI bug
-2026-03-15 | feature #21 | Paginated reading mode with turnable pages — never implemented, currently scroll-only
-2026-03-15 | REOPENED bug #43 + feature #22 | "No highlighting in search results" — Two issues: (a) highlight at destination not working in TXT/EPUB/PDF = regression of bug #43; (b) search result list doesn't highlight matching text = new feature #22
+2026-03-21 | bug #77 | Cannot add highlight in native EPUB — regression of feature #11 (EPUB highlighting)
+2026-03-21 | bug #78 | Highlight visual persists after deletion — removal doesn't clear rendered highlight
+
+2026-03-21 | bug #76 | Annotations panel tab order — Contents (TOC) should be first, before Bookmarks
+
+2026-03-21 | bug #75 | Sort preference not remembered across restarts — regression of feature #6 (PreferenceStore)
+
+> 2026-03-21 | DUPLICATE OF feature #12 | TXT TOC not recognised — TXT TOC generation never implemented (forTXT returns empty)
+> 2026-03-21 | bug #74 | EPUB TOC shows "Section XXX" instead of real chapter titles — uses spine items instead of nav/NCX document
+> 2026-03-21 | feature #38 | Hierarchical/tree TOC display — currently flat list, user wants nested indented view
+
+> 2026-03-21 | DUPLICATE OF feature #21 | Paged mode still scrolls — paginated reading never implemented, setting is a placeholder
+
+2026-03-21 | bug #73 | Reader top bar hidden behind Dynamic Island — safe area inset zeroed by parent's ignoresSafeArea
+
+2026-03-21 | bug #71 | Reader top bar (ReaderChromeBar) looks ugly — buttons too small, styling inconsistent with bottom bar
+2026-03-21 | bug #72 | Library navigation bar still visible during reader loading transition
+
+2026-03-21 | REOPENED bug #62 | Content still shifts down when top bar reappears — v2 fix (constant ignoresSafeArea) didn't resolve it
+
+2026-03-21 | REOPENED bug #62 | Content shifts down when top bar appears — user re-reports after previous fix
+2026-03-21 | bug #70 | Cannot scroll content in native mode, all formats — TapZoneModifier overlay likely blocking scroll gestures
+
+2026-03-18 | bug #64 | All files and all formats are slow to load — V2 coordinator chain initialization adds overhead on every reader open
+2026-03-18 | bug #62 | Content shifts down when top bar reappears — layout reflow from toggling `.ignoresSafeArea(.top)` with `isChromeVisible`
+2026-03-18 | bug #63 | Progress bar unresponsive in Native mode — gesture conflict prevents scrubber drag and bar toggle
+
+> 2026-03-15 | bug #56 | PDF crash after adding highlight and reopening — WI-008 restore flow may crash on reopen. Needs repro + crash log
+> 2026-03-15 | bug #57 | EPUB and TXT font sizes render differently at same setting value — font size settings implemented but inconsistent cross-format
+> 2026-03-15 | bug #58 | EPUB reading position only chapter-level, not intra-chapter — position save exists but loses scroll offset within chapter on reopen
+> 2026-03-15 | bug #59 | Gap between progress bar (WI-004) and bottom bar — layout/spacing UI bug
+> 2026-03-15 | feature #21 | Paginated reading mode with turnable pages — never implemented, currently scroll-only
+> 2026-03-15 | REOPENED bug #43 + feature #22 | "No highlighting in search results" — Two issues: (a) highlight at destination not working in TXT/EPUB/PDF = regression of bug #43; (b) search result list doesn't highlight matching text = new feature #22
+
 > 2026-03-15 | DUPLICATE OF feature #6 (DONE) | Library display format/sorting not remembered — Feature #6 implemented in WI-001 with PreferenceStore. If still broken after latest build, this is a regression — please retest
 > 2026-03-15 | DUPLICATE OF feature #12 (DONE, MD only) | TXT TOC generation — D3 decision: TXT TOC deferred indefinitely (no reliable heading structure). MD TOC works via WI-005
 

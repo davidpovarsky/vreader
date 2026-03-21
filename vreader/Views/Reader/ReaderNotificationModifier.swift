@@ -73,6 +73,23 @@ struct ReaderNotificationModifier: ViewModifier {
                 pendingAnnotationInfo = info
                 annotationNoteText = ""
             }
+            // Re-fetch persisted highlights when one is deleted (bug #78, Phase R2)
+            .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { _ in
+                // Clear active highlight in case the deleted one is currently shown
+                highlightRange = nil
+                Task {
+                    if let records = try? await deps.highlightPersistence.fetchHighlights(
+                        forBookWithKey: deps.bookFingerprintKey
+                    ) {
+                        persistedHighlightRanges = records.compactMap { record in
+                            guard let start = record.locator.charRangeStartUTF16,
+                                  let end = record.locator.charRangeEndUTF16,
+                                  end > start else { return nil }
+                            return NSRange(location: start, length: end - start)
+                        }
+                    }
+                }
+            }
             .sheet(isPresented: .init(
                 get: { pendingAnnotationInfo != nil },
                 set: { if !$0 { pendingAnnotationInfo = nil } }

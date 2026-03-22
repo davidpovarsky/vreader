@@ -71,6 +71,17 @@ final class TTSService: NSObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        // Configure audio session for TTS playback (bug #96)
+        #if canImport(AVFoundation)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, options: [.duckOthers])
+            try session.setActive(true)
+        } catch {
+            // Non-fatal: TTS may still work on some devices without explicit session
+        }
+        #endif
+
         let clampedOffset = max(fromOffset, 0)
 
         // Validate offset is within text

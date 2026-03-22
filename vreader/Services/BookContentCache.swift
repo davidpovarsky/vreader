@@ -34,6 +34,15 @@ final class BookContentCache {
         let text: String? = await Task.detached {
             switch format.lowercased() {
             case "txt", "md":
+                // Use sample-based encoding detection to match TXTService decode path (bug #92)
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                    return nil
+                }
+                let hintName = TXTService.detectEncodingFromSample(data)
+                if let enc = TXTService.encodingFromName(hintName),
+                   let decoded = String(data: data, encoding: enc) {
+                    return decoded
+                }
                 return try? String(contentsOf: url, encoding: .utf8)
             default:
                 return nil

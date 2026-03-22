@@ -202,7 +202,8 @@ extension ReaderContainerView {
                 ),
                 textContent: ai.currentTextContent,
                 format: resolvedBookFormat,
-                onDismiss: { showAIPanel = false }
+                onDismiss: { showAIPanel = false; aiInitialTab = .summarize },
+                initialTab: aiInitialTab
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

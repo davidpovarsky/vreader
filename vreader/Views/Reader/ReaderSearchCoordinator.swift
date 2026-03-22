@@ -29,9 +29,10 @@ final class ReaderSearchCoordinator {
     /// then enqueues background indexing if the book is not already indexed.
     /// Lightweight setup: creates store + service + VM without indexing. (bug #79)
     /// Call on reader open so the search panel has a VM immediately when opened.
-    func prepareService(fingerprint: DocumentFingerprint) {
+    func prepareService(fingerprint: DocumentFingerprint) async {
         guard searchService == nil else { return }
         do {
+            // Open SQLite — makePersistentStore is MainActor-isolated but fast after first call (bug #89)
             let store = try Self.makePersistentStore()
             let service = SearchService(store: store)
             searchService = service
@@ -58,7 +59,7 @@ final class ReaderSearchCoordinator {
 
         // Ensure service exists (may already be created by prepareService)
         if searchService == nil {
-            prepareService(fingerprint: fingerprint)
+            await prepareService(fingerprint: fingerprint)
         }
         guard let service = searchService, let store = persistentStore else { return }
 

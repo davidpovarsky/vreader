@@ -46,6 +46,7 @@ struct ReaderContainerView: View {
     @State var showAnnotationsPanel = false
     @State var showSearch = false
     @State var showAIPanel = false
+    @State var aiInitialTab: AIReaderTab = .summarize
     @State private var showDictionary = false
     @State private var dictionaryWord: String = ""
     /// Controls whether the navigation bar chrome is visible. Tap content to toggle.
@@ -138,6 +139,7 @@ struct ReaderContainerView: View {
             if let transVM = resolvedAICoordinator.translationViewModel {
                 transVM.originalText = info.selectedText
             }
+            aiInitialTab = .translate // bug #95
             showAIPanel = true
         }
         .sheet(isPresented: $showDictionary) {
@@ -157,7 +159,7 @@ struct ReaderContainerView: View {
         // Pre-create search service+VM eagerly so search panel opens instantly (bug #79)
         .task {
             if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                searchCoordinator.prepareService(fingerprint: fp)
+                await searchCoordinator.prepareService(fingerprint: fp)
             }
         }
         // Replacement rules only needed for unified mode (bug #64)

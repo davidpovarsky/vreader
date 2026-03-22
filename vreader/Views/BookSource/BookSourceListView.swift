@@ -77,6 +77,7 @@ struct BookSourceListView: View {
                         if editingSource == nil {
                             modelContext.insert(saved)
                         }
+                        try? modelContext.save() // bug #100: explicit save
                         isShowingEditor = false
                     },
                     onCancel: {

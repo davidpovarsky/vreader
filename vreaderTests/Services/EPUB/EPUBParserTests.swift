@@ -359,8 +359,8 @@ struct EPUBParserURLPrefixTests {
 
     // MARK: - Cleanup
 
-    @Test("close removes extracted directory")
-    func closeRemovesExtractedDir() async throws {
+    @Test("close preserves persistent cache directory")
+    func closePreservesCacheDir() async throws {
         let epubURL = try ZIPBuilder.createZIP(entries: [
             .init(path: "META-INF/container.xml",
                   content: EPUBTemplate.containerXML(opfPath: "content.opf")),
@@ -379,7 +379,11 @@ struct EPUBParserURLPrefixTests {
 
         await parser.close()
 
-        #expect(!FileManager.default.fileExists(atPath: rootURL.path))
+        // PERF: Cache is now persistent — directory should STILL exist after close
+        #expect(FileManager.default.fileExists(atPath: rootURL.path),
+                "Persistent cache should survive close()")
+        // Clean up test cache
+        try? FileManager.default.removeItem(at: rootURL)
     }
 }
 

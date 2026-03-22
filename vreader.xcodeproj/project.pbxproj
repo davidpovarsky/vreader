@@ -459,6 +459,7 @@
 		C89BA415E1DB53FD1AF65604 /* PDFIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E22141BA785A9A62A4BE9A /* PDFIntegrationTests.swift */; };
 		C8AC5FD914F26F89DA69AA8C /* AIChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206F4BCC7294731E8A3A82DB /* AIChatViewModel.swift */; };
 		C8B22FD567407EEA30EF3BE7 /* WebDAVClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BC65A9901DDD4AC981E77E2 /* WebDAVClientTests.swift */; };
+		F5C562AE59FD6A2B923524AA /* TTSHighlightCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8BD6824D9945998A61EFB4 /* TTSHighlightCoordinator.swift */; };
 		C941DFD16C7CE7CF5ACC770D /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD36F5CC483659F962BFB3A /* TTSService.swift */; };
 		C9CBB4436EA4DDE7757EA3F4 /* TOCProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C65E5FD23C2800C87ADD82A /* TOCProvider.swift */; };
 		C9D2AE1A81222E67A05CA05C /* BackgroundIndexingCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0CDD04120BFF39B61E8418 /* BackgroundIndexingCoordinatorTests.swift */; };
@@ -504,6 +505,7 @@
 		DE92D6FD10FC38811A32D3F5 /* PageTurnAnimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB7EBD49DAE8D5F5BC4C7207 /* PageTurnAnimatorTests.swift */; };
 		DEA5FF1E01245842DB54B8D7 /* MarkdownExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0A4899D0F08DEDB20D068C /* MarkdownExportTests.swift */; };
 		DF36D73AC9B53845BF561CBC /* BookImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5160D7D68BF1AF6654AD08B6 /* BookImporter.swift */; };
+		6F32A23CC48EDCE28C65E792 /* TTSHighlightCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D450ACF0A0F47929E5916B26 /* TTSHighlightCoordinatorTests.swift */; };
 		DF587005A7C4257AD28C42A0 /* TTSServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A2FE9743AF484093A21969 /* TTSServiceTests.swift */; };
 		E03FE4F3997CC67281E84F1E /* ReadingSessionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41D94EE13466B0286DEA2EA7 /* ReadingSessionTracker.swift */; };
 		E057330B701161FF1AD06DB4 /* MockAnnotationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E10DBA312E3C1934B36E63 /* MockAnnotationStore.swift */; };
@@ -865,6 +867,7 @@
 		7A691D7600EDE0812CC1E6AD /* BookSourceSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceSearchView.swift; sourceTree = "<group>"; };
 		7A980DB0017049401DAB3E93 /* AnnotationListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationListViewModel.swift; sourceTree = "<group>"; };
 		7AAC0D3FD90694D3169DB775 /* MDReaderPlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDReaderPlaceholderTests.swift; sourceTree = "<group>"; };
+		FA8BD6824D9945998A61EFB4 /* TTSHighlightCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSHighlightCoordinator.swift; sourceTree = "<group>"; };
 		7BD36F5CC483659F962BFB3A /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		7BEF5735F2121D036A4877C4 /* TextTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextTransform.swift; sourceTree = "<group>"; };
 		7C0A7E77EFE308BC9CF8A3FE /* ErrorMessageAuditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorMessageAuditor.swift; sourceTree = "<group>"; };
@@ -932,6 +935,7 @@
 		9452FAFFDEBDF03FF6CCEBB1 /* MDParserProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDParserProtocol.swift; sourceTree = "<group>"; };
 		9509CC40145B03A66875390C /* chapter_list_paginated.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = chapter_list_paginated.html; sourceTree = "<group>"; };
 		9541B260A743177FAD2B96EE /* BookSourceChapterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceChapterListView.swift; sourceTree = "<group>"; };
+		D450ACF0A0F47929E5916B26 /* TTSHighlightCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSHighlightCoordinatorTests.swift; sourceTree = "<group>"; };
 		96A2FE9743AF484093A21969 /* TTSServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSServiceTests.swift; sourceTree = "<group>"; };
 		96BE19585BF1F4C8174F7219 /* HighlightRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightRecord.swift; sourceTree = "<group>"; };
 		96E10DBA312E3C1934B36E63 /* MockAnnotationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockAnnotationStore.swift; sourceTree = "<group>"; };
@@ -2044,6 +2048,7 @@
 				49624FC3C8E1AC31E011351C /* TOCBuilderTXTTests.swift */,
 				D83492717235FB856C8A06ED /* TOCProviderTests.swift */,
 				96A2FE9743AF484093A21969 /* TTSServiceTests.swift */,
+				D450ACF0A0F47929E5916B26 /* TTSHighlightCoordinatorTests.swift */,
 				0A2A16647F198641F11AC9C1 /* WCAGContrastTests.swift */,
 				D90CA6776A077CBDC255F35C /* AI */,
 				D18FC2F3DB2B1B40D884B7A1 /* Backup */,
@@ -2094,6 +2099,7 @@
 				5D3EF2FFB105C9E0DF1EDF51 /* SpeechSynthesizing.swift */,
 				6783D1629C54A25FE65C8705 /* TTSProviderProtocol.swift */,
 				7BD36F5CC483659F962BFB3A /* TTSService.swift */,
+				FA8BD6824D9945998A61EFB4 /* TTSHighlightCoordinator.swift */,
 			);
 			path = TTS;
 			sourceTree = "<group>";
@@ -2714,6 +2720,7 @@
 				5365C69DAECEFAE3481247B3 /* TOCBuilderTXTTests.swift in Sources */,
 				986AC8640BA33F3235A89D81 /* TOCProviderTests.swift in Sources */,
 				DF587005A7C4257AD28C42A0 /* TTSServiceTests.swift in Sources */,
+				6F32A23CC48EDCE28C65E792 /* TTSHighlightCoordinatorTests.swift in Sources */,
 				CA6CDE39A3E09EED5F14447A /* HTTPTTSProviderTests.swift in Sources */,
 				094D24D5B1E3CBF90739BE42 /* HTTPTTSConfigTests.swift in Sources */,
 				DC206C60545521442E0326E3 /* MockURLSession.swift in Sources */,
@@ -3011,6 +3018,7 @@
 				C9CBB4436EA4DDE7757EA3F4 /* TOCProvider.swift in Sources */,
 				F3958B26AAD50F2152E03AEB /* TTSControlBar.swift in Sources */,
 				C941DFD16C7CE7CF5ACC770D /* TTSService.swift in Sources */,
+				F5C562AE59FD6A2B923524AA /* TTSHighlightCoordinator.swift in Sources */,
 				F9D194A8FDD4F8155C3D6CD6 /* HTTPTTSConfig.swift in Sources */,
 				53B3E8A2D0A66FB2A9E968E3 /* HTTPTTSProvider.swift in Sources */,
 				2B6913E770A92CDDB1991B84 /* TTSProviderProtocol.swift in Sources */,

@@ -43,6 +43,8 @@ struct MDReaderContainerView: View {
     @State private var uiState = TextReaderUIState()
     @State private var highlightRenderer: TextHighlightRenderer?
     @State private var highlightCoordinator: HighlightCoordinator?
+    /// TTS sentence highlighting + auto-scroll coordinator (features #40, #41).
+    @State private var ttsHighlightCoordinator: TTSHighlightCoordinator?
 
     /// Whether paged mode is active.
     private var isPagedMode: Bool {
@@ -113,6 +115,21 @@ struct MDReaderContainerView: View {
                 )
                 highlightCoordinator = coordinator
                 await coordinator.restoreAll()
+            }
+            // Feature #40/#41: set up TTS highlight coordinator
+            if let tts = ttsService, let text = viewModel.renderedText {
+                let ttsCoord = TTSHighlightCoordinator(ttsService: tts, uiState: uiState)
+                ttsCoord.configure(text: text)
+                ttsHighlightCoordinator = ttsCoord
+            }
+        }
+        .onChange(of: ttsService?.currentOffsetUTF16) { _, newOffset in
+            guard let offset = newOffset else { return }
+            ttsHighlightCoordinator?.updateHighlight(offset: offset)
+        }
+        .onChange(of: ttsService?.state) { _, newState in
+            if newState != .speaking {
+                ttsHighlightCoordinator?.clearHighlight()
             }
         }
         .onDisappear {

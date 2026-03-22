@@ -46,6 +46,8 @@ struct TXTReaderContainerView: View {
     @State var uiState = TextReaderUIState()
     @State var highlightRenderer: TextHighlightRenderer?
     @State var highlightCoordinator: HighlightCoordinator?
+    /// TTS sentence highlighting + auto-scroll coordinator (features #40, #41).
+    @State var ttsHighlightCoordinator: TTSHighlightCoordinator?
 
     /// Whether paged mode is active (small file + paged layout preference).
     var isPagedMode: Bool {
@@ -141,6 +143,21 @@ struct TXTReaderContainerView: View {
                 )
                 highlightCoordinator = coordinator
                 await coordinator.restoreAll()
+            }
+            // Feature #40/#41: set up TTS highlight coordinator
+            if let tts = ttsService, let text = viewModel.textContent {
+                let ttsCoord = TTSHighlightCoordinator(ttsService: tts, uiState: uiState)
+                ttsCoord.configure(text: text)
+                ttsHighlightCoordinator = ttsCoord
+            }
+        }
+        .onChange(of: ttsService?.currentOffsetUTF16) { _, newOffset in
+            guard let offset = newOffset else { return }
+            ttsHighlightCoordinator?.updateHighlight(offset: offset)
+        }
+        .onChange(of: ttsService?.state) { _, newState in
+            if newState != .speaking {
+                ttsHighlightCoordinator?.clearHighlight()
             }
         }
         .task(id: attrStringKey) {

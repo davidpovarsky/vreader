@@ -12,22 +12,28 @@
 //
 // @coordinates-with: ReaderSettingsStore.swift, ReaderContainerView.swift
 
+import PhotosUI
 import SwiftUI
 
 /// Settings panel for reader appearance.
 struct ReaderSettingsPanel: View {
     @Bindable var store: ReaderSettingsStore
+    /// Tap zone configuration store (feature #25).
+    var tapZoneStore: TapZoneStore?
     /// Fingerprint key for the currently open book (nil if no per-book support).
     var bookFingerprintKey: String?
     /// Base URL for per-book settings storage.
     var perBookBaseURL: URL?
     /// Whether per-book settings are currently enabled for this book.
     @State private var isPerBookEnabled = false
+    /// Photo picker state for theme background (feature #32).
+    @State private var backgroundPickerItem: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
             List {
                 themeSection
+                themeBackgroundSection
                 readingModeSection
                 epubLayoutSection
                 if store.epubLayout == .paged {
@@ -39,6 +45,7 @@ struct ReaderSettingsPanel: View {
                 fontFamilySection
                 cjkSection
                 chineseConversionSection
+                if tapZoneStore != nil { tapZoneSection }
                 if bookFingerprintKey != nil { perBookSection }
                 previewSection
             }
@@ -53,6 +60,17 @@ struct ReaderSettingsPanel: View {
         .onChange(of: store.theme) { _, _ in syncPerBookIfEnabled() }
         .onChange(of: store.readingMode) { _, _ in syncPerBookIfEnabled() }
         .onChange(of: store.chineseConversion) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: backgroundPickerItem) { _, newItem in
+            guard let item = newItem else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    try? ThemeBackgroundStore.saveBackground(image, for: store.theme.rawValue)
+                    store.useCustomBackground = true
+                }
+                backgroundPickerItem = nil
+            }
+        }
         .accessibilityIdentifier("readerSettingsPanel")
     }
 
@@ -96,6 +114,41 @@ struct ReaderSettingsPanel: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(theme.rawValue) theme")
         .accessibilityAddTraits(store.theme == theme ? [.isSelected] : [])
+    }
+
+    // MARK: - Theme Background (A04, feature #32)
+
+    @ViewBuilder
+    private var themeBackgroundSection: some View {
+        Section {
+            Toggle("Custom Background", isOn: $store.useCustomBackground)
+                .accessibilityLabel("Custom background")
+
+            if store.useCustomBackground {
+                HStack {
+                    Text("Opacity")
+                    Slider(value: $store.backgroundOpacity, in: 0.05...1, step: 0.05)
+                        .accessibilityLabel("Background opacity")
+                    Text("\(Int(store.backgroundOpacity * 100))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .frame(width: 36)
+                }
+
+                PhotosPicker(selection: $backgroundPickerItem, matching: .images) {
+                    Label("Choose Image", systemImage: "photo.on.rectangle")
+                }
+                .accessibilityLabel("Choose background image")
+
+                Button(role: .destructive) {
+                    ThemeBackgroundStore.removeBackground(for: store.theme.rawValue)
+                    store.useCustomBackground = false
+                } label: {
+                    Label("Remove Background", systemImage: "trash")
+                }
+                .accessibilityLabel("Remove background image")
+            }
+        }
     }
 
     // MARK: - Reading Mode
@@ -277,6 +330,43 @@ struct ReaderSettingsPanel: View {
             Text("Convert Chinese text between Simplified and Traditional scripts.")
                 .font(.caption)
         }
+    }
+
+    // MARK: - Tap Zones (A03, feature #25)
+
+    @ViewBuilder
+    private var tapZoneSection: some View {
+        if let zoneStore = tapZoneStore {
+            Section {
+                tapZonePicker("Left Zone", action: Binding(
+                    get: { zoneStore.config.leftAction },
+                    set: { zoneStore.config.leftAction = $0 }
+                ))
+                tapZonePicker("Center Zone", action: Binding(
+                    get: { zoneStore.config.centerAction },
+                    set: { zoneStore.config.centerAction = $0 }
+                ))
+                tapZonePicker("Right Zone", action: Binding(
+                    get: { zoneStore.config.rightAction },
+                    set: { zoneStore.config.rightAction = $0 }
+                ))
+            } header: {
+                Text("Tap Zones")
+            } footer: {
+                Text("Choose what happens when you tap each area of the screen.")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func tapZonePicker(_ label: String, action: Binding<TapAction>) -> some View {
+        Picker(label, selection: action) {
+            Text("Previous Page").tag(TapAction.previousPage)
+            Text("Next Page").tag(TapAction.nextPage)
+            Text("Toggle Toolbar").tag(TapAction.toggleChrome)
+            Text("None").tag(TapAction.none)
+        }
+        .accessibilityLabel(label)
     }
 
     // MARK: - Per-Book Settings (A05)

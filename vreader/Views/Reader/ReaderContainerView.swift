@@ -190,6 +190,7 @@ struct ReaderContainerView: View {
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel(
                 store: settingsStore,
+                tapZoneStore: tapZoneStore,
                 bookFingerprintKey: book.fingerprintKey,
                 perBookBaseURL: Self.perBookSettingsBaseURL
             )

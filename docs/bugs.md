@@ -46,12 +46,6 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
-### Bug #72 — Library navigation bar visible during reader loading transition
-- **Repro**: Tap any book in library → observe toolbar flash during push transition
-- **Expected**: Clean transition with no library toolbar visible
-- **Actual**: Library toolbar still briefly visible during reader push
-- **Attempted fixes**: v1 `.toolbar(.hidden)` on reader; v2 NavigationPath tracking — neither fully eliminates the flash
-
 ### Bug #88 — Imported annotations not visually highlighted
 - **Repro**: Import annotations JSON, check if highlights are rendered in reader
 - **Expected**: Imported highlights visible in the reader
@@ -135,7 +129,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 69 | PDF reader placeholder not appearing in UI test                                                       | PDF/*     | Medium   | FIXED    | PDF reader fully implemented; tests now verify pdfReaderContainer instead of stale placeholder                                                                                                     |
 | 70 | Cannot scroll content in native mode — all formats                                                    | Reader/*  | High     | FIXED    | Removed `.tapZoneOverlay()` from native path — bridges already handle taps via UITapGestureRecognizer                                                                                              |
 | 71 | Reader top bar looks ugly — buttons small, inconsistent with bottom bar                               | Reader/*  | Medium   | FIXED    | 44pt height, 20pt icons, 44x44 touch targets, theme backgroundColor at 0.92 opacity — matches bottom bar |
-| 72 | Library navigation bar visible during reader loading transition                                       | Reader/*  | Low      | REOPENED | v1: `.toolbar(.hidden)` on reader. v2: NavigationPath tracking to hide library toolbar on push. Still visible — needs further investigation. GH: #29 |
+| 72 | Library navigation bar visible during reader loading transition                                       | Reader/*  | Low      | FIXED    | v3: Replace NavigationLink with Button + isPushingReader flag — hides toolbar before push animation starts. GH: #29 |
 | 73 | Reader top bar hidden behind Dynamic Island                                                           | Reader/*  | High     | FIXED    | Replaced GeometryReader insets with UIWindowScene safe area lookup — immune to parent ignoresSafeArea |
 | 74 | EPUB TOC shows "Section XXX" instead of real chapter titles                                           | EPUB/*    | Medium   | FIXED    | Parse EPUB 3 nav.xhtml + EPUB 2 toc.ncx for real titles; `withResolvedTitles()` applies to spine items |
 | 75 | Sort preference not remembered across restarts                                                        | Library/* | Medium   | FIXED    | Wired `PreferenceStore` into LibraryViewModel init; persist sortOrder/viewMode on change, restore on creation |

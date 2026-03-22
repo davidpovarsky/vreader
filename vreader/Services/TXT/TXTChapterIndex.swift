@@ -42,4 +42,10 @@ struct TXTChapterIndex: Codable, Sendable {
     var isEmpty: Bool { chapters.isEmpty }
     /// Number of chapters.
     var count: Int { chapters.count }
+
+    /// Returns the title at the given index, or nil if out of bounds.
+    func title(at index: Int) -> String? {
+        guard index >= 0, index < chapters.count else { return nil }
+        return chapters[index].title
+    }
 }

@@ -46,6 +46,8 @@ struct LibraryView: View {
     @State private var isShowingCoverPicker = false
     /// Incremented when a custom cover is set or removed, to force card/row views to reload.
     @State private var coverVersion: Int = 0
+    /// Tracks NavigationStack path so the library toolbar can hide during push transitions.
+    @State private var navigationPath = NavigationPath()
     let syncMonitor: SyncStatusMonitor?
 
     init(viewModel: LibraryViewModel, syncMonitor: SyncStatusMonitor? = nil) {
@@ -54,7 +56,7 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if viewModel.isInitialLoad {
                     ProgressView()
@@ -70,6 +72,7 @@ struct LibraryView: View {
             .navigationDestination(for: LibraryBookItem.self) { book in
                 ReaderContainerView(book: book)
             }
+            .toolbar(navigationPath.isEmpty ? .visible : .hidden, for: .navigationBar)
             .toolbar {
                 toolbarContent
             }

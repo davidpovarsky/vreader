@@ -116,6 +116,7 @@ extension EPUBReaderContainerView {
            let base = resourceBase,
            newIndex >= 0, newIndex < meta.spineItems.count {
             let href = meta.spineItems[newIndex].href
+            Task { await ensureChapterExtracted(href: href) } // bug #102
             contentURL = base.appendingPathComponent(href)
             // Update progress bar to reflect new chapter position
             readingProgress = EPUBProgressCalculator.progress(
@@ -143,6 +144,7 @@ extension EPUBReaderContainerView {
         webViewError = nil
 
         let href = meta.spineItems[targetIndex].href
+        Task { await ensureChapterExtracted(href: href) } // bug #102
         // Apply scrollFraction so EPUBWebViewBridge scrolls within the chapter
         seekScrollFraction = target.scrollFraction
         contentURL = base.appendingPathComponent(href)

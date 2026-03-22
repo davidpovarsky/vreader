@@ -48,6 +48,8 @@ struct LibraryView: View {
     @State private var coverVersion: Int = 0
     /// Tracks NavigationStack path so the library toolbar can hide during push transitions.
     @State private var navigationPath = NavigationPath()
+    /// Set before appending to navigationPath so the toolbar hides before the push animation starts (bug #72).
+    @State private var isPushingReader = false
     let syncMonitor: SyncStatusMonitor?
 
     init(viewModel: LibraryViewModel, syncMonitor: SyncStatusMonitor? = nil) {
@@ -72,9 +74,9 @@ struct LibraryView: View {
             .navigationDestination(for: LibraryBookItem.self) { book in
                 ReaderContainerView(book: book)
             }
-            .toolbar(navigationPath.isEmpty ? .visible : .hidden, for: .navigationBar)
+            .toolbar(isPushingReader ? .hidden : .visible, for: .navigationBar)
             .toolbar {
-                toolbarContent
+                if !isPushingReader { toolbarContent }
             }
             .refreshable {
                 await viewModel.refresh()
@@ -95,6 +97,10 @@ struct LibraryView: View {
                 } else {
                     Task { await viewModel.refresh(force: true) }
                 }
+            }
+            // Reset toolbar visibility when returning from reader (bug #72)
+            .onChange(of: navigationPath) { _, newPath in
+                if newPath.isEmpty { isPushingReader = false }
             }
             .alert("Error", isPresented: hasError) {
                 Button("OK") { viewModel.clearError() }
@@ -251,7 +257,9 @@ struct LibraryView: View {
                 spacing: 16
             ) {
                 ForEach(viewModel.books) { book in
-                    NavigationLink(value: book) {
+                    Button {
+                        openBook(book)
+                    } label: {
                         BookCardView(book: book, coverVersion: coverVersion)
                     }
                     .buttonStyle(.plain)
@@ -275,7 +283,9 @@ struct LibraryView: View {
     private var listView: some View {
         List {
             ForEach(viewModel.books) { book in
-                NavigationLink(value: book) {
+                Button {
+                    openBook(book)
+                } label: {
                     BookRowView(book: book, coverVersion: coverVersion)
                 }
                 .contextMenu {
@@ -531,6 +541,15 @@ struct LibraryView: View {
         // For now, this is a no-op infrastructure hook for pull-to-refresh.
         // When book-to-source linking is implemented, iterate over source-linked
         // books and call UpdateChecker.checkForUpdates() for each.
+    }
+
+    // MARK: - Navigation (bug #72)
+
+    /// Hides the library toolbar before pushing to the reader,
+    /// eliminating the toolbar flash during the push animation.
+    private func openBook(_ book: LibraryBookItem) {
+        isPushingReader = true
+        navigationPath.append(book)
     }
 
     // MARK: - Helpers

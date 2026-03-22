@@ -39,6 +39,26 @@ extension Notification.Name {
     /// The notification's `object` is the current `Locator`.
     /// ReaderContainerView observes this to pass the live locator to the AI panel.
     static let readerPositionDidChange = Notification.Name("vreader.readerPositionDidChange")
+    /// Posted by TapZoneOverlay when the user taps the "previous page" zone.
+    static let readerPreviousPage = Notification.Name("vreader.readerPreviousPage")
+    /// Posted by TapZoneOverlay when the user taps the "next page" zone.
+    static let readerNextPage = Notification.Name("vreader.readerNextPage")
+    /// Posted by text view bridges when the user selects "Define" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerDefineRequested = Notification.Name("vreader.readerDefineRequested")
+    /// Posted by text view bridges when the user selects "Translate" from the edit menu.
+    /// The notification's `object` is a `TextSelectionInfo` with selected text and range.
+    static let readerTranslateRequested = Notification.Name("vreader.readerTranslateRequested")
+    /// Posted by HighlightListViewModel when a highlight is deleted from the annotations panel.
+    /// The notification's `object` is the highlight UUID string. (bug #78)
+    /// Reader containers observe this to remove the visual highlight immediately.
+    static let readerHighlightRemoved = Notification.Name("vreader.readerHighlightRemoved")
+    /// Posted after annotation import completes (bug #88).
+    /// Reader containers observe this to re-render persisted highlights.
+    static let readerHighlightsDidImport = Notification.Name("vreader.readerHighlightsDidImport")
+    /// Posted when a footnote link is detected in EPUB content (foliate-js).
+    /// Object is [String: String] with "href" and "text" keys.
+    static let epubFootnoteDetected = Notification.Name("vreader.epubFootnoteDetected")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

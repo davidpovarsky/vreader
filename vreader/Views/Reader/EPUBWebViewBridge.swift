@@ -7,12 +7,15 @@
 // - Injects JavaScript to report scroll progress back to Swift (throttled at 100ms).
 // - Supports scroll-to-fraction via JS injection for intra-chapter seeking.
 // - Injects selection tracking and highlight API JS for text highlighting (WI-007).
+// - Supports paged layout via CSS multi-column pagination (WI-B06).
+//   In paged mode, pagination CSS is injected and navigation uses scrollLeft.
 // - Coordinator handles WKScriptMessageHandler for progress, tap, and selection callbacks.
 // - Navigation delegate reports load errors to the container via onLoadError.
 // - Only file:// URLs are allowed for all navigation types.
 //
-// @coordinates-with: EPUBReaderContainerView.swift, EPUBReaderViewModel.swift,
-//   EPUBHighlightBridge.swift
+// @coordinates-with: EPUBWebViewBridgeJS.swift, EPUBWebViewBridgeCoordinator.swift,
+//   EPUBReaderContainerView.swift, EPUBReaderViewModel.swift,
+//   EPUBHighlightBridge.swift, EPUBPaginationHelper.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -65,6 +68,12 @@ struct EPUBWebViewBridge: UIViewRepresentable {
     var pendingJS: String?
     /// Called after pendingJS has been evaluated so the container can clear state.
     var onPendingJSCompleted: (@MainActor () -> Void)?
+    /// Whether paged layout is enabled (CSS multi-column pagination).
+    var isPaged: Bool = false
+    /// Page index to navigate to in paged mode (0-based).
+    var paginationPage: Int?
+    /// Called when pagination is set up with total page count (paged mode only).
+    var onPaginationReady: (@MainActor (Int) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onProgressChange: onProgressChange, onLoadError: onLoadError)
@@ -73,6 +82,26 @@ struct EPUBWebViewBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         let userContentController = WKUserContentController()
+
+        // Inject foliate-js bridge (CFI, overlayer, TTS, footnotes)
+        if let bridgeURL = Bundle.main.url(forResource: "foliate-bridge", withExtension: "js", subdirectory: nil)
+            ?? Bundle.main.url(forResource: "foliate-bridge", withExtension: "js"),
+           let bridgeSource = try? String(contentsOf: bridgeURL) {
+            let bridgeScript = WKUserScript(
+                source: bridgeSource,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            userContentController.addUserScript(bridgeScript)
+        }
+
+        // Inject CSS preprocessing (foliate-js pattern)
+        let preprocessScript = WKUserScript(
+            source: Self.cssPreprocessJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        userContentController.addUserScript(preprocessScript)
 
         // Add scroll progress tracking script (throttled)
         let script = WKUserScript(
@@ -101,6 +130,8 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         )
         userContentController.addUserScript(selectionScript)
         userContentController.add(weakHandler, name: "selectionChanged")
+        // Footnote detection handler (foliate-js)
+        userContentController.add(weakHandler, name: "footnoteHandler")
 
         let highlightScript = WKUserScript(
             source: EPUBHighlightBridge.highlightAPIJS,
@@ -113,17 +144,26 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         config.preferences.isElementFullscreenEnabled = false
 
         let webView = WKWebView(frame: .zero, configuration: config)
-        webView.isOpaque = true
-        webView.backgroundColor = .systemBackground
-        webView.scrollView.backgroundColor = .systemBackground
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         context.coordinator.themeCSS = themeCSS
         context.coordinator.allowedRoot = baseDirectory
         context.coordinator.currentHref = currentHref
         context.coordinator.onSelectionEvent = onSelectionEvent
         context.coordinator.onPageDidFinishLoad = onPageDidFinishLoad
+        context.coordinator.isPaged = isPaged
+        context.coordinator.previousIsPaged = isPaged
+        context.coordinator.onPaginationReady = onPaginationReady
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         webView.accessibilityIdentifier = "epubWebView"
+
+        // Disable vertical scrolling in paged mode
+        if isPaged {
+            webView.scrollView.isScrollEnabled = false
+        }
 
         return webView
     }
@@ -133,6 +173,24 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         context.coordinator.currentHref = currentHref
         context.coordinator.onSelectionEvent = onSelectionEvent
         context.coordinator.onPageDidFinishLoad = onPageDidFinishLoad
+        context.coordinator.isPaged = isPaged
+        context.coordinator.onPaginationReady = onPaginationReady
+
+        // Update scroll enabled state when layout mode changes
+        webView.scrollView.isScrollEnabled = !isPaged
+
+        // Issue 5: When isPaged toggles without a URL change, inject/remove pagination CSS live.
+        let isPagedChanged = context.coordinator.previousIsPaged != isPaged
+        context.coordinator.previousIsPaged = isPaged
+        if isPagedChanged, context.coordinator.currentURL == contentURL {
+            if isPaged {
+                context.coordinator.setupPagination(webView: webView)
+            } else {
+                webView.evaluateJavaScript(EPUBPaginationHelper.removePaginationCSSJS) { _, error in
+                    if let error { print("[EPUBWebViewBridge] remove pagination CSS error: \(error)") }
+                }
+            }
+        }
 
         // Only reload if the URL changed
         if context.coordinator.currentURL != contentURL {
@@ -140,7 +198,19 @@ struct EPUBWebViewBridge: UIViewRepresentable {
             context.coordinator.themeCSS = themeCSS
             // Store scroll fraction to apply after the page finishes loading
             context.coordinator.pendingScrollFraction = scrollFraction
+            context.coordinator.pendingPaginationPage = paginationPage
             webView.loadFileURL(contentURL, allowingReadAccessTo: baseDirectory)
+        } else if isPaged, let page = paginationPage,
+                  page != context.coordinator.pendingPaginationPage {
+            // Paged mode: navigate to specific page
+            context.coordinator.pendingPaginationPage = page
+            let viewportWidth = webView.bounds.width
+            let js = EPUBPaginationHelper.navigateToPageJS(
+                page: page, viewportWidth: viewportWidth
+            )
+            webView.evaluateJavaScript(js) { _, error in
+                if let error { print("[EPUBWebViewBridge] page nav error: \(error)") }
+            }
         } else if let fraction = scrollFraction,
                   fraction != context.coordinator.pendingScrollFraction {
             // Same URL but scroll fraction changed — scroll immediately via JS
@@ -176,255 +246,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         }
     }
 
-    // MARK: - Scroll to Fraction
-
-    /// Generates JavaScript that scrolls the page to a vertical fraction (0.0-1.0).
-    /// Clamping is applied: negative and NaN values map to 0.0, values > 1.0 map to 1.0.
-    static func scrollToFractionJS(_ fraction: Double) -> String {
-        let clamped: Double
-        if fraction.isNaN || fraction < 0 {
-            clamped = 0.0
-        } else if fraction > 1.0 {
-            clamped = 1.0
-        } else {
-            clamped = fraction
-        }
-        return """
-        (function() {
-            var scrollHeight = Math.max(
-                document.documentElement.scrollHeight || 0,
-                document.body.scrollHeight || 0
-            );
-            var clientHeight = document.documentElement.clientHeight || window.innerHeight || 0;
-            var maxScroll = scrollHeight - clientHeight;
-            if (maxScroll > 0) {
-                window.scrollTo(0, maxScroll * \(clamped));
-            }
-        })();
-        """
-    }
-
-    /// JavaScript to inject or replace the vreader-theme style element.
-    /// `styleTag` is a full `<style id="vreader-theme">…</style>` tag.
-    /// We extract the inner CSS and inject via createElement + textContent
-    /// to avoid innerHTML-based DOM injection.
-    static func injectThemeCSSJS(_ styleTag: String) -> String {
-        // Extract CSS content from between <style ...> and </style> tags
-        var cssContent = styleTag
-        if let startRange = cssContent.range(of: ">", options: .literal),
-           let endRange = cssContent.range(of: "</style>", options: .backwards) {
-            cssContent = String(cssContent[startRange.upperBound..<endRange.lowerBound])
-        }
-        let escaped = cssContent
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-            .replacingOccurrences(of: "\n", with: "\\n")
-        return """
-        (function() {
-            var existing = document.getElementById('vreader-theme');
-            if (existing) existing.remove();
-            var style = document.createElement('style');
-            style.id = 'vreader-theme';
-            style.textContent = '\(escaped)';
-            document.head.appendChild(style);
-        })();
-        """
-    }
-
-    /// JavaScript to remove the vreader-theme style element (when theme is cleared).
-    static let removeThemeCSSJS = """
-    (function() {
-        var existing = document.getElementById('vreader-theme');
-        if (existing) existing.remove();
-    })();
-    """
-
-    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: "progressHandler"
-        )
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: "contentTapHandler"
-        )
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: "selectionChanged"
-        )
-    }
-
-    // MARK: - JavaScript
-
-    /// Content tap tracking — sends message on non-link clicks for toolbar toggle.
-    private static let contentTapTrackingJS = """
-    (function() {
-        document.addEventListener('click', function(e) {
-            if (e.target.closest('a')) return;
-            window.webkit.messageHandlers.contentTapHandler.postMessage('tap');
-        }, false);
-    })();
-    """
-
-    /// Scroll progress tracking with 100ms throttle to reduce callback churn.
-    private static let progressTrackingJS = """
-    (function() {
-        var lastReport = 0;
-        function reportProgress() {
-            var now = Date.now();
-            if (now - lastReport < 100) return;
-            lastReport = now;
-            var scrollTop = document.documentElement.scrollTop || document.body.scrollTop || 0;
-            var scrollHeight = Math.max(
-                document.documentElement.scrollHeight || 0,
-                document.body.scrollHeight || 0
-            );
-            var clientHeight = document.documentElement.clientHeight || window.innerHeight || 0;
-            var maxScroll = scrollHeight - clientHeight;
-            var progress = maxScroll > 0 ? Math.min(Math.max(scrollTop / maxScroll, 0), 1) : 0;
-            window.webkit.messageHandlers.progressHandler.postMessage(progress);
-        }
-        window.addEventListener('scroll', reportProgress, { passive: true });
-        // Report initial progress after layout
-        setTimeout(reportProgress, 100);
-    })();
-    """
-
-    // MARK: - Coordinator
-
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
-        var currentURL: URL?
-        var themeCSS: String?
-        /// Scroll fraction to apply after the next page load completes.
-        var pendingScrollFraction: Double?
-        /// Allowed root directory for file:// navigation (scoped to extracted EPUB).
-        var allowedRoot: URL?
-        /// Current chapter href for anchor construction.
-        var currentHref: String?
-        /// Callback for text selection events.
-        var onSelectionEvent: (@MainActor (ReaderSelectionEvent) -> Void)?
-        /// Callback to restore highlights after page loads.
-        /// Provides a JS evaluator so the container can inject restore scripts.
-        var onPageDidFinishLoad: (@MainActor (@escaping (String) -> Void) -> Void)?
-        private let onProgressChange: @MainActor (Double) -> Void
-        private let onLoadError: @MainActor (String) -> Void
-
-        init(
-            onProgressChange: @escaping @MainActor (Double) -> Void,
-            onLoadError: @escaping @MainActor (String) -> Void
-        ) {
-            self.onProgressChange = onProgressChange
-            self.onLoadError = onLoadError
-        }
-
-        func userContentController(
-            _ userContentController: WKUserContentController,
-            didReceive message: WKScriptMessage
-        ) {
-            if message.name == "contentTapHandler" {
-                NotificationCenter.default.post(name: .readerContentTapped, object: nil)
-                return
-            }
-            if message.name == "selectionChanged" {
-                handleSelectionMessage(message.body)
-                return
-            }
-            guard message.name == "progressHandler",
-                  let progress = message.body as? Double else { return }
-            Task { @MainActor in
-                onProgressChange(progress)
-            }
-        }
-
-        private func handleSelectionMessage(_ body: Any) {
-            guard let parsed = EPUBHighlightBridge.parseSelectionMessage(body) else { return }
-            let href = currentHref ?? ""
-            let event = EPUBHighlightBridge.makeSelectionEvent(
-                selectedText: parsed.selectedText,
-                href: href,
-                cfi: "",
-                range: parsed.range,
-                sourceRect: parsed.sourceRect
-            )
-            Task { @MainActor in
-                onSelectionEvent?(event)
-            }
-        }
-
-        // MARK: - WKNavigationDelegate
-
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction
-        ) async -> WKNavigationActionPolicy {
-            // Only allow file:// URLs scoped to the extracted EPUB directory
-            guard let url = navigationAction.request.url, url.isFileURL else {
-                return .cancel
-            }
-            // Scope-check: resolved path must be within the allowed root directory
-            if let root = allowedRoot {
-                let resolvedPath = url.standardizedFileURL.path()
-                // Ensure rootPath ends with "/" for strict directory boundary matching
-                var rootPath = root.standardizedFileURL.path()
-                if !rootPath.hasSuffix("/") { rootPath += "/" }
-                guard resolvedPath.hasPrefix(rootPath)
-                    || resolvedPath == root.standardizedFileURL.path() else {
-                    return .cancel
-                }
-            }
-            return .allow
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            didFailProvisionalNavigation navigation: WKNavigation!,
-            withError error: any Error
-        ) {
-            let message = "Failed to load chapter: \(error.localizedDescription)"
-            Task { @MainActor in
-                onLoadError(message)
-            }
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            didFail navigation: WKNavigation!,
-            withError error: any Error
-        ) {
-            let message = "Chapter loading error: \(error.localizedDescription)"
-            Task { @MainActor in
-                onLoadError(message)
-            }
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Inject theme CSS after page finishes loading
-            if let css = themeCSS {
-                let js = EPUBWebViewBridge.injectThemeCSSJS(css)
-                webView.evaluateJavaScript(js) { _, error in
-                    if let error { print("[EPUBWebViewBridge] didFinish theme inject error: \(error)") }
-                }
-            }
-
-            // Scroll to pending fraction after page layout (delayed to allow rendering)
-            if let fraction = pendingScrollFraction, fraction > 0 {
-                pendingScrollFraction = nil
-                let scrollJS = EPUBWebViewBridge.scrollToFractionJS(fraction)
-                // Delay slightly to ensure layout is complete before scrolling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    webView.evaluateJavaScript(scrollJS) { _, error in
-                        if let error { print("[EPUBWebViewBridge] scroll error: \(error)") }
-                    }
-                }
-            }
-
-            // Notify container that the page finished loading (for highlight restoration).
-            // Provide a JS evaluator so the container can inject restore scripts.
-            Task { @MainActor in
-                onPageDidFinishLoad?({ js in
-                    webView.evaluateJavaScript(js) { _, error in
-                        if let error { print("[EPUBWebViewBridge] restore error: \(error)") }
-                    }
-                })
-            }
-        }
-    }
+    // Static JS members are in EPUBWebViewBridgeJS.swift.
+    // Coordinator is defined in EPUBWebViewBridgeCoordinator.swift.
 }
 #endif

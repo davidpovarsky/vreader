@@ -12,13 +12,14 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 // MARK: - Tab Enum
 
 /// Tabs for the annotations panel.
 enum AnnotationsPanelTab: String, CaseIterable, Identifiable {
-    case bookmarks = "Bookmarks"
     case toc = "Contents"
+    case bookmarks = "Bookmarks"
     case highlights = "Highlights"
     case annotations = "Notes"
 
@@ -45,10 +46,14 @@ struct AnnotationsPanelView: View {
     let onNavigate: (Locator) -> Void
     let onDismiss: () -> Void
 
-    @State private var selectedTab: AnnotationsPanelTab = .bookmarks
+    @State private var selectedTab: AnnotationsPanelTab = .toc
     @State private var bookmarkVM: BookmarkListViewModel?
     @State private var highlightVM: HighlightListViewModel?
     @State private var annotationVM: AnnotationListViewModel?
+    @State private var isShowingExportShare = false
+    @State private var exportedFileURL: URL?
+    @State private var isShowingImporter = false
+    @State private var importMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -94,6 +99,52 @@ struct AnnotationsPanelView: View {
             }
             .navigationTitle("Reader Panels")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        Task { await exportAnnotations() }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Export annotations")
+                    .accessibilityIdentifier("annotationsExportButton")
+
+                    Button {
+                        isShowingImporter = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .accessibilityLabel("Import annotations")
+                    .accessibilityIdentifier("annotationsImportButton")
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingExportShare) {
+            if let url = exportedFileURL {
+                ShareActivityView(activityItems: [url])
+                    .ignoresSafeArea()
+            }
+        }
+        .fileImporter(
+            isPresented: $isShowingImporter,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                Task { await importAnnotationsFrom(url: url) }
+            case .failure:
+                break
+            }
+        }
+        .alert("Import Result", isPresented: .init(
+            get: { importMessage != nil },
+            set: { if !$0 { importMessage = nil } }
+        )) {
+            Button("OK") { importMessage = nil }
+        } message: {
+            Text(importMessage ?? "")
         }
         .task {
             guard bookmarkVM == nil else { return }
@@ -122,5 +173,75 @@ struct AnnotationsPanelView: View {
     private func handleNavigate(_ locator: Locator) {
         onNavigate(locator)
         onDismiss()
+    }
+
+    // MARK: - Export (C02)
+
+    private func exportAnnotations() async {
+        let persistence = PersistenceActor(modelContainer: modelContainer)
+        let highlights = (try? await persistence.fetchHighlights(
+            forBookWithKey: bookFingerprintKey
+        )) ?? []
+        let bookmarks = (try? await persistence.fetchBookmarks(
+            forBookWithKey: bookFingerprintKey
+        )) ?? []
+        let notes = (try? await persistence.fetchAnnotations(
+            forBookWithKey: bookFingerprintKey
+        )) ?? []
+
+        let payload = AnnotationExporter.buildPayload(
+            highlights: highlights,
+            bookmarks: bookmarks,
+            notes: notes,
+            bookTitle: bookFingerprintKey,
+            bookAuthor: nil
+        )
+
+        guard let data = try? AnnotationExporter.export(
+            payload: payload, format: .json
+        ) else { return }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("annotations-export.json")
+        try? data.write(to: tempURL, options: .atomic)
+        exportedFileURL = tempURL
+        isShowingExportShare = true
+    }
+
+    // MARK: - Import (C03)
+
+    private func importAnnotationsFrom(url: URL) async {
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        guard let data = try? Data(contentsOf: url) else {
+            importMessage = "Could not read file."
+            return
+        }
+
+        let persistence = PersistenceActor(modelContainer: modelContainer)
+        let importer = AnnotationImporter(
+            highlightStore: persistence,
+            bookmarkStore: persistence,
+            annotationStore: persistence
+        )
+
+        do {
+            let result = try await importer.importJSON(
+                data: data,
+                bookFingerprintKey: bookFingerprintKey
+            )
+            importMessage = "Imported \(result.importedCount), skipped \(result.skippedCount)."
+            // Refresh view models after import
+            await bookmarkVM?.loadBookmarks()
+            await highlightVM?.loadHighlights()
+            await annotationVM?.loadAnnotations()
+            // Bug #88: Notify reader to refresh visual highlights
+            if result.importedCount > 0 {
+                NotificationCenter.default.post(name: .readerHighlightsDidImport, object: nil)
+            }
+        } catch {
+            importMessage = "Import failed: \(error.localizedDescription)"
+        }
     }
 }

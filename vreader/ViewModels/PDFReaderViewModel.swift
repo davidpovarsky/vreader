@@ -4,14 +4,15 @@
 // Key decisions:
 // - @Observable + @MainActor for SwiftUI integration.
 // - Position persistence delegated to ReaderPositionService (WI-008a).
-// - Periodic session flush (60s).
+// - Lifecycle operations (session, flush, time display) delegated to ReaderLifecycleHelper (R6).
 // - Page-based position using Locator.page (zero-based index).
 // - Tracks distinct pages visited via Set<Int> for pagesRead.
 // - Password flow: needsPassword drives UI, bridge callbacks confirm.
 // - Empty PDF (0 pages): totalProgression = nil.
 //
-// @coordinates-with: ReaderPositionService.swift, ReadingPositionPersisting.swift,
-//   ReadingSessionTracker.swift, LocatorFactory.swift, PDFViewBridge.swift
+// @coordinates-with: ReaderLifecycleHelper.swift, ReaderPositionService.swift,
+//   ReadingPositionPersisting.swift, ReadingSessionTracker.swift,
+//   LocatorFactory.swift, PDFViewBridge.swift
 
 import Foundation
 
@@ -19,11 +20,6 @@ import Foundation
 @Observable
 @MainActor
 final class PDFReaderViewModel {
-
-    // MARK: - Constants
-
-    /// Periodic flush interval for session duration (seconds).
-    static let sessionFlushInterval: TimeInterval = 60.0
 
     // MARK: - Published State
 
@@ -45,8 +41,8 @@ final class PDFReaderViewModel {
     /// Error message from the last failed operation.
     private(set) var errorMessage: String?
 
-    /// Formatted session reading time (e.g., "5m").
-    private(set) var sessionTimeDisplay: String?
+    /// Formatted session reading time (e.g., "5m"). Delegated to lifecycle helper.
+    var sessionTimeDisplay: String? { lifecycle.sessionTimeDisplay }
 
     /// Number of distinct pages visited in the current session.
     private(set) var distinctPagesVisited: Int = 0
@@ -70,13 +66,9 @@ final class PDFReaderViewModel {
     /// Current pages per hour based on session data. Nil if insufficient data.
     var pagesPerHour: Double? {
         guard distinctPagesVisited > 0 else { return nil }
-        var total = accumulatedActiveSeconds
-        if let start = segmentStartDate {
-            total += Date().timeIntervalSince(start)
-        }
         return calculatePagesPerHour(
             pagesRead: distinctPagesVisited,
-            durationSeconds: Int(total)
+            durationSeconds: Int(lifecycle.totalActiveSeconds)
         )
     }
 
@@ -84,17 +76,13 @@ final class PDFReaderViewModel {
 
     private let bookFingerprint: DocumentFingerprint
     let bookFingerprintKey: String
+    let lifecycle: ReaderLifecycleHelper
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
     private let positionService: ReaderPositionService
 
     // MARK: - Private State
 
-    private var flushTask: Task<Void, Never>?
-    /// Date when the current active segment started (reset on resume).
-    private var segmentStartDate: Date?
-    /// Accumulated active reading seconds (excluding paused time).
-    private var accumulatedActiveSeconds: TimeInterval = 0
     /// Set of distinct page indices visited in the current session.
     private var visitedPages: Set<Int> = []
 
@@ -111,11 +99,18 @@ final class PDFReaderViewModel {
         self.bookFingerprintKey = bookFingerprint.canonicalKey
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.positionService = ReaderPositionService(
+        let posService = ReaderPositionService(
             bookFingerprintKey: bookFingerprint.canonicalKey,
             deviceId: deviceId,
             persistence: positionStore,
             debounceNanoseconds: positionSaveDebounceNs
+        )
+        self.positionService = posService
+        self.lifecycle = ReaderLifecycleHelper(
+            bookFingerprint: bookFingerprint,
+            positionService: posService,
+            sessionTracker: sessionTracker,
+            positionStore: positionStore
         )
     }
 
@@ -161,12 +156,9 @@ final class PDFReaderViewModel {
 
     /// Starts the reading session. Call after documentDidLoad.
     func startSession() throws {
-        try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
-        segmentStartDate = Date()
-        accumulatedActiveSeconds = 0
+        try lifecycle.beginSession()
         visitedPages = []
         distinctPagesVisited = 0
-        startPeriodicFlush()
     }
 
     /// Restores saved position. Returns the page index to navigate to, or nil.
@@ -188,65 +180,29 @@ final class PDFReaderViewModel {
 
     /// Updates the lastOpenedAt timestamp for this book.
     func updateLastOpened() async {
-        try? await positionStore.updateLastOpened(
-            bookFingerprintKey: bookFingerprintKey,
-            date: Date()
-        )
+        await lifecycle.updateLastOpened()
     }
 
     /// Closes the reader, ending the session and flushing state.
     /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
-        flushTask?.cancel()
-        flushTask = nil
-
-        if isDocumentLoaded {
-            let locator = makeCurrentLocator()
-            await positionService.saveNow(locator: locator)
-            sessionTracker.recordProgress(locator: locator)
-        }
-
-        sessionTracker.endSessionIfNeeded()
-
-        if let persistence = positionStore as? PersistenceActor {
-            try? await persistence.recomputeStats(
-                bookFingerprintKey: bookFingerprintKey,
-                bookFingerprint: bookFingerprint
-            )
-        }
-
-        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+        let locator = isDocumentLoaded ? makeCurrentLocator() : nil
+        await lifecycle.close(locator: locator)
     }
 
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
     func onBackground() async {
-        if isDocumentLoaded {
-            let locator = makeCurrentLocator()
-            await positionService.saveNow(locator: locator)
-        }
-
-        if let start = segmentStartDate {
-            accumulatedActiveSeconds += Date().timeIntervalSince(start)
-            segmentStartDate = nil
-        }
-
-        sessionTracker.pause()
-        flushTask?.cancel()
-        flushTask = nil
+        let locator = isDocumentLoaded ? makeCurrentLocator() : nil
+        await lifecycle.onBackground(locator: locator)
     }
 
     /// Called when the app returns to foreground with reader open.
     func onForeground() {
         guard isDocumentLoaded else { return }
-        do {
-            try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
-        } catch {
-            errorMessage = "Failed to resume reading session."
-            return
+        if let error = lifecycle.onForeground(alwaysResetSegment: true) {
+            errorMessage = error
         }
-        segmentStartDate = Date()
-        startPeriodicFlush()
     }
 
     // MARK: - Page Changes (called by bridge)
@@ -258,10 +214,7 @@ final class PDFReaderViewModel {
         currentPageIndex = clamped
         visitedPages.insert(clamped)
         distinctPagesVisited = visitedPages.count
-        let locator = makeCurrentLocator()
-        sessionTracker.recordProgress(locator: locator)
-        updateTimeDisplays()
-        positionService.scheduleSave(locator: locator)
+        lifecycle.recordProgressAndScheduleSave(locator: makeCurrentLocator())
     }
 
     // MARK: - Locator Construction (internal for testing)
@@ -292,35 +245,6 @@ final class PDFReaderViewModel {
         guard durationSeconds >= 60, pagesRead > 0 else { return nil }
         let hours = Double(durationSeconds) / 3600.0
         return Double(pagesRead) / hours
-    }
-
-    // MARK: - Private: Session Time Tracking
-
-    private func startPeriodicFlush() {
-        flushTask?.cancel()
-        flushTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    guard let self else { break }
-                    try sessionTracker.periodicFlush()
-                    updateTimeDisplays()
-                } catch is CancellationError {
-                    break
-                } catch {
-                    // Non-fatal
-                }
-            }
-        }
-    }
-
-    private func updateTimeDisplays() {
-        var total = accumulatedActiveSeconds
-        if let start = segmentStartDate {
-            total += Date().timeIntervalSince(start)
-        }
-        let sessionSeconds = Int(total)
-        sessionTimeDisplay = ReadingTimeFormatter.formatReadingTime(totalSeconds: sessionSeconds)
     }
 
     // MARK: - Private: Page Clamping

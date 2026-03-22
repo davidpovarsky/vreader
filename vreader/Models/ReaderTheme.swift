@@ -72,17 +72,73 @@ enum ReaderTheme: String, Codable, CaseIterable, Sendable {
     /// Issue 10: Uses `body *` wildcard instead of a hard-coded tag allowlist so that
     /// all elements (including `pre`, `code`, etc.) inherit the user-chosen font size.
     /// Headings (`h1`-`h6`) are excluded via `revert` so they keep their relative sizing.
-    func epubOverrideCSS(fontSize: CGFloat) -> String {
+    func epubOverrideCSS(fontSize: CGFloat, lineHeight: CGFloat = 1.6, letterSpacing: CGFloat = 0) -> String {
         let bg = cssColor(backgroundColor)
         let fg = cssColor(textColor)
         let secondary = cssColor(secondaryTextColor)
         let size = String(format: "%.1f", fontSize)
+        let lh = String(format: "%.2f", lineHeight)
+        let ls = letterSpacing > 0 ? String(format: "%.2fem", letterSpacing) : "normal"
+        let linkColor = self == .dark ? "rgb(120,170,255)" : "rgb(0,90,180)"
         return """
         <style id="vreader-theme">\
-        html, body { background-color: \(bg) !important; color: \(fg) !important; font-size: \(size)px !important; }\
-        body * { font-size: inherit !important; }\
-        h1,h2,h3,h4,h5,h6 { font-size: revert !important; }\
-        a { color: \(secondary) !important; }\
+        html, body { \
+          background-color: \(bg) !important; \
+          color: \(fg) !important; \
+          font-size: \(size)px !important; \
+          line-height: \(lh) !important; \
+          letter-spacing: \(ls) !important; \
+          -webkit-text-size-adjust: 100%; \
+          text-rendering: optimizeLegibility; \
+          word-break: break-word; \
+          overflow-wrap: break-word; \
+        }\
+        body { \
+          padding: 0 16px !important; \
+          margin: 0 !important; \
+        }\
+        p, div, span, li, td, th, dd, dt, blockquote, figcaption { \
+          font-size: inherit !important; \
+          line-height: inherit !important; \
+          color: inherit !important; \
+        }\
+        h1,h2,h3,h4,h5,h6 { \
+          font-size: revert !important; \
+          line-height: 1.3 !important; \
+          color: \(fg) !important; \
+        }\
+        pre, code, samp, kbd { \
+          font-size: 0.85em !important; \
+          line-height: 1.45 !important; \
+          white-space: pre-wrap !important; \
+          word-break: break-all !important; \
+        }\
+        a:link { color: \(linkColor) !important; text-decoration: underline; }\
+        a:visited { color: \(secondary) !important; text-decoration: underline; }\
+        img, svg, video { \
+          max-width: 100% !important; \
+          height: auto !important; \
+          object-fit: contain; \
+        }\
+        table { \
+          max-width: 100% !important; \
+          border-collapse: collapse; \
+          font-size: 0.9em !important; \
+          overflow-x: auto; \
+          display: block; \
+        }\
+        td, th { \
+          padding: 4px 8px; \
+          border: 1px solid \(secondary); \
+        }\
+        hr { \
+          border: none; \
+          border-top: 1px solid \(secondary); \
+          margin: 1em 0; \
+        }\
+        ::selection { \
+          background-color: rgba(0,102,204,0.3); \
+        }\
         </style>
         """
     }

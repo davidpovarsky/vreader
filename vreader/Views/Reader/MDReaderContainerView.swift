@@ -1,5 +1,6 @@
 // Purpose: SwiftUI container for the Markdown reader. Composes the TXTTextViewBridge
 // (with NSAttributedString) with loading/error overlays and reading session chrome.
+// When layout is .paged, uses NativeTextPagedView for page-at-a-time rendering.
 //
 // Key decisions:
 // - Owns MDReaderViewModel lifecycle (open on appear, close on disappear).
@@ -7,9 +8,15 @@
 // - Shows loading spinner during file open.
 // - Shows error message on failure.
 // - Passes rendered NSAttributedString to bridge for rich display.
+// - Paged mode (B08): uses NativeTextPageNavigator + NativeTextPagedView.
+// - AutoPageTurner (B10): wired when autoPageTurn is enabled + paged layout.
+// - PageTurnAnimator (B11): animation style from settingsStore.pageTurnAnimation.
+// - Phase R3: shared UI state (highlights, pagination, progress) lives in TextReaderUIState.
 //
 // @coordinates-with: MDReaderViewModel.swift, TXTTextViewBridge.swift,
-//   ReadingProgressBar.swift, ScrollProgressHelper.swift
+//   ReadingProgressBar.swift, ScrollProgressHelper.swift,
+//   NativeTextPageNavigator.swift, NativeTextPagedView.swift,
+//   AutoPageTurner.swift, PageTurnAnimator.swift, TextReaderUIState.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -22,6 +29,7 @@ struct MDReaderContainerView: View {
     let viewModel: MDReaderViewModel
     var settingsStore: ReaderSettingsStore?
     var modelContainer: ModelContainer?
+    var ttsService: TTSService?
 
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
@@ -29,22 +37,19 @@ struct MDReaderContainerView: View {
 
     /// Captured scroll position for one-shot restore. Set once after file opens.
     @State private var initialRestoreOffset: Int?
-    /// Navigation target from search results. Updated via notification.
-    @State private var scrollToOffset: Int?
-    /// Match highlight range for search navigation (bug #43).
-    @State private var highlightRange: NSRange?
-    /// Whether the current highlight is temporary (search nav) or persistent (user-created).
-    @State private var highlightIsTemporary: Bool = true
-    /// Pending annotation info for the "Add Note" flow (bug #44).
-    @State private var pendingAnnotationInfo: TextSelectionInfo?
-    /// Text input for the annotation note.
-    @State private var annotationNoteText: String = ""
-    /// Persisted highlight ranges loaded from DB on file open (bug #55).
-    @State private var persistedHighlightRanges: [NSRange] = []
 
-    /// Current reading progress for the scrubber bar (0.0-1.0).
-    /// Synced from viewModel.totalProgression via onChange.
-    @State private var readingProgress: Double = 0
+    // MARK: - Shared UI State (Phase R3) + Highlight Coordination (Phase R4)
+
+    @State private var uiState = TextReaderUIState()
+    @State private var highlightRenderer: TextHighlightRenderer?
+    @State private var highlightCoordinator: HighlightCoordinator?
+    /// TTS sentence highlighting + auto-scroll coordinator (features #40, #41).
+    @State private var ttsHighlightCoordinator: TTSHighlightCoordinator?
+
+    /// Whether paged mode is active.
+    private var isPagedMode: Bool {
+        settingsStore?.epubLayout == .paged
+    }
 
     var body: some View {
         ZStack {
@@ -53,27 +58,33 @@ struct MDReaderContainerView: View {
             } else if let errorMessage = viewModel.errorMessage, viewModel.renderedText == nil {
                 errorView(message: errorMessage)
             } else if let attrStr = viewModel.renderedAttributedString {
-                readerContent(attributedString: attrStr)
+                if isPagedMode, let nav = uiState.pageNavigator {
+                    pagedReaderContent(attributedString: attrStr, navigator: nav)
+                } else {
+                    readerContent(attributedString: attrStr)
+                }
             } else {
                 // Not yet opened
                 Color.clear
             }
 
             // Bottom overlay for progress, scrubber, and session time (WI-004b)
-            if viewModel.renderedText != nil && !viewModel.isLoading && isChromeVisible {
+            // Hidden when TTS is active to avoid overlap (bug #97)
+            if viewModel.renderedText != nil && !viewModel.isLoading && isChromeVisible
+                && (ttsService?.state ?? .idle) == .idle {
                 VStack(spacing: 0) {
                     Spacer()
                     ReadingProgressBar(
-                        progress: $readingProgress,
+                        progress: $uiState.readingProgress,
                         onSeek: { seekValue in
                             let charOffset = ScrollProgressHelper.charOffsetFromProgress(
                                 progress: seekValue,
                                 totalLengthUTF16: viewModel.renderedTextLengthUTF16
                             )
-                            scrollToOffset = charOffset
+                            uiState.scrollToOffset = charOffset
                         },
                         isVisible: viewModel.renderedTextLengthUTF16 > 0,
-                        label: ScrollProgressHelper.percentageLabel(readingProgress),
+                        label: ScrollProgressHelper.percentageLabel(uiState.readingProgress),
                         settingsStore: settingsStore
                     )
                     ReaderBottomOverlay(
@@ -88,18 +99,26 @@ struct MDReaderContainerView: View {
         .task {
             await viewModel.open(url: fileURL)
             initialRestoreOffset = viewModel.currentOffsetUTF16
-            // Load persisted highlights from DB for visual rendering (bug #55)
-            if let container = modelContainer {
-                let persistence = PersistenceActor(modelContainer: container)
-                if let records = try? await persistence.fetchHighlights(
-                    forBookWithKey: viewModel.bookFingerprintKey
-                ) {
-                    persistedHighlightRanges = records.compactMap { record in
-                        guard let start = record.locator.charRangeStartUTF16,
-                              let end = record.locator.charRangeEndUTF16,
-                              end > start else { return nil }
-                        return NSRange(location: start, length: end - start)
-                    }
+            if isPagedMode {
+                updatePaginationIfNeeded()
+            }
+            // PERF: Create renderer immediately, defer DB restore
+            let renderer = TextHighlightRenderer(uiState: uiState)
+            highlightRenderer = renderer
+            if let tts = ttsService {
+                ttsHighlightCoordinator = TTSHighlightCoordinator(ttsService: tts, uiState: uiState)
+            }
+            // Defer highlight restore — don't block content display
+            Task {
+                if let container = modelContainer {
+                    let persistence = PersistenceActor(modelContainer: container)
+                    let coordinator = HighlightCoordinator(
+                        renderer: renderer,
+                        persistence: persistence,
+                        bookFingerprintKey: viewModel.bookFingerprintKey
+                    )
+                    highlightCoordinator = coordinator
+                    await coordinator.restoreAll()
                 }
             }
         }
@@ -129,7 +148,7 @@ struct MDReaderContainerView: View {
             }
         }
         .onChange(of: viewModel.totalProgression) { _, newValue in
-            readingProgress = newValue ?? 0
+            uiState.readingProgress = newValue ?? 0
             // Notify ReaderContainerView of the live position for AI panel.
             let locator = viewModel.makeLocator()
             NotificationCenter.default.post(
@@ -138,15 +157,41 @@ struct MDReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
+            uiState.autoPageTurner?.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
+            guard isPagedMode else { return }
+            uiState.pageNavigator?.nextPage()
+            if let offset = uiState.syncPagedState() {
+                viewModel.updateScrollPosition(charOffsetUTF16: offset)
+            }
+            uiState.autoPageTurner?.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
+            guard isPagedMode else { return }
+            uiState.pageNavigator?.previousPage()
+            if let offset = uiState.syncPagedState() {
+                viewModel.updateScrollPosition(charOffsetUTF16: offset)
+            }
+            uiState.autoPageTurner?.pause()
+        }
+        .onChange(of: settingsStore?.epubLayout) { _, _ in
+            updatePaginationIfNeeded()
+        }
+        .onChange(of: settingsStore?.typography.fontSize) { _, _ in
+            updatePaginationIfNeeded()
+        }
+        .onChange(of: settingsStore?.autoPageTurn) { _, newValue in
+            uiState.updateAutoPageTurner(
+                enabled: newValue ?? false,
+                isPagedMode: isPagedMode,
+                interval: settingsStore?.autoPageTurnInterval ?? 5.0
+            )
         }
         .readerNotificationHandlers(
             deps: makeNotificationDeps(),
-            scrollToOffset: $scrollToOffset,
-            highlightRange: $highlightRange,
-            highlightIsTemporary: $highlightIsTemporary,
-            persistedHighlightRanges: $persistedHighlightRanges,
-            pendingAnnotationInfo: $pendingAnnotationInfo,
-            annotationNoteText: $annotationNoteText
+            uiState: uiState,
+            highlightCoordinator: highlightCoordinator ?? makeNoOpCoordinator()
         )
         .accessibilityIdentifier("mdReaderContainer")
     }
@@ -200,20 +245,73 @@ struct MDReaderContainerView: View {
     }
 
     @ViewBuilder
+    private func pagedReaderContent(
+        attributedString: NSAttributedString,
+        navigator: NativeTextPageNavigator
+    ) -> some View {
+        VStack(spacing: 0) {
+            NativeTextPagedView(
+                navigator: navigator,
+                fullText: attributedString.string,
+                fullAttributedText: attributedString,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                currentPage: uiState.pagedCurrentPage,
+                pageTurnAnimation: settingsStore?.pageTurnAnimation ?? .none
+            )
+
+            if navigator.totalPages > 0 {
+                Text("Page \(uiState.pagedCurrentPage + 1) of \(navigator.totalPages)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+                    .accessibilityIdentifier("mdPageIndicator")
+            }
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .accessibilityIdentifier("mdReaderPagedContent")
+    }
+
+    @ViewBuilder
     private func readerContent(attributedString: NSAttributedString) -> some View {
         TXTTextViewBridge(
             text: attributedString.string,
             attributedText: attributedString,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
             restoreOffset: initialRestoreOffset,
-            scrollToOffset: scrollToOffset,
-            highlightRange: highlightRange,
-            highlightIsTemporary: highlightIsTemporary,
-            persistedHighlights: persistedHighlightRanges,
+            scrollToOffset: uiState.scrollToOffset,
+            highlightRange: uiState.highlightRange,
+            highlightIsTemporary: uiState.highlightIsTemporary,
+            persistedHighlights: uiState.persistedHighlightRanges,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("mdReaderContent")
+    }
+
+    // MARK: - Highlight Coordinator (Phase R4)
+
+    private func makeNoOpCoordinator() -> HighlightCoordinator {
+        let renderer = highlightRenderer ?? TextHighlightRenderer(uiState: uiState)
+        return HighlightCoordinator(
+            renderer: renderer,
+            persistence: NoOpHighlightStore(),
+            bookFingerprintKey: viewModel.bookFingerprintKey
+        )
+    }
+
+    // MARK: - Paged Mode Helpers (B08, B10)
+
+    private func updatePaginationIfNeeded() {
+        uiState.updatePagination(
+            isPagedMode: isPagedMode,
+            attributedText: viewModel.renderedAttributedString,
+            initialRestoreOffset: initialRestoreOffset,
+            autoPageTurnEnabled: settingsStore?.autoPageTurn ?? false,
+            autoPageTurnInterval: settingsStore?.autoPageTurnInterval ?? 5.0
+        )
+        if let offset = uiState.syncPagedState() {
+            viewModel.updateScrollPosition(charOffsetUTF16: offset)
+        }
     }
 }
 #endif

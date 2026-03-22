@@ -1,6 +1,7 @@
-// Purpose: Slide-up settings panel for reader theme and typography controls.
-// Provides theme picker, font size slider, line spacing slider, font family picker,
-// CJK spacing toggle, and live-preview text.
+// Purpose: Slide-up settings panel for reader theme, reading mode, and typography controls.
+// Provides theme picker, reading mode picker, font size slider, line spacing slider,
+// font family picker, CJK spacing toggle, and live-preview text.
+// When paged layout is selected, shows page turn animation picker and auto page turn toggle.
 //
 // Key decisions:
 // - Presented as a sheet from reader toolbar.
@@ -11,24 +12,64 @@
 //
 // @coordinates-with: ReaderSettingsStore.swift, ReaderContainerView.swift
 
+import PhotosUI
 import SwiftUI
 
 /// Settings panel for reader appearance.
 struct ReaderSettingsPanel: View {
     @Bindable var store: ReaderSettingsStore
+    /// Tap zone configuration store (feature #25).
+    var tapZoneStore: TapZoneStore?
+    /// Fingerprint key for the currently open book (nil if no per-book support).
+    var bookFingerprintKey: String?
+    /// Base URL for per-book settings storage.
+    var perBookBaseURL: URL?
+    /// Whether per-book settings are currently enabled for this book.
+    @State private var isPerBookEnabled = false
+    /// Photo picker state for theme background (feature #32).
+    @State private var backgroundPickerItem: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
             List {
                 themeSection
+                themeBackgroundSection
+                readingModeSection
+                epubLayoutSection
+                if store.epubLayout == .paged {
+                    pageTurnAnimationSection
+                    autoPageTurnSection
+                }
                 fontSizeSection
                 lineSpacingSection
                 fontFamilySection
                 cjkSection
+                chineseConversionSection
+                if tapZoneStore != nil { tapZoneSection }
+                if bookFingerprintKey != nil { perBookSection }
                 previewSection
             }
             .navigationTitle("Reading Settings")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .onAppear { loadPerBookState() }
+        .onChange(of: store.typography.fontSize) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.typography.lineSpacing) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.typography.fontFamily) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.typography.cjkSpacing) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.theme) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.readingMode) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: store.chineseConversion) { _, _ in syncPerBookIfEnabled() }
+        .onChange(of: backgroundPickerItem) { _, newItem in
+            guard let item = newItem else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    try? ThemeBackgroundStore.saveBackground(image, for: store.theme.rawValue)
+                    store.useCustomBackground = true
+                }
+                backgroundPickerItem = nil
+            }
         }
         .accessibilityIdentifier("readerSettingsPanel")
     }
@@ -73,6 +114,121 @@ struct ReaderSettingsPanel: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(theme.rawValue) theme")
         .accessibilityAddTraits(store.theme == theme ? [.isSelected] : [])
+    }
+
+    // MARK: - Theme Background (A04, feature #32)
+
+    @ViewBuilder
+    private var themeBackgroundSection: some View {
+        Section {
+            Toggle("Custom Background", isOn: $store.useCustomBackground)
+                .accessibilityLabel("Custom background")
+
+            if store.useCustomBackground {
+                HStack {
+                    Text("Opacity")
+                    Slider(value: $store.backgroundOpacity, in: 0.05...1, step: 0.05)
+                        .accessibilityLabel("Background opacity")
+                    Text("\(Int(store.backgroundOpacity * 100))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .frame(width: 36)
+                }
+
+                PhotosPicker(selection: $backgroundPickerItem, matching: .images) {
+                    Label("Choose Image", systemImage: "photo.on.rectangle")
+                }
+                .accessibilityLabel("Choose background image")
+
+                Button(role: .destructive) {
+                    try? ThemeBackgroundStore.removeBackground(for: store.theme.rawValue)
+                    store.useCustomBackground = false
+                } label: {
+                    Label("Remove Background", systemImage: "trash")
+                }
+                .accessibilityLabel("Remove background image")
+            }
+        }
+    }
+
+    // MARK: - Reading Mode
+
+    @ViewBuilder
+    private var readingModeSection: some View {
+        Section {
+            Picker("Reading Mode", selection: $store.readingMode) {
+                Text("Native").tag(ReadingMode.native)
+                Text("Unified").tag(ReadingMode.unified)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Reading mode")
+        } footer: {
+            Text("Native uses format-specific readers. Unified reflow engine is coming in V2.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - EPUB Layout
+
+    @ViewBuilder
+    private var epubLayoutSection: some View {
+        Section {
+            Picker("EPUB Layout", selection: $store.epubLayout) {
+                Text("Scroll").tag(EPUBLayoutPreference.scroll)
+                Text("Paged").tag(EPUBLayoutPreference.paged)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("EPUB layout")
+        } footer: {
+            Text("Scroll uses continuous vertical scrolling. Paged uses horizontal page turns.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - Page Turn Animation (B11)
+
+    @ViewBuilder
+    private var pageTurnAnimationSection: some View {
+        Section {
+            Picker("Page Turn Animation", selection: $store.pageTurnAnimation) {
+                Text("None").tag(PageTurnAnimation.none)
+                Text("Slide").tag(PageTurnAnimation.slide)
+                Text("Cover").tag(PageTurnAnimation.cover)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Page turn animation")
+        }
+    }
+
+    // MARK: - Auto Page Turn (B10)
+
+    @ViewBuilder
+    private var autoPageTurnSection: some View {
+        Section {
+            Toggle("Auto Page Turn", isOn: $store.autoPageTurn)
+                .accessibilityLabel("Auto page turn")
+
+            if store.autoPageTurn {
+                HStack {
+                    Text("Interval")
+                    Spacer()
+                    Slider(
+                        value: $store.autoPageTurnInterval,
+                        in: 1...60,
+                        step: 1
+                    )
+                    .frame(maxWidth: 160)
+                    .accessibilityLabel("Auto page turn interval")
+                    Text("\(Int(store.autoPageTurnInterval))s")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .frame(width: 32)
+                }
+            }
+        } footer: {
+            Text("Automatically turn pages at the set interval. Pauses on user interaction.")
+                .font(.caption)
+        }
     }
 
     // MARK: - Font Size
@@ -156,6 +312,107 @@ struct ReaderSettingsPanel: View {
             Text("Adds extra spacing between CJK characters for improved readability.")
                 .font(.caption)
         }
+    }
+
+    // MARK: - Chinese Conversion (E04)
+
+    @ViewBuilder
+    private var chineseConversionSection: some View {
+        Section {
+            Picker("Chinese Text", selection: $store.chineseConversion) {
+                Text("None").tag(ChineseConversionDirection.none)
+                Text("Simp \u{2192} Trad").tag(ChineseConversionDirection.simpToTrad)
+                Text("Trad \u{2192} Simp").tag(ChineseConversionDirection.tradToSimp)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Chinese text conversion")
+        } footer: {
+            Text("Convert Chinese text between Simplified and Traditional scripts.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - Tap Zones (A03, feature #25)
+
+    @ViewBuilder
+    private var tapZoneSection: some View {
+        if let zoneStore = tapZoneStore {
+            Section {
+                tapZonePicker("Left Zone", action: Binding(
+                    get: { zoneStore.config.leftAction },
+                    set: { zoneStore.config.leftAction = $0 }
+                ))
+                tapZonePicker("Center Zone", action: Binding(
+                    get: { zoneStore.config.centerAction },
+                    set: { zoneStore.config.centerAction = $0 }
+                ))
+                tapZonePicker("Right Zone", action: Binding(
+                    get: { zoneStore.config.rightAction },
+                    set: { zoneStore.config.rightAction = $0 }
+                ))
+            } header: {
+                Text("Tap Zones")
+            } footer: {
+                Text("Choose what happens when you tap each area of the screen.")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func tapZonePicker(_ label: String, action: Binding<TapAction>) -> some View {
+        Picker(label, selection: action) {
+            Text("Previous Page").tag(TapAction.previousPage)
+            Text("Next Page").tag(TapAction.nextPage)
+            Text("Toggle Toolbar").tag(TapAction.toggleChrome)
+            Text("None").tag(TapAction.none)
+        }
+        .accessibilityLabel(label)
+    }
+
+    // MARK: - Per-Book Settings (A05)
+
+    @ViewBuilder
+    private var perBookSection: some View {
+        Section {
+            Toggle("Custom settings for this book", isOn: $isPerBookEnabled)
+                .accessibilityLabel("Custom settings for this book")
+                .onChange(of: isPerBookEnabled) { _, newValue in
+                    if newValue { savePerBookSnapshot() } else { deletePerBookOverride() }
+                }
+        } footer: {
+            Text(isPerBookEnabled
+                ? "Font, spacing, and theme changes apply only to this book."
+                : "All books share the same settings.")
+                .font(.caption)
+        }
+    }
+
+    private func loadPerBookState() {
+        guard let key = bookFingerprintKey, let baseURL = perBookBaseURL else { return }
+        isPerBookEnabled = PerBookSettingsStore.settings(for: key, baseURL: baseURL) != nil
+    }
+
+    private func savePerBookSnapshot() {
+        guard let key = bookFingerprintKey, let baseURL = perBookBaseURL else { return }
+        let override = PerBookSettingsOverride(
+            fontSize: store.typography.fontSize,
+            fontName: store.typography.fontFamily.rawValue,
+            lineSpacing: store.typography.lineSpacing,
+            letterSpacing: store.typography.cjkSpacing ? store.typography.fontSize * 0.05 : 0,
+            themeName: store.theme.rawValue,
+            readingMode: store.readingMode.rawValue
+        )
+        try? PerBookSettingsStore.save(override, for: key, baseURL: baseURL)
+    }
+
+    private func deletePerBookOverride() {
+        guard let key = bookFingerprintKey, let baseURL = perBookBaseURL else { return }
+        PerBookSettingsStore.delete(for: key, baseURL: baseURL)
+    }
+
+    private func syncPerBookIfEnabled() {
+        guard isPerBookEnabled else { return }
+        savePerBookSnapshot()
     }
 
     // MARK: - Preview

@@ -359,8 +359,8 @@ struct EPUBParserURLPrefixTests {
 
     // MARK: - Cleanup
 
-    @Test("close removes extracted directory")
-    func closeRemovesExtractedDir() async throws {
+    @Test("close preserves persistent cache directory")
+    func closePreservesCacheDir() async throws {
         let epubURL = try ZIPBuilder.createZIP(entries: [
             .init(path: "META-INF/container.xml",
                   content: EPUBTemplate.containerXML(opfPath: "content.opf")),
@@ -379,6 +379,118 @@ struct EPUBParserURLPrefixTests {
 
         await parser.close()
 
-        #expect(!FileManager.default.fileExists(atPath: rootURL.path))
+        // PERF: Cache is now persistent — directory should STILL exist after close
+        #expect(FileManager.default.fileExists(atPath: rootURL.path),
+                "Persistent cache should survive close()")
+        // Clean up test cache
+        try? FileManager.default.removeItem(at: rootURL)
+    }
+}
+
+// MARK: - EPUB TOC Title Resolution (bug #74)
+
+@Suite("EPUBParser - Nav/NCX TOC Titles")
+struct EPUBNavTOCTests {
+
+    /// EPUB 3 with nav.xhtml — should extract real chapter titles.
+    @Test func epub3NavTitlesExtracted() async throws {
+        let navXHTML = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+        <body>
+        <nav epub:type="toc">
+          <ol>
+            <li><a href="ch1.xhtml">Chapter One: The Beginning</a></li>
+            <li><a href="ch2.xhtml">Chapter Two: The Middle</a></li>
+          </ol>
+        </nav>
+        </body>
+        </html>
+        """.utf8)
+
+        let opfWithNav = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:title>Test</dc:title>
+          </metadata>
+          <manifest>
+            <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+            <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+            <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine>
+            <itemref idref="ch1"/>
+            <itemref idref="ch2"/>
+          </spine>
+        </package>
+        """.utf8)
+
+        let epubURL = try ZIPBuilder.createZIP(entries: [
+            .init(path: "META-INF/container.xml",
+                  content: EPUBTemplate.containerXML(opfPath: "content.opf")),
+            .init(path: "content.opf", content: opfWithNav),
+            .init(path: "nav.xhtml", content: navXHTML),
+            .init(path: "ch1.xhtml", content: EPUBTemplate.minimalXHTML(title: "Ch1")),
+            .init(path: "ch2.xhtml", content: EPUBTemplate.minimalXHTML(title: "Ch2")),
+        ])
+        defer { try? FileManager.default.removeItem(at: epubURL) }
+
+        let parser = EPUBParser()
+        let metadata = try await parser.open(url: epubURL)
+        await parser.close()
+
+        #expect(metadata.spineItems.count == 2)
+        #expect(metadata.spineItems[0].title == "Chapter One: The Beginning")
+        #expect(metadata.spineItems[1].title == "Chapter Two: The Middle")
+    }
+
+    /// EPUB without nav or NCX — should fall back to "Section N".
+    @Test func fallbackToSectionNumberWithoutNav() async throws {
+        let epubURL = try ZIPBuilder.createZIP(entries: [
+            .init(path: "META-INF/container.xml",
+                  content: EPUBTemplate.containerXML(opfPath: "content.opf")),
+            .init(path: "content.opf",
+                  content: EPUBTemplate.contentOPF(hrefs: ["ch.xhtml"])),
+            .init(path: "ch.xhtml",
+                  content: EPUBTemplate.minimalXHTML()),
+        ])
+        defer { try? FileManager.default.removeItem(at: epubURL) }
+
+        let parser = EPUBParser()
+        let metadata = try await parser.open(url: epubURL)
+        await parser.close()
+
+        #expect(metadata.spineItems[0].title == "Section 1")
+    }
+
+    /// withResolvedTitles replaces spine titles from nav data.
+    @Test func withResolvedTitlesAppliesNavTitles() {
+        let metadata = EPUBMetadata(
+            title: "Book", author: nil, language: nil,
+            readingDirection: .ltr, layout: .reflowable,
+            spineItems: [
+                EPUBSpineItem(id: "ch1", href: "ch1.xhtml", title: "Section 1", index: 0),
+                EPUBSpineItem(id: "ch2", href: "ch2.xhtml", title: "Section 2", index: 1),
+            ]
+        )
+        let navTitles = ["ch1.xhtml": "Prologue", "ch2.xhtml": "Chapter 1"]
+        let resolved = metadata.withResolvedTitles(navTitles)
+
+        #expect(resolved.spineItems[0].title == "Prologue")
+        #expect(resolved.spineItems[1].title == "Chapter 1")
+    }
+
+    /// CJK chapter titles are preserved.
+    @Test func cjkTitlesPreserved() {
+        let metadata = EPUBMetadata(
+            title: "书", author: nil, language: nil,
+            readingDirection: .ltr, layout: .reflowable,
+            spineItems: [
+                EPUBSpineItem(id: "ch1", href: "ch1.xhtml", title: "Section 1", index: 0),
+            ]
+        )
+        let resolved = metadata.withResolvedTitles(["ch1.xhtml": "第一章 开始"])
+        #expect(resolved.spineItems[0].title == "第一章 开始")
     }
 }

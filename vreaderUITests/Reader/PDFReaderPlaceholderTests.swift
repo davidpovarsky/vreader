@@ -1,7 +1,7 @@
-// WI-UI-8: PDF Reader Container — Placeholder State
+// WI-UI-8: PDF Reader Container — Reader State
 //
-// Tests verify the PDF reader shows its placeholder when navigating
-// to a PDF book. The real PDFKit integration is not wired yet.
+// Tests verify the PDF reader container appears when navigating
+// to a PDF book. PDFKit integration is fully wired.
 
 import XCTest
 
@@ -18,13 +18,13 @@ final class PDFReaderPlaceholderTests: XCTestCase {
         app = nil
     }
 
-    func testPDFPlaceholderExists() {
+    func testPDFReaderContainerAppears() {
         tapBook(titled: "Test PDF Document", in: app)
 
-        let placeholder = app.staticTexts[AccessibilityID.pdfReaderPlaceholder]
+        let container = app.otherElements[AccessibilityID.pdfReaderContainer]
         XCTAssertTrue(
-            placeholder.waitForExistence(timeout: 5),
-            "PDF reader placeholder should appear when opening a PDF book"
+            container.waitForExistence(timeout: 5),
+            "PDF reader container should appear when opening a PDF book"
         )
     }
 }

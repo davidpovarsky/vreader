@@ -1,26 +1,31 @@
 // Purpose: Main library view displaying the user's book collection.
 // Supports grid/list toggle, sorting, pull-to-refresh, swipe-to-delete,
 // context menu with Info/Share/Delete, empty state with onboarding CTA,
-// and general AI chat entry point (WI-013).
+// general AI chat entry point (WI-013), and OPDS catalog browsing (WI-C04).
 //
 // Key decisions:
 // - Uses .refreshable for pull-to-refresh (delegates to ViewModel throttle).
 // - Grid uses adaptive columns for responsive layout.
 // - Sort picker and view mode toggle in toolbar.
 // - Empty state shown when library is empty.
-// - Context menu provides Info, Share, and Delete actions.
+// - Context menu provides Info, Share, Set Cover, Remove Cover, and Delete actions.
+// - Custom covers via PhotosPicker; stored/loaded through CustomCoverStore.
 // - Delete via context menu (grid) and swipe actions (list).
 // - AI chat button shown conditionally (feature flag + API key).
+// - OPDS catalog button opens catalog management sheet.
 //
 // @coordinates-with: LibraryViewModel.swift, BookCardView.swift, BookRowView.swift,
-//   ReaderContainerView.swift, BookInfoSheet.swift, SettingsView.swift, AIChatView.swift
+//   ReaderContainerView.swift, BookInfoSheet.swift, SettingsView.swift, AIChatView.swift,
+//   CustomCoverStore.swift, OPDSCatalogListView.swift
 
 import SwiftUI
 import Combine
+import PhotosUI
 import UniformTypeIdentifiers
 
 /// Main library view for the book collection.
 struct LibraryView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: LibraryViewModel
     @State private var bookToDelete: LibraryBookItem?
     @State private var bookForInfo: LibraryBookItem?
@@ -28,6 +33,19 @@ struct LibraryView: View {
     @State private var isShowingImporter = false
     @State private var isShowingSettings = false
     @State private var isShowingAIChat = false
+    @State private var isShowingOPDSCatalogs = false
+    @State private var isShowingCollections = false
+    @State private var activeFilter: LibraryFilter = .allBooks
+    @State private var collectionRecords: [CollectionRecord] = []
+    @State private var allTags: [String] = []
+    @State private var allSeries: [String] = []
+    /// Fingerprint keys of books with new chapters detected by UpdateChecker (D07a).
+    @State private var booksWithUpdates: Set<String> = []
+    @State private var coverPickerItem: PhotosPickerItem?
+    @State private var bookForCover: LibraryBookItem?
+    @State private var isShowingCoverPicker = false
+    /// Incremented when a custom cover is set or removed, to force card/row views to reload.
+    @State private var coverVersion: Int = 0
     let syncMonitor: SyncStatusMonitor?
 
     init(viewModel: LibraryViewModel, syncMonitor: SyncStatusMonitor? = nil) {
@@ -57,9 +75,13 @@ struct LibraryView: View {
             }
             .refreshable {
                 await viewModel.refresh()
+                await checkForBookSourceUpdates()
             }
             .task {
                 await viewModel.loadBooks()
+                // Load collections eagerly for context menu "Add to Collection" (bug #85)
+                let persistence = PersistenceActor(modelContainer: modelContext.container)
+                collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
             }
             .onReceive(NotificationCenter.default.publisher(for: .readerDidClose)) { notification in
                 // Bug #45 v4: Update in-memory lastReadAt and re-sort immediately.
@@ -120,6 +142,44 @@ struct LibraryView: View {
                         }
                 }
             }
+            .sheet(isPresented: $isShowingOPDSCatalogs) {
+                NavigationStack {
+                    OPDSCatalogListView()
+                        .navigationTitle("OPDS Catalogs")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Done") {
+                                    isShowingOPDSCatalogs = false
+                                }
+                                .accessibilityIdentifier("opdsCatalogsDoneButton")
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $isShowingCollections) {
+                CollectionSidebar(
+                    activeFilter: $activeFilter,
+                    collections: collectionRecords,
+                    allTags: allTags,
+                    allSeries: allSeries,
+                    onCreateCollection: { name in
+                        let persistence = PersistenceActor(modelContainer: modelContext.container)
+                        _ = try? await persistence.createCollection(name: name)
+                        collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    },
+                    onDeleteCollection: { name in
+                        let persistence = PersistenceActor(modelContainer: modelContext.container)
+                        try? await persistence.deleteCollection(name: name)
+                        collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    }
+                )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .opdsBookDownloaded)) { notification in
+                if let url = notification.userInfo?["url"] as? URL {
+                    Task { await viewModel.importFiles([url]) }
+                }
+            }
             .fileImporter(
                 isPresented: $isShowingImporter,
                 allowedContentTypes: Self.importableTypes,
@@ -130,6 +190,30 @@ struct LibraryView: View {
                     Task { await viewModel.importFiles(urls) }
                 case .failure(let error):
                     viewModel.setError(ErrorMessageAuditor.sanitize(error))
+                }
+            }
+            .photosPicker(
+                isPresented: $isShowingCoverPicker,
+                selection: $coverPickerItem,
+                matching: .images
+            )
+            // Present picker after bookForCover is set (waits for context menu dismiss). (bug #80)
+            .onChange(of: bookForCover) { _, newBook in
+                if newBook != nil {
+                    isShowingCoverPicker = true
+                }
+            }
+            .onChange(of: coverPickerItem) { _, newItem in
+                guard let item = newItem, let book = bookForCover else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        try? CustomCoverStore.saveCover(image, for: book.fingerprintKey)
+                        coverVersion += 1
+                    }
+                    coverPickerItem = nil
+                    bookForCover = nil
+                    isShowingCoverPicker = false
                 }
             }
         }
@@ -165,7 +249,7 @@ struct LibraryView: View {
             ) {
                 ForEach(viewModel.books) { book in
                     NavigationLink(value: book) {
-                        BookCardView(book: book)
+                        BookCardView(book: book, coverVersion: coverVersion)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -189,7 +273,7 @@ struct LibraryView: View {
         List {
             ForEach(viewModel.books) { book in
                 NavigationLink(value: book) {
-                    BookRowView(book: book)
+                    BookRowView(book: book, coverVersion: coverVersion)
                 }
                 .contextMenu {
                     bookContextMenu(for: book)
@@ -273,6 +357,32 @@ struct LibraryView: View {
 
         ToolbarItem(placement: .topBarTrailing) {
             Button {
+                Task {
+                    let persistence = PersistenceActor(modelContainer: modelContext.container)
+                    collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    allTags = (try? await persistence.fetchAllTags()) ?? []
+                    allSeries = (try? await persistence.fetchAllSeriesNames()) ?? []
+                    isShowingCollections = true
+                }
+            } label: {
+                Image(systemName: "folder")
+            }
+            .accessibilityLabel("Collections")
+            .accessibilityIdentifier("collectionsToolbarButton")
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                isShowingOPDSCatalogs = true
+            } label: {
+                Image(systemName: "globe")
+            }
+            .accessibilityLabel("OPDS Catalogs")
+            .accessibilityIdentifier("opdsCatalogsToolbarButton")
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
                 isShowingImporter = true
             } label: {
                 Image(systemName: "plus")
@@ -328,6 +438,49 @@ struct LibraryView: View {
 
         Divider()
 
+        Button {
+            bookForCover = book
+        } label: {
+            Label("Set Cover", systemImage: "photo")
+        }
+
+        if CustomCoverStore.hasCover(for: book.fingerprintKey) {
+            Button(role: .destructive) {
+                try? CustomCoverStore.removeCover(for: book.fingerprintKey)
+                coverVersion += 1
+            } label: {
+                Label("Remove Cover", systemImage: "photo.badge.minus")
+            }
+        }
+
+        Divider()
+
+        // Add to Collection submenu (bug #85)
+        Menu {
+            if collectionRecords.isEmpty {
+                Text("No collections yet")
+            } else {
+                ForEach(collectionRecords, id: \.name) { collection in
+                    Button {
+                        Task {
+                            let persistence = PersistenceActor(modelContainer: modelContext.container)
+                            try? await persistence.addBookToCollection(
+                                bookFingerprintKey: book.fingerprintKey,
+                                collectionName: collection.name
+                            )
+                            collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                        }
+                    } label: {
+                        Label(collection.name, systemImage: "folder")
+                    }
+                }
+            }
+        } label: {
+            Label("Add to Collection", systemImage: "folder.badge.plus")
+        }
+
+        Divider()
+
         deleteButton(for: book)
     }
 
@@ -364,6 +517,17 @@ struct LibraryView: View {
             }
         )
         return AIChatViewModel(aiService: service, bookFingerprint: nil)
+    }
+
+    // MARK: - Update Checker (D07a)
+
+    /// Checks enabled BookSources for new chapters on tracked books.
+    /// Populates `booksWithUpdates` with fingerprint keys of updated books.
+    private func checkForBookSourceUpdates() async {
+        // TODO: Wire up once books track their source URL and chapter count.
+        // For now, this is a no-op infrastructure hook for pull-to-refresh.
+        // When book-to-source linking is implemented, iterate over source-linked
+        // books and call UpdateChecker.checkForUpdates() for each.
     }
 
     // MARK: - Helpers

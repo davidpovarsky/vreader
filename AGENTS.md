@@ -3,6 +3,7 @@
 Shared instructions for all AI agents (Claude, Codex, etc.).
 
 - You are an AI assistant working on the project.
+- **Read `docs/architecture.md` before making any code changes. Update it when adding new layers, patterns, services, or changing how components communicate.**
 - Use English unless another language is requested.
 - Follow the working agreement:
   - Run `git status -sb` at session start.
@@ -21,7 +22,8 @@ Shared instructions for all AI agents (Claude, Codex, etc.).
     - Write a failing test (RED), implement minimally (GREEN), refactor (REFACTOR).
     - Coverage thresholds are enforced — `ut` fails if coverage drops.
     - Exceptions: CSS-only, docs, config. See `.claude/rules/10-tdd.md` for full scope.
-  - Run ut for gates.
+  - Run `xcodebuild test -only-testing:vreaderTests` for unit test gates. Skip UI tests during development.
+  - Default simulator: **iPhone 17 Pro** (Dynamic Island — catches safe area bugs).
   - **Task workflow** (three files, one flow):
     - `docs/tasks.md` — **inbox**. User writes free-form descriptions. Agent triages (classify only, do not fix or implement during triage). See `docs/tasks.md` for classification rules, deduplication, and triage record format.
     - `docs/bugs.md` — **bug tracker**. Something implemented but broken. Follow the bug fix workflow defined in `docs/bugs.md` (Understand → RED → GREEN → REFACTOR → Verify → Track).

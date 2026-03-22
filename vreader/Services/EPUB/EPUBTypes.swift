@@ -33,6 +33,21 @@ struct EPUBMetadata: Sendable, Equatable {
 
     /// Total number of spine items (chapters/sections).
     var spineCount: Int { spineItems.count }
+
+    /// Returns a copy with spine item titles resolved from nav/NCX data. (bug #74)
+    /// Titles from the navigation document override "Section N" fallbacks.
+    func withResolvedTitles(_ navTitles: [String: String]) -> EPUBMetadata {
+        let resolved = spineItems.map { item -> EPUBSpineItem in
+            if let navTitle = navTitles[item.href] {
+                return EPUBSpineItem(id: item.id, href: item.href, title: navTitle, index: item.index)
+            }
+            return item
+        }
+        return EPUBMetadata(
+            title: title, author: author, language: language,
+            readingDirection: readingDirection, layout: layout, spineItems: resolved
+        )
+    }
 }
 
 /// A single item in the EPUB spine (reading order).

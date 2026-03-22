@@ -1,5 +1,7 @@
 // Purpose: Defines supported book formats for the reader.
 // .md is importable as of WI-6B.
+//
+// @coordinates-with: FormatCapabilities.swift — `capabilities` convenience property
 
 /// Supported document formats for the reader.
 enum BookFormat: String, Codable, Hashable, Sendable, CaseIterable {
@@ -26,5 +28,10 @@ enum BookFormat: String, Codable, Hashable, Sendable, CaseIterable {
         case .txt: return ["txt", "text"]
         case .md: return ["md", "markdown"]
         }
+    }
+
+    /// Default capabilities for this format (assumes simple EPUB).
+    var capabilities: FormatCapabilities {
+        FormatCapabilities.capabilities(for: self)
     }
 }

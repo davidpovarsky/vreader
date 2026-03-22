@@ -2,7 +2,6 @@
 //
 // Tests verify reader navigation from library, toolbar button presence,
 // accessibility labels, and basic back-navigation.
-// All reader content is placeholder text in the current app state.
 
 import XCTest
 
@@ -32,10 +31,10 @@ final class ReaderNavigationTests: XCTestCase {
 
     func testNavigateToPDFReader() {
         tapBook(titled: "Test PDF Document", in: app)
-        let placeholder = app.staticTexts[AccessibilityID.pdfReaderPlaceholder]
+        let container = app.otherElements[AccessibilityID.pdfReaderContainer]
         XCTAssertTrue(
-            placeholder.waitForExistence(timeout: 5),
-            "PDF reader placeholder should appear after tapping a PDF book"
+            container.waitForExistence(timeout: 5),
+            "PDF reader container should appear after tapping a PDF book"
         )
     }
 

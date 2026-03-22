@@ -53,6 +53,14 @@ final class SearchIndexStore: @unchecked Sendable {
         try createTables()
     }
 
+    /// Creates a search index using a pre-configured SearchIndexCore.
+    /// Use this with a file-backed core for persistent indexing (WI-F06).
+    init(core: SearchIndexCore) throws {
+        self.core = core
+        self.queryExecutor = SearchQueryExecutor(core: core)
+        try createTables()
+    }
+
     // MARK: - Schema
 
     private func createTables() throws {
@@ -85,6 +93,16 @@ final class SearchIndexStore: @unchecked Sendable {
                 source_unit_id TEXT NOT NULL,
                 original_text TEXT NOT NULL,
                 PRIMARY KEY (fingerprint_key, source_unit_id)
+            )
+        """)
+
+        // Metadata for persistent index tracking (WI-F06).
+        try core.exec("""
+            CREATE TABLE IF NOT EXISTS search_metadata (
+                fingerprint_key TEXT PRIMARY KEY,
+                indexed_at TEXT NOT NULL,
+                content_hash TEXT,
+                segment_base_offsets TEXT
             )
         """)
     }
@@ -125,6 +143,16 @@ final class SearchIndexStore: @unchecked Sendable {
                 for unit in textUnits {
                     try indexSpans(fingerprintKey: fingerprintKey, sourceUnitId: unit.sourceUnitId, text: unit.text)
                 }
+                // Record in metadata (WI-F06)
+                let now = ISO8601DateFormatter().string(from: Date())
+                try core.execBind(
+                    """
+                    INSERT OR REPLACE INTO search_metadata(fingerprint_key, indexed_at)
+                    VALUES (?, ?)
+                    """,
+                    params: [fingerprintKey, now]
+                )
+
                 try core.exec("COMMIT")
             } catch {
                 try? core.exec("ROLLBACK")
@@ -138,6 +166,7 @@ final class SearchIndexStore: @unchecked Sendable {
         try core.execBind("DELETE FROM search_index WHERE fingerprint_key = ?", params: [fingerprintKey])
         try core.execBind("DELETE FROM token_spans WHERE fingerprint_key = ?", params: [fingerprintKey])
         try core.execBind("DELETE FROM source_texts WHERE fingerprint_key = ?", params: [fingerprintKey])
+        try core.execBind("DELETE FROM search_metadata WHERE fingerprint_key = ?", params: [fingerprintKey])
     }
 
     private func indexSpans(fingerprintKey: String, sourceUnitId: String, text: String) throws {
@@ -169,5 +198,90 @@ final class SearchIndexStore: @unchecked Sendable {
     /// Extracts a context snippet around match offsets in the original text.
     static func extractSnippet(from text: String?, matchStart: Int, matchEnd: Int, contextChars: Int) -> String {
         SearchQueryExecutor.extractSnippet(from: text, matchStart: matchStart, matchEnd: matchEnd, contextChars: contextChars)
+    }
+
+    // MARK: - Persistent Index Metadata (WI-F06)
+
+    /// Checks whether a book has been indexed (has a metadata row).
+    func isBookIndexed(fingerprintKey: String) -> Bool {
+        core.withLock {
+            do {
+                let rows = try core.query(
+                    "SELECT 1 FROM search_metadata WHERE fingerprint_key = ? LIMIT 1",
+                    params: [fingerprintKey]
+                ) { _ in true }
+                return !rows.isEmpty
+            } catch {
+                return false
+            }
+        }
+    }
+
+    /// Sets the content hash for a fingerprint key (skip-reindex optimization).
+    func setContentHash(fingerprintKey: String, contentHash: String) {
+        core.withLock {
+            try? core.execBind(
+                "UPDATE search_metadata SET content_hash = ? WHERE fingerprint_key = ?",
+                params: [contentHash, fingerprintKey]
+            )
+        }
+    }
+
+    /// Checks if the stored content hash matches the provided one.
+    func contentHashMatches(
+        fingerprintKey: String, contentHash: String
+    ) -> Bool {
+        core.withLock {
+            do {
+                let rows = try core.query(
+                    "SELECT content_hash FROM search_metadata WHERE fingerprint_key = ?",
+                    params: [fingerprintKey]
+                ) { row in row.text(0) }
+                return rows.first == contentHash
+            } catch {
+                return false
+            }
+        }
+    }
+
+    /// Stores segment base offsets as JSON for TXT locator resolution.
+    func setSegmentBaseOffsets(
+        fingerprintKey: String, offsets: [Int: Int]
+    ) {
+        let stringKeyed = Dictionary(
+            uniqueKeysWithValues: offsets.map { ("\($0.key)", $0.value) }
+        )
+        guard let data = try? JSONSerialization.data(withJSONObject: stringKeyed),
+              let json = String(data: data, encoding: .utf8) else { return }
+        core.withLock {
+            try? core.execBind(
+                "UPDATE search_metadata SET segment_base_offsets = ? WHERE fingerprint_key = ?",
+                params: [json, fingerprintKey]
+            )
+        }
+    }
+
+    /// Retrieves stored segment base offsets, or nil if not stored.
+    func getSegmentBaseOffsets(fingerprintKey: String) -> [Int: Int]? {
+        core.withLock {
+            do {
+                let rows = try core.query(
+                    "SELECT segment_base_offsets FROM search_metadata WHERE fingerprint_key = ?",
+                    params: [fingerprintKey]
+                ) { row in row.text(0) }
+                guard let json = rows.first, !json.isEmpty,
+                      let data = json.data(using: .utf8),
+                      let dict = try? JSONSerialization.jsonObject(with: data)
+                          as? [String: Int] else {
+                    return nil
+                }
+                return Dictionary(uniqueKeysWithValues: dict.compactMap { key, value in
+                    guard let intKey = Int(key) else { return nil }
+                    return (intKey, value)
+                })
+            } catch {
+                return nil
+            }
+        }
     }
 }

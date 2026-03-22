@@ -29,14 +29,21 @@ final class LibraryViewModel {
     /// Current list of books, sorted by current sort order.
     private(set) var books: [LibraryBookItem] = []
 
-    /// Current view mode (grid or list).
-    var viewMode: LibraryViewMode = .grid
+    /// Current view mode (grid or list). Persisted via PreferenceStore. (bug #75)
+    var viewMode: LibraryViewMode = .grid {
+        didSet {
+            if oldValue != viewMode {
+                preferenceStore?.set(viewMode.rawValue, forKey: Self.viewModeKey)
+            }
+        }
+    }
 
-    /// Current sort order. Changing triggers re-sort.
+    /// Current sort order. Changing triggers re-sort and persists. (bug #75)
     var sortOrder: LibrarySortOrder = .title {
         didSet {
             if oldValue != sortOrder {
                 books = Self.sorted(unsortedBooks, by: sortOrder)
+                preferenceStore?.set(sortOrder.rawValue, forKey: Self.sortOrderKey)
             }
         }
     }
@@ -65,6 +72,9 @@ final class LibraryViewModel {
     /// Book importer (injected for testability). Nil means import is a no-op.
     private let importer: (any BookImporting)?
 
+    /// Preference store for persisting sort order and view mode. (bug #75)
+    private let preferenceStore: (any PreferenceStoring)?
+
     /// Minimum interval between refreshes.
     private let throttleInterval: TimeInterval
 
@@ -74,14 +84,32 @@ final class LibraryViewModel {
 
     // MARK: - Init
 
+    // Persistence keys for UserDefaults (bug #75)
+    static let sortOrderKey = "library.sortOrder"
+    static let viewModeKey = "library.viewMode"
+
     init(
         persistence: any LibraryPersisting,
         importer: (any BookImporting)? = nil,
+        preferenceStore: (any PreferenceStoring)? = nil,
         throttleInterval: TimeInterval = 5.0
     ) {
         self.persistence = persistence
         self.importer = importer
+        self.preferenceStore = preferenceStore
         self.throttleInterval = throttleInterval
+
+        // Restore persisted preferences (bug #75)
+        if let store = preferenceStore {
+            if let raw = store.string(forKey: Self.sortOrderKey),
+               let order = LibrarySortOrder(rawValue: raw) {
+                self.sortOrder = order
+            }
+            if let raw = store.string(forKey: Self.viewModeKey),
+               let mode = LibraryViewMode(rawValue: raw) {
+                self.viewMode = mode
+            }
+        }
     }
 
     // MARK: - Actions

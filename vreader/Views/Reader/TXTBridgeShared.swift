@@ -3,12 +3,12 @@
 //
 // Key decisions:
 // - postSelectionNotification unifies single-TV and chunked versions via optional chunkOffset.
-// - buildReaderEditMenu builds the shared Highlight + Add Note menu for both bridges.
+// - buildReaderEditMenu builds the shared Highlight, Add Note, Define, and Translate menu.
 // - postContentTappedNotification extracts the identical tap handler body.
 // - gestureRecognizerShouldRecognizeSimultaneously extracts the identical delegate answer.
 //
 // @coordinates-with TXTTextViewBridge.swift, TXTChunkedReaderBridge.swift,
-//   ReaderNotifications.swift
+//   ReaderNotifications.swift, DictionaryLookup.swift
 
 import UIKit
 
@@ -40,7 +40,7 @@ enum TXTBridgeShared {
         NotificationCenter.default.post(name: name, object: info)
     }
 
-    /// Builds the shared edit menu with Highlight and Add Note actions.
+    /// Builds the shared edit menu with Highlight, Add Note, Define, and Translate actions.
     @MainActor
     static func buildReaderEditMenu(
         range: NSRange,
@@ -70,8 +70,35 @@ enum TXTBridgeShared {
             )
         }
 
-        let customMenu = UIMenu(title: "", options: .displayInline, children: [highlightAction, noteAction])
-        return UIMenu(children: [customMenu] + suggestedActions)
+        let defineAction = UIAction(
+            title: DictionaryLookup.defineMenuTitle,
+            image: UIImage(systemName: "text.book.closed")
+        ) { [weak textView] _ in
+            guard let textView else { return }
+            postSelectionNotification(
+                .readerDefineRequested, from: textView, range: range, chunkOffset: chunkOffset
+            )
+        }
+
+        let translateAction = UIAction(
+            title: DictionaryLookup.translateMenuTitle,
+            image: UIImage(systemName: "character.book.closed")
+        ) { [weak textView] _ in
+            guard let textView else { return }
+            postSelectionNotification(
+                .readerTranslateRequested, from: textView, range: range, chunkOffset: chunkOffset
+            )
+        }
+
+        let annotationMenu = UIMenu(
+            title: "", options: .displayInline,
+            children: [highlightAction, noteAction]
+        )
+        let lookupMenu = UIMenu(
+            title: "", options: .displayInline,
+            children: [defineAction, translateAction]
+        )
+        return UIMenu(children: [annotationMenu, lookupMenu] + suggestedActions)
     }
 
     /// Posts the content-tapped notification (toolbar toggle).

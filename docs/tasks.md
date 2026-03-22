@@ -38,12 +38,76 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
-2026-03-15 | bug #56 | PDF crash after adding highlight and reopening — WI-008 restore flow may crash on reopen. Needs repro + crash log
-2026-03-15 | bug #57 | EPUB and TXT font sizes render differently at same setting value — font size settings implemented but inconsistent cross-format
-2026-03-15 | bug #58 | EPUB reading position only chapter-level, not intra-chapter — position save exists but loses scroll offset within chapter on reopen
-2026-03-15 | bug #59 | Gap between progress bar (WI-004) and bottom bar — layout/spacing UI bug
-2026-03-15 | feature #21 | Paginated reading mode with turnable pages — never implemented, currently scroll-only
-2026-03-15 | REOPENED bug #43 + feature #22 | "No highlighting in search results" — Two issues: (a) highlight at destination not working in TXT/EPUB/PDF = regression of bug #43; (b) search result list doesn't highlight matching text = new feature #22
+2026-03-21 | bug #101 | Imported 2000+ book sources but list empty and search button grey — BookSource records may not persist or UI not refreshing after import
+
+2026-03-21 | bug #92 | AI only reads book title, not selected section — AIContextExtractor may not receive current locator or loaded text
+2026-03-21 | bug #93 | Chat sessions not persisted — multi-turn history lost on panel dismiss or book close
+2026-03-21 | bug #94 | Keyboard cannot be dismissed while chatting — AIChatView input field missing dismiss gesture
+2026-03-21 | bug #95 | "Translate" opens AI Summarize panel instead of translation — wrong tab/view presented from readerTranslateRequested
+2026-03-21 | bug #96 | TTS produces no sound and no error indication — AVSpeechSynthesizer may fail silently (no audio route, empty text, or system error)
+2026-03-21 | bug #97 | TTS control bar overlaps bottom bar — TTSControlBar z-order or spacing conflict with reader bottom overlay
+
+> 2026-03-21 | NEEDS-INFO | "Does TTS work for all languages?" — System TTS supports languages installed on device. HTTP TTS depends on provider. Which language failed?
+> 2026-03-21 | feature #40 | TTS sentence highlighting — highlight current sentence/word while TTS reads. Not implemented
+> 2026-03-21 | feature #41 | TTS auto-scroll/paginate — scroll content to follow TTS reading position. Not implemented
+> 2026-03-21 | DUPLICATE OF bug #89 | Books still slow to open — already tracked
+> 2026-03-21 | bug #98 | Text Transforms (simp/trad or replacement rules) fail — transform not applied or crashes
+> 2026-03-21 | bug #99 | Search results not highlighted in some TXT files — highlight navigation may fail for specific encoding/chunking edge cases
+> 2026-03-21 | bug #100 | Book source cannot be saved — BookSource persistence or UI save action broken
+
+> 2026-03-21 | DUPLICATE OF bug #72 | Library nav bar appears during loading — already tracked and FIXED
+> 2026-03-21 | bug #87 | PDF highlights still visible after deletion — readerHighlightRemoved handler missing in PDFReaderContainerView
+> 2026-03-21 | NEEDS-INFO | "Is it normal for annotations to be exported as JSON?" — Yes, JSON is one of two export formats (Markdown + JSON). Is there a specific issue?
+> 2026-03-21 | bug #88 | Exported annotations not highlighted when imported — import restores DB records but doesn't refresh visual highlights in reader
+> 2026-03-21 | bug #89 | Books still slow to open — may be regression or remaining startup overhead after bug #64 fix
+> 2026-03-21 | bug #90 | AI buttons visible when consent is off — AIReaderAvailability doesn't check consent; buttons should hide or show consent prompt
+> 2026-03-21 | bug #91 | Blank panel when tapping Translate without AI configured — no guard for missing API key/consent before opening AI panel
+
+2026-03-21 | bug #85 | Cannot add books to collections — no UI to assign books to a collection. CollectionSidebar can create/delete but not add books
+2026-03-21 | bug #86 | Tags never shown — LibraryView passes allTags:[] to CollectionSidebar. No UI to add tags to books. PersistenceActor.addTag exists but unwired
+
+2026-03-21 | bug #79 | Search panel still slow to open — deferred setup (bug #64) adds visible delay when search sheet opens
+2026-03-21 | bug #80 | Cannot set custom book cover — PhotosPicker in context menu not working
+2026-03-21 | bug #81 | Tap zones do nothing in native mode — center/left/right taps unresponsive after TapZoneOverlay removal (#70)
+
+> 2026-03-21 | feature #39 | Custom background image for reader — never implemented, only solid colors/themes exist
+> 2026-03-21 | DUPLICATE OF feature #37 | Per-book font size affects all books — per-book settings not implemented
+> 2026-03-21 | DUPLICATE OF feature #12 | TXT files without TOC — TXT TOC generation never implemented
+
+2026-03-21 | bug #77 | Cannot add highlight in native EPUB — regression of feature #11 (EPUB highlighting)
+2026-03-21 | bug #78 | Highlight visual persists after deletion — removal doesn't clear rendered highlight
+
+2026-03-21 | bug #76 | Annotations panel tab order — Contents (TOC) should be first, before Bookmarks
+
+2026-03-21 | bug #75 | Sort preference not remembered across restarts — regression of feature #6 (PreferenceStore)
+
+> 2026-03-21 | DUPLICATE OF feature #12 | TXT TOC not recognised — TXT TOC generation never implemented (forTXT returns empty)
+> 2026-03-21 | bug #74 | EPUB TOC shows "Section XXX" instead of real chapter titles — uses spine items instead of nav/NCX document
+> 2026-03-21 | feature #38 | Hierarchical/tree TOC display — currently flat list, user wants nested indented view
+
+> 2026-03-21 | DUPLICATE OF feature #21 | Paged mode still scrolls — paginated reading never implemented, setting is a placeholder
+
+2026-03-21 | bug #73 | Reader top bar hidden behind Dynamic Island — safe area inset zeroed by parent's ignoresSafeArea
+
+2026-03-21 | bug #71 | Reader top bar (ReaderChromeBar) looks ugly — buttons too small, styling inconsistent with bottom bar
+2026-03-21 | bug #72 | Library navigation bar still visible during reader loading transition
+
+2026-03-21 | REOPENED bug #62 | Content still shifts down when top bar reappears — v2 fix (constant ignoresSafeArea) didn't resolve it
+
+2026-03-21 | REOPENED bug #62 | Content shifts down when top bar appears — user re-reports after previous fix
+2026-03-21 | bug #70 | Cannot scroll content in native mode, all formats — TapZoneModifier overlay likely blocking scroll gestures
+
+2026-03-18 | bug #64 | All files and all formats are slow to load — V2 coordinator chain initialization adds overhead on every reader open
+2026-03-18 | bug #62 | Content shifts down when top bar reappears — layout reflow from toggling `.ignoresSafeArea(.top)` with `isChromeVisible`
+2026-03-18 | bug #63 | Progress bar unresponsive in Native mode — gesture conflict prevents scrubber drag and bar toggle
+
+> 2026-03-15 | bug #56 | PDF crash after adding highlight and reopening — WI-008 restore flow may crash on reopen. Needs repro + crash log
+> 2026-03-15 | bug #57 | EPUB and TXT font sizes render differently at same setting value — font size settings implemented but inconsistent cross-format
+> 2026-03-15 | bug #58 | EPUB reading position only chapter-level, not intra-chapter — position save exists but loses scroll offset within chapter on reopen
+> 2026-03-15 | bug #59 | Gap between progress bar (WI-004) and bottom bar — layout/spacing UI bug
+> 2026-03-15 | feature #21 | Paginated reading mode with turnable pages — never implemented, currently scroll-only
+> 2026-03-15 | REOPENED bug #43 + feature #22 | "No highlighting in search results" — Two issues: (a) highlight at destination not working in TXT/EPUB/PDF = regression of bug #43; (b) search result list doesn't highlight matching text = new feature #22
+
 > 2026-03-15 | DUPLICATE OF feature #6 (DONE) | Library display format/sorting not remembered — Feature #6 implemented in WI-001 with PreferenceStore. If still broken after latest build, this is a regression — please retest
 > 2026-03-15 | DUPLICATE OF feature #12 (DONE, MD only) | TXT TOC generation — D3 decision: TXT TOC deferred indefinitely (no reliable heading structure). MD TOC works via WI-005
 

@@ -1,0 +1,84 @@
+// Purpose: Single coordinator for highlight lifecycle (Phase R4b).
+// Owns create, delete, restore, and refresh-after-import flows.
+// Calls format-specific HighlightRenderer for visuals and
+// HighlightPersisting for database operations.
+//
+// Key decisions:
+// - create() persists first, then calls renderer.apply() with the real record.
+//   This ensures the renderer receives the actual highlight ID (needed for
+//   PDF annotation map tracking and EPUB JS highlight IDs).
+// - create() returns the persisted record (or nil on failure) so callers
+//   that need the real ID (e.g., EPUB JS injection) can use it.
+// - handleRemoval() removes visually first, then re-fetches and restores
+//   the full list to ensure consistency.
+// - restoreAll() is used on document open and after imports.
+//
+// @coordinates-with: HighlightRenderer.swift, HighlightPersisting.swift,
+//   ReaderNotificationModifier.swift, EPUBReaderContainerView.swift,
+//   PDFReaderContainerView.swift
+
+#if canImport(UIKit)
+import Foundation
+
+/// Coordinates highlight create/delete/restore across persistence and rendering.
+@MainActor
+final class HighlightCoordinator {
+    let renderer: any HighlightRenderer
+    let persistence: any HighlightPersisting
+    let bookFingerprintKey: String
+
+    init(
+        renderer: any HighlightRenderer,
+        persistence: any HighlightPersisting,
+        bookFingerprintKey: String
+    ) {
+        self.renderer = renderer
+        self.persistence = persistence
+        self.bookFingerprintKey = bookFingerprintKey
+    }
+
+    /// Creates a highlight: persists to DB, then visually applies via renderer.
+    /// Returns the created record, or nil if persistence failed.
+    @discardableResult
+    func create(
+        locator: Locator,
+        anchor: AnnotationAnchor? = nil,
+        selectedText: String,
+        color: String = "yellow",
+        note: String? = nil
+    ) async -> HighlightRecord? {
+        guard let record = try? await persistence.addHighlight(
+            locator: locator,
+            anchor: anchor,
+            selectedText: selectedText,
+            color: color,
+            note: note,
+            toBookWithKey: bookFingerprintKey
+        ) else { return nil }
+        renderer.apply(record: record)
+        return record
+    }
+
+    /// Handles highlight removal (from annotations panel):
+    /// removes visual highlight, then re-fetches all highlights to refresh.
+    /// On fetch failure after removal, the removed highlight stays hidden
+    /// but other visuals are unchanged.
+    func handleRemoval(highlightId: UUID) async {
+        renderer.remove(id: highlightId)
+        if let records = try? await persistence.fetchHighlights(
+            forBookWithKey: bookFingerprintKey
+        ) {
+            renderer.restore(records: records)
+        }
+    }
+
+    /// Fetches and restores all saved highlights from persistence.
+    /// On fetch failure, leaves current visuals unchanged (avoids destructive reset).
+    func restoreAll() async {
+        guard let records = try? await persistence.fetchHighlights(
+            forBookWithKey: bookFingerprintKey
+        ) else { return }
+        renderer.restore(records: records)
+    }
+}
+#endif

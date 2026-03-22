@@ -52,6 +52,9 @@ struct AIReaderPanel: View {
     /// Dismiss action provided by the presenting sheet.
     let onDismiss: () -> Void
 
+    /// Initial tab to show (e.g., .translate from readerTranslateRequested). (bug #95)
+    var initialTab: AIReaderTab = .summarize
+
     /// The currently selected tab.
     @State private var selectedTab: AIReaderTab = .summarize
 
@@ -97,6 +100,7 @@ struct AIReaderPanel: View {
             }
         }
         .accessibilityIdentifier("aiReaderPanel")
+        .onAppear { selectedTab = initialTab } // bug #95
     }
 
     // MARK: - Summarize Tab Content

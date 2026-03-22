@@ -38,6 +38,8 @@ struct PDFViewBridge: UIViewRepresentable {
     /// Temporary search highlight text to find and select on the current page (bug #43).
     /// When set, updateUIView uses PDFDocument.findString to locate and select the text.
     var searchHighlightText: String?
+    /// Phase R4: renderer for managing highlight annotations with ID tracking.
+    var highlightRenderer: PDFHighlightRenderer?
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -118,10 +120,18 @@ struct PDFViewBridge: UIViewRepresentable {
            let document = pdfView.document,
            !document.isLocked {
             context.coordinator.didRestoreHighlights = true
-            PDFAnnotationBridge.restoreHighlights(for: document, from: records)
+            // Phase R4: use renderer to track annotation map (needed for delete)
+            if let renderer = highlightRenderer {
+                renderer.setDocument(document)
+                renderer.restore(records: records)
+            } else {
+                PDFAnnotationBridge.restoreHighlights(for: document, from: records)
+            }
         }
 
         // Create visible annotation for a newly persisted highlight
+        // Note: When coordinator is active, new highlights go through renderer.apply()
+        // instead of this path. This remains as fallback for pre-coordinator create.
         if let highlight = pendingHighlight,
            pendingHighlightId != context.coordinator.lastPendingHighlightId,
            let document = pdfView.document,

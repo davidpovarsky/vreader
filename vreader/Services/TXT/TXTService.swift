@@ -15,33 +15,59 @@ import Foundation
 /// Production TXT file loader.
 actor TXTService: TXTServiceProtocol {
     private var _isOpen = false
+    /// Guards against concurrent open() calls (audit fix: Task.detached reentrancy).
+    private var _isOpening = false
 
     var isOpen: Bool { _isOpen }
 
     func open(url: URL) async throws -> TXTFileMetadata {
-        guard !_isOpen else { throw TXTServiceError.alreadyOpen }
+        guard !_isOpen, !_isOpening else { throw TXTServiceError.alreadyOpen }
+        _isOpening = true
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw TXTServiceError.fileNotFound(url.lastPathComponent)
         }
 
-        // Use mappedIfSafe to avoid copying entire file into heap memory
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        // PERF: Move ALL heavy work (file I/O + decode + word count) off the
+        // calling actor to prevent UI thread stall. This is the #1 performance
+        // fix for TXT opening — Legado-inspired (they never block the UI thread
+        // with file operations).
+        let result: TXTFileMetadata = try await Task.detached {
+            // Use mappedIfSafe to avoid copying entire file into heap memory
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
 
-        guard let (text, encoding) = Self.decodeText(data) else {
-            throw TXTServiceError.decodingFailed(
-                "Could not decode the file with any supported encoding"
+            // Phase 1: Detect encoding from 8KB sample (fast)
+            let hintName = Self.detectEncodingFromSample(data)
+            let text: String
+            let detectedEncoding: String
+
+            if let hintEnc = Self.encodingFromName(hintName),
+               let decoded = String(data: data, encoding: hintEnc) {
+                text = decoded
+                detectedEncoding = hintName
+            } else if let (decoded, enc) = Self.decodeText(data) {
+                text = decoded
+                detectedEncoding = enc
+            } else {
+                throw TXTServiceError.decodingFailed(
+                    "Could not decode the file with any supported encoding"
+                )
+            }
+
+            // Phase 2: Word count in same background context (no extra hop)
+            let wordCount = Self.countWords(text)
+
+            return TXTFileMetadata(
+                text: text,
+                fileByteCount: Int64(data.count),
+                detectedEncoding: detectedEncoding,
+                totalTextLengthUTF16: text.utf16.count,
+                totalWordCount: wordCount
             )
-        }
+        }.value
 
         _isOpen = true
-
-        return TXTFileMetadata(
-            text: text,
-            fileByteCount: Int64(data.count),
-            detectedEncoding: encoding,
-            totalTextLengthUTF16: text.utf16.count,
-            totalWordCount: Self.countWords(text)
-        )
+        _isOpening = false
+        return result
     }
 
     func close() async {
@@ -100,6 +126,57 @@ actor TXTService: TXTServiceProtocol {
         }
 
         return nil
+    }
+
+    // MARK: - Sample-Based Encoding Detection (WI-F05)
+
+    /// Sample size for encoding detection. 8KB is sufficient for BOM detection
+    /// and NSString heuristic analysis -- encoding patterns appear in first few KB.
+    static let encodingSampleSize = 8192
+
+    /// Detects encoding by analyzing only the first 8KB of data.
+    /// Returns the detected encoding name (e.g., "UTF-8", "GBK").
+    /// For files smaller than 8KB, analyzes the entire data.
+    /// Avoids splitting multi-byte sequences at the sample boundary.
+    static func detectEncodingFromSample(_ data: Data) -> String {
+        if data.isEmpty { return "UTF-8" }
+
+        let sample: Data
+        if data.count <= encodingSampleSize {
+            sample = data
+        } else {
+            // Walk backwards from the cut point to avoid splitting a multi-byte
+            // UTF-8 or CJK sequence. Continuation bytes are 10xxxxxx (0x80-0xBF).
+            var end = encodingSampleSize
+            while end > 0 && data[end - 1] & 0xC0 == 0x80 {
+                end -= 1
+            }
+            // If the byte at end-1 is a multi-byte lead but has no room for
+            // all continuation bytes, step back one more.
+            if end > 0 {
+                let lead = data[end - 1]
+                let needed: Int
+                if lead & 0xE0 == 0xC0 { needed = 2 }
+                else if lead & 0xF0 == 0xE0 { needed = 3 }
+                else if lead & 0xF8 == 0xF0 { needed = 4 }
+                else { needed = 1 }
+                if end - 1 + needed > encodingSampleSize { end -= 1 }
+            }
+            // CJK 2-byte encodings (GBK, Big5, Shift_JIS): their lead bytes
+            // (0x81-0xFE) overlap with UTF-8 continuation (0x80-0xBF) and
+            // multi-byte lead (0xC0-0xF7) ranges, so the UTF-8 walkback above
+            // already handles boundary splits for these encodings. A lone
+            // trailing byte (< 0x80) at the boundary may leave a CJK lead
+            // inside the sample, but encoding detectors (NSString heuristic,
+            // manual fallback) tolerate an incomplete final character in an
+            // 8KB sample — 8191 valid bytes is sufficient for detection.
+            sample = data.prefix(max(1, end))
+        }
+
+        guard let (_, encodingName) = decodeText(sample) else {
+            return "UTF-8" // Fallback
+        }
+        return encodingName
     }
 
     // MARK: - NSString Heuristic Detection
@@ -174,6 +251,23 @@ actor TXTService: TXTServiceProtocol {
             }
         }
         return count
+    }
+
+    /// Maps a human-readable encoding name back to a String.Encoding.
+    /// Reverse of `encodingName(_:)`. Returns nil for unknown names.
+    static func encodingFromName(_ name: String) -> String.Encoding? {
+        switch name {
+        case "UTF-8": return .utf8
+        case "UTF-16": return .utf16
+        case "ISO-8859-1": return .isoLatin1
+        case "Windows-1252": return .windowsCP1252
+        case "EUC-JP": return .japaneseEUC
+        case "Shift_JIS": return .shiftJIS
+        case "GBK": return gbkEncoding
+        case "Big5": return big5Encoding
+        case "EUC-KR": return eucKREncoding
+        default: return nil
+        }
     }
 
     /// Maps a String.Encoding to a human-readable name.

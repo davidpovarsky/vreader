@@ -217,7 +217,57 @@ Moved from `docs/bugs.md` to reduce file size. The Summary table in `docs/bugs.m
 - **Solution**: Added `persistedHighlights: [NSRange]` parameter to both `TXTTextViewBridge` and `TXTChunkedReaderBridge`. Container views (`TXTReaderContainerView`, `MDReaderContainerView`) fetch highlights via `persistence.fetchHighlights()` in their `.task` block after file open. Ranges are rendered via `HighlightingLayoutManager.drawBackground()` (bug #47 v12) — zero text storage mutation.
 - **Lessons**: Persisting data is only half the story — loading and rendering it on the display path must also be implemented. When adding a "save" feature, always plan the "load and display" counterpart.
 
+### Bug #62 — Content shifts down when top bar reappears
+- **Root cause**: `ReaderContainerView` toggled `.ignoresSafeArea(edges: isChromeVisible ? [] : [.top])` in the same `withAnimation` block as `isChromeVisible`. SwiftUI does not animate `ignoresSafeArea` changes — it applies them immediately. When chrome was shown, the safe area was restored at the START of the animation, snapping content down by ~88pt while the nav bar was still animating in.
+- **Solution**: Introduced a separate `@State var isIgnoringTopSafeArea` that lags behind `isChromeVisible` when showing chrome. When HIDING: `isIgnoringTopSafeArea = true` immediately (no gap during nav bar exit). When SHOWING: nav bar animates in (0.2s), then `isIgnoringTopSafeArea = false` fires at 0.22s (after nav bar is fully visible). The safe area snap now occurs after the nav bar is in place, making it imperceptible.
+- **Lessons**: SwiftUI's `ignoresSafeArea` is not an animatable property — layout state that depends on it must be managed separately if smooth transitions are needed. Use separate state variables when two values need different timing.
+
+### Bug #63 — Progress bar unresponsive in Native mode
+- **Root cause**: `TapZoneModifier` placed `Color.clear.contentShape(Rectangle()).onTapGesture` in a ZStack ABOVE the entire native reader container (including `ReadingProgressBar`). The `Color.clear` with `contentShape(Rectangle())` makes the full screen area participate in hit-testing, capturing touch events before they reached the underlying SwiftUI `Slider`. The Slider's internal drag gesture never received the touch.
+- **Solution**: Replaced the single full-screen clear overlay with a `VStack` containing: (1) a `Color.clear` tap detector for the reading area, and (2) a `Color.clear.allowsHitTesting(false)` spacer with `height: bottomInset` (default 100pt) at the bottom. The bottom zone passes all touches through to the progress bar Slider and bottom overlay. Added `bottomInset` parameter to both `TapZoneModifier` and `tapZoneOverlay(config:bottomInset:)` extension.
+- **Lessons**: ZStack overlay views with `contentShape(Rectangle())` intercept all gestures in their frame — never place them above interactive controls. If a full-screen overlay is needed, always add a hit-testing exclusion zone for any interactive child controls.
+
 ### Bug #56 — PDF crash after adding highlight and reopening
 - **Root cause**: `PDFAnnotationBridge.denormalizeRects()` did not validate input rects. If an `AnnotationAnchor` contained rects with NaN, infinity, or negative dimension values (from corrupt Codable decode or edge-case coordinate math), these were passed directly to `PDFAnnotation(bounds:forType:withProperties:)`. PDFKit forwards these to CoreGraphics, which logs "NaN passed to CoreGraphics API" errors and can crash on certain devices/OS versions. Additionally, `denormalizeRects` lacked the zero-dimension `pageBounds` guard that `normalizeRects` had, creating an asymmetry.
 - **Solution**: Added `isValidRect(_:)` private helper that checks `origin.x/y.isFinite`, `size.width/height.isFinite`, and `size.width/height >= 0` (using `size.width` not `width` because `CGRect.width` auto-normalizes negatives). Applied validation in two layers: (1) `denormalizeRects` now guards against zero-dimension pageBounds AND filters input/output rects via `isValidRect`; (2) `createHighlight` filters rects before passing to `PDFAnnotation`. Defense-in-depth prevents any invalid rect from reaching PDFKit.
 - **Lessons**: (1) `CGRect.width` always returns positive (it's the absolute value) — use `CGRect.size.width` to detect negative dimensions. (2) When a "normalize" function has a safety guard (zero pageBounds), the corresponding "denormalize" function must have the same guard for symmetry. (3) PDFKit does not validate bounds inputs — the caller must validate before creating annotations.
+
+### Bugs #65–69 — Stale UI test expectations (batch fix)
+- **Root cause**: Five UI tests had stale expectations from before features were fully implemented:
+  - #65: Empty state text updated to include "Markdown" but test still had old string without it.
+  - #66: Annotation panel tabs replaced placeholder text ("...will appear here once the reader is fully wired") with real `ContentUnavailableView` descriptions, but tests still expected old strings.
+  - #67: `findFirstRow()` in `DeleteConfirmationTests` only searched `app.buttons` for `bookRow_*` identifiers. SwiftUI List items on iOS 26 may render as cells instead of buttons.
+  - #68: Dynamic Type tests at xxxLarge/AX5 used `.exists` (no wait) for toolbar buttons that need rendering time at large type sizes.
+  - #69: PDF reader placeholder replaced by real PDFKit implementation; test still looked for `pdfReaderPlaceholder` identifier that no longer exists.
+- **Solution**: Updated all test strings to match production code. Broadened `findFirstRow()`/`bookRowCount()` to check both `app.buttons` and `app.cells`. Changed `.exists` to `waitForExistence(timeout: 5)`. Updated PDF tests to verify `pdfReaderContainer`.
+- **Lessons**: (1) When production code evolves (placeholders → real implementation), UI tests must be updated in the same change. (2) SwiftUI element type in the accessibility tree can change across iOS versions — always query multiple element types for resilience. (3) Toolbar items at large Dynamic Type sizes need explicit waits, not synchronous `.exists` checks.
+
+### Bug #62 v2 — Content shifts down when top bar reappears
+- **Root cause**: v1 fix used `isIgnoringTopSafeArea` with a 0.22s delay to toggle `.ignoresSafeArea(edges: .top)`, but `ignoresSafeArea` is not animatable — it's a discrete layout rule change that always causes an instant content jump regardless of timing.
+- **Solution**: Always set `.ignoresSafeArea(edges: .top)` (constant, never toggled). The navigation bar now overlaps content like Apple Books / Kindle / KOReader. Content position is pixel-stable because the safe area participation never changes. Removed `isIgnoringTopSafeArea` state and `DispatchQueue.main.asyncAfter` hack. Simplified `toggleChrome()` to a single `isChromeVisible.toggle()` with animation.
+- **Lessons**: (1) `ignoresSafeArea` is a layout rule, not a visual property — toggling it always causes a jump regardless of timing hacks. (2) Reader apps should use a constant full-screen layout with the toolbar as an overlay, not toggle safe area participation. (3) If a timing-based fix doesn't fully solve a layout problem, the approach is fundamentally wrong.
+
+### Bug #70 — Cannot scroll content in native mode — all formats
+- **Root cause**: `TapZoneModifier` placed `Color.clear.contentShape(Rectangle()).onTapGesture` in a ZStack above the native reader content. In SwiftUI, the topmost hit-testable view "owns" touches — `contentShape(Rectangle())` made the overlay intercept ALL touch events, preventing scroll/drag gestures from ever reaching the underlying UIKit views (UITextView, WKWebView, PDFView). The touch wasn't re-routed even when the tap recognizer failed.
+- **Solution**: Removed `.tapZoneOverlay()` from the native reader path in `ReaderContainerView`. All four native bridges already had their own `UITapGestureRecognizer` with `shouldRecognizeSimultaneously` (or JS click handler for EPUB) that posts `.readerContentTapped`. The overlay is now only used for the unified renderer (SwiftUI-native, no UIKit views underneath).
+- **Lessons**: (1) Never place a SwiftUI `contentShape(Rectangle())` overlay in a ZStack above UIKit scroll views — it blocks ALL gestures, not just the ones it handles. (2) For UIKit-wrapped views, tap detection belongs inside the bridge using native `UITapGestureRecognizer` with `shouldRecognizeSimultaneously`. (3) SwiftUI's gesture routing is "top view wins" — failed gesture recognizers do NOT forward touches to views behind in a ZStack.
+
+### Bug #97 — TTS control bar overlaps bottom bar
+- **Root cause**: TTSControlBar was rendered in ReaderContainerView's ZStack at the bottom, but format-specific containers also had their own bottom overlay (ReadingProgressBar + ReaderBottomOverlay) in a separate ZStack layer. When TTS was active and chrome was visible, both bars competed for the bottom position.
+- **Solution**: Passed `ttsService` through format hosts to all 4 container views. Each container now hides its bottom overlay when `ttsService.state != .idle`. The TTS bar replaces the bottom overlay during playback.
+- **Lessons**: (1) Overlapping overlays across ZStack layers need explicit coordination — SwiftUI won't auto-stack them. (2) Passing observable state down the view hierarchy is cleaner than notifications for simple boolean conditions.
+
+### Bug #85 — Cannot add books to collections
+- **Root cause**: The library context menu (`bookContextMenu`) had Info, Share, Set Cover, and Delete actions but no collection management option. The persistence layer (`addBookToCollection`) was already implemented.
+- **Solution**: Added "Add to Collection" submenu to `bookContextMenu` with a list of existing collections. Collections are loaded eagerly on library appear. Selecting a collection calls `PersistenceActor.addBookToCollection()`.
+- **Lessons**: Context menus should expose all major entity operations — CRUD for relationships is as important as single-entity actions.
+
+### Bug #86 — Tags never shown in collection sidebar
+- **Root cause**: `LibraryView` passed `allTags: []` and `allSeries: []` to `CollectionSidebar`. No methods existed to aggregate tags/series across all books.
+- **Solution**: Added `fetchAllTags()` and `fetchAllSeriesNames()` to `PersistenceActor+Collections`. LibraryView now loads tags and series when opening the collections sidebar.
+- **Lessons**: When adding aggregate UI (sidebar filters), the corresponding aggregate queries must exist in the persistence layer.
+
+### Bug #84 — Per-book settings affect all books instead of one
+- **Root cause**: `PerBookSettingsStore.resolve()` existed and was tested, but `ReaderContainerView` never called it on book open. The settings panel saved per-book overrides to disk, but opening a book always loaded global `UserDefaults` settings.
+- **Solution**: Added `applyResolvedSettings(_:)` to `ReaderSettingsStore` that maps `ResolvedSettings` fields back to store properties. Added `.task` in `ReaderContainerView` to load per-book settings and apply them on book open.
+- **Lessons**: (1) Feature implementation is incomplete until the "load on open" path is wired — save-only is half the feature. (2) Adding a method to apply resolved settings back to the store closes the read/write symmetry gap.

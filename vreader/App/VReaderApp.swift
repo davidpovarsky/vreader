@@ -34,7 +34,7 @@ struct VReaderApp: App {
         #endif
 
         do {
-            let schema = Schema(SchemaV2.models)
+            let schema = Schema(SchemaV4.models)
 
             #if DEBUG
             // Use in-memory store for UI testing to ensure clean state
@@ -102,7 +102,8 @@ struct VReaderApp: App {
             self.contentView = ContentView(
                 viewModel: LibraryViewModel(
                     persistence: persistence,
-                    importer: importer
+                    importer: importer,
+                    preferenceStore: UserDefaultsPreferenceStore()
                 ),
                 syncMonitor: syncMonitor
             )

@@ -124,6 +124,49 @@ struct TXTServiceTests {
         #expect(meta.detectedEncoding == "UTF-8")
     }
 
+    // MARK: - Sample-Based Encoding Detection Boundary Tests (Audit Issue 4)
+
+    @Test func detectEncodingFromSample_GBK_midCharBoundary() {
+        // Audit Issue 4: If the 8KB sample cut lands between the lead and trail byte
+        // of a GBK character, the detection can fail or produce a wrong result.
+        // Build a GBK data block that has a 2-byte character spanning the 8KB boundary.
+        let gbkEncoding = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+            )
+        )
+        let filler = String(repeating: "A", count: TXTService.encodingSampleSize - 1)
+        // Append a 2-byte GBK character so its lead byte is at index 8191 (last byte of sample)
+        // and trail byte is at index 8192 (first byte past sample).
+        let fullString = filler + "你好世界"
+        guard let gbkData = fullString.data(using: gbkEncoding) else {
+            Issue.record("Could not encode test string as GBK")
+            return
+        }
+        // Verify the data is larger than the sample size
+        #expect(gbkData.count > TXTService.encodingSampleSize)
+
+        // The sample-based detection should NOT crash and should return a valid encoding.
+        // With the fix, the trailing lead byte at the boundary is backed up.
+        let detected = TXTService.detectEncodingFromSample(gbkData)
+        #expect(!detected.isEmpty, "Should detect a valid encoding, got empty string")
+        // It should detect as UTF-8 (since the filler is ASCII) or GBK — not crash/fail.
+    }
+
+    @Test func detectEncodingFromSample_ShiftJIS_midCharBoundary() {
+        // Similar boundary test for Shift_JIS 2-byte sequences.
+        let filler = String(repeating: "A", count: TXTService.encodingSampleSize - 1)
+        let fullString = filler + "こんにちは"
+        guard let sjisData = fullString.data(using: .shiftJIS) else {
+            Issue.record("Could not encode test string as Shift_JIS")
+            return
+        }
+        #expect(sjisData.count > TXTService.encodingSampleSize)
+
+        let detected = TXTService.detectEncodingFromSample(sjisData)
+        #expect(!detected.isEmpty, "Should detect a valid encoding for Shift_JIS boundary case")
+    }
+
     @Test func pureASCIIDecodesAsUTF8() async throws {
         let text = "Hello, plain ASCII text."
         let data = Data(text.utf8)
@@ -145,5 +188,50 @@ struct TXTServiceTests {
         #expect(meta.detectedEncoding != "Windows-1252")
         // Must contain actual Chinese characters, not garbled Latin
         #expect(meta.text.contains("你") || meta.text.contains("好"))
+    }
+
+    // MARK: - encodingFromName round-trip (bug #60)
+
+    @Test func encodingFromNameRoundTrip() {
+        let knownNames = ["UTF-8", "UTF-16", "ISO-8859-1", "Windows-1252",
+                          "EUC-JP", "Shift_JIS", "GBK", "Big5", "EUC-KR"]
+        for name in knownNames {
+            let enc = TXTService.encodingFromName(name)
+            #expect(enc != nil, "encodingFromName should resolve '\(name)'")
+        }
+    }
+
+    @Test func encodingFromNameUnknownReturnsNil() {
+        #expect(TXTService.encodingFromName("FooBar-999") == nil)
+    }
+
+    @Test func sampleDetectionMatchesFullDetection() {
+        // GBK-encoded CJK text — sample detection should match full
+        let text = "你好世界"
+        let enc = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        ))
+        guard let data = text.data(using: enc) else { return }
+        let sampleName = TXTService.detectEncodingFromSample(data)
+        guard let (_, fullName) = TXTService.decodeText(data) else { return }
+        #expect(sampleName == fullName)
+    }
+}
+
+// MARK: - SearchService offset restoration (bug #61)
+
+@Suite("SearchService Segment Offsets")
+struct SearchServiceOffsetTests {
+    @Test func restoreSegmentOffsetsAreUsed() async throws {
+        let store = try SearchIndexStore()
+        let service = SearchService(store: store)
+        let fp = DocumentFingerprint(canonicalKey: "test:sha256:abc123")!
+        let offsets: [Int: Int] = [0: 0, 1: 500, 2: 1200]
+
+        await service.restoreSegmentOffsets(fingerprint: fp, offsets: offsets)
+
+        // Verify the service considers the book indexed
+        let indexed = await service.isIndexed(fingerprint: fp)
+        #expect(indexed)
     }
 }

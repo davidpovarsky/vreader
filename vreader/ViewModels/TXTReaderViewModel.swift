@@ -6,16 +6,16 @@
 // - @Observable + @MainActor for SwiftUI integration.
 // - Position persistence delegated to ReaderPositionService (WI-008d).
 // - File loading delegated to TXTFileLoader (WI-008d).
-// - Integrates ReadingSessionTracker for reading time tracking.
-// - Active reading time excludes background/pause intervals.
+// - Lifecycle operations (session, flush, time display) delegated to ReaderLifecycleHelper (R6).
 // - Uses protocol abstractions for testability (service, persistence, tracker).
 // - Staged error handling: service failure aborts, position/timestamp failures non-fatal.
 // - Position uses canonical UTF-16 offsets matching TXTOffsetMapper conventions.
 // - wordsRead estimated via Section 9.6 normative formula.
 //
-// @coordinates-with: TXTFileLoader.swift, ReaderPositionService.swift,
-//   TXTServiceProtocol.swift, ReadingPositionPersisting.swift,
-//   ReadingSessionTracker.swift, LocatorFactory.swift, TXTTextViewBridge.swift
+// @coordinates-with: TXTFileLoader.swift, ReaderLifecycleHelper.swift,
+//   ReaderPositionService.swift, TXTServiceProtocol.swift,
+//   ReadingPositionPersisting.swift, ReadingSessionTracker.swift,
+//   LocatorFactory.swift, TXTTextViewBridge.swift
 
 import Foundation
 
@@ -23,11 +23,6 @@ import Foundation
 @Observable
 @MainActor
 final class TXTReaderViewModel {
-
-    // MARK: - Constants
-
-    /// Periodic flush interval for session duration (seconds).
-    static let sessionFlushInterval: TimeInterval = 60.0
 
     // MARK: - Published State
 
@@ -55,8 +50,8 @@ final class TXTReaderViewModel {
     /// Error message from the last failed operation.
     private(set) var errorMessage: String?
 
-    /// Formatted session reading time (e.g., "5m").
-    private(set) var sessionTimeDisplay: String?
+    /// Formatted session reading time (e.g., "5m"). Delegated to lifecycle helper.
+    var sessionTimeDisplay: String? { lifecycle.sessionTimeDisplay }
 
     // MARK: - Computed State
 
@@ -83,6 +78,7 @@ final class TXTReaderViewModel {
 
     let bookFingerprint: DocumentFingerprint
     let bookFingerprintKey: String
+    let lifecycle: ReaderLifecycleHelper
     private let txtService: any TXTServiceProtocol
     private let positionStore: any ReadingPositionPersisting
     private let sessionTracker: ReadingSessionTracker
@@ -90,11 +86,6 @@ final class TXTReaderViewModel {
 
     // MARK: - Private State
 
-    private var flushTask: Task<Void, Never>?
-    /// Date when the current active segment started (reset on resume).
-    private var segmentStartDate: Date?
-    /// Accumulated active reading seconds (excluding paused time).
-    private var accumulatedActiveSeconds: TimeInterval = 0
     /// Generation counter to guard against open/close races.
     private var openGeneration: Int = 0
     /// True after open() completes position restore. Guards close() from saving
@@ -122,11 +113,18 @@ final class TXTReaderViewModel {
         self.txtService = txtService
         self.positionStore = positionStore
         self.sessionTracker = sessionTracker
-        self.positionService = ReaderPositionService(
+        let posService = ReaderPositionService(
             bookFingerprintKey: bookFingerprint.canonicalKey,
             deviceId: deviceId,
             persistence: positionStore,
             debounceNanoseconds: positionSaveDebounceNs
+        )
+        self.positionService = posService
+        self.lifecycle = ReaderLifecycleHelper(
+            bookFingerprint: bookFingerprint,
+            positionService: posService,
+            sessionTracker: sessionTracker,
+            positionStore: positionStore
         )
     }
 
@@ -169,14 +167,13 @@ final class TXTReaderViewModel {
             return
         }
 
-        // Guard: another open() may have started while we were awaiting.
-        // Close the service we just opened so it doesn't leak in .alreadyOpen state.
         guard myGeneration == openGeneration else {
             await txtService.close()
             isLoading = false
             return
         }
 
+        // Set content ASAP so the view can start rendering
         textContent = loadResult.metadata.text
         totalTextLengthUTF16 = loadResult.metadata.totalTextLengthUTF16
         totalWordCount = loadResult.metadata.totalWordCount
@@ -186,31 +183,19 @@ final class TXTReaderViewModel {
             ? Date().addingTimeInterval(Self.restoreSuppressDuration)
             : nil
 
-        // Stage 3: Start reading session (rollback on failure)
-        do {
-            try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
-        } catch {
-            textContent = nil
-            totalTextLengthUTF16 = 0
-            totalWordCount = 0
-            currentOffsetUTF16 = 0
-            await txtService.close()
-            isLoading = false
-            errorMessage = "Failed to start reading session."
-            return
-        }
-        segmentStartDate = Date()
-        accumulatedActiveSeconds = 0
-
-        // Stage 4: Update last opened (non-fatal)
-        try? await positionStore.updateLastOpened(
-            bookFingerprintKey: bookFingerprintKey,
-            date: Date()
-        )
-
-        startPeriodicFlush()
+        // PERF: Show content immediately — session/lastOpened are non-blocking
         isOpenComplete = true
         isLoading = false
+
+        // Stage 3: Start reading session (fire-and-forget, non-fatal)
+        do {
+            try lifecycle.beginSession()
+        } catch {
+            // Session failure is non-fatal — user can still read
+        }
+
+        // Stage 4: Update last opened (fire-and-forget)
+        Task { await lifecycle.updateLastOpened() }
     }
 
     /// Closes the reader, ending the session and flushing state.
@@ -218,25 +203,8 @@ final class TXTReaderViewModel {
     func close() async {
         openGeneration += 1
 
-        flushTask?.cancel()
-        flushTask = nil
-
-        if textContent != nil, isOpenComplete {
-            let locator = makeLocator()
-            await positionService.saveNow(locator: locator)
-            sessionTracker.recordProgress(locator: locator)
-        }
-
-        sessionTracker.endSessionIfNeeded()
-
-        if let persistence = positionStore as? PersistenceActor {
-            try? await persistence.recomputeStats(
-                bookFingerprintKey: bookFingerprintKey,
-                bookFingerprint: bookFingerprint
-            )
-        }
-
-        NotificationCenter.default.post(name: .readerDidClose, object: bookFingerprintKey)
+        let locator = (textContent != nil && isOpenComplete) ? makeLocator() : nil
+        await lifecycle.close(locator: locator)
 
         await txtService.close()
         resetState()
@@ -245,32 +213,16 @@ final class TXTReaderViewModel {
     /// Called when the app moves to background while reader is open.
     /// Awaits the position save to guarantee it completes before iOS suspends.
     func onBackground() async {
-        if textContent != nil {
-            let locator = makeLocator()
-            await positionService.saveNow(locator: locator)
-        }
-
-        if let start = segmentStartDate {
-            accumulatedActiveSeconds += Date().timeIntervalSince(start)
-            segmentStartDate = nil
-        }
-
-        sessionTracker.pause()
-        flushTask?.cancel()
-        flushTask = nil
+        let locator = textContent != nil ? makeLocator() : nil
+        await lifecycle.onBackground(locator: locator)
     }
 
     /// Called when the app returns to foreground with reader open.
     func onForeground() {
         guard textContent != nil else { return }
-        do {
-            try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
-        } catch {
-            errorMessage = "Failed to resume reading session."
-            return
+        if let error = lifecycle.onForeground() {
+            errorMessage = error
         }
-        if segmentStartDate == nil { segmentStartDate = Date() }
-        startPeriodicFlush()
     }
 
     // MARK: - Position Updates
@@ -296,11 +248,7 @@ final class TXTReaderViewModel {
 
         currentOffsetUTF16 = clamped
 
-        let lightLocator = makeLightLocator()
-        sessionTracker.recordProgress(locator: lightLocator)
-
-        updateTimeDisplays()
-        positionService.scheduleSave(locator: makeLocator())
+        lifecycle.recordProgressAndScheduleSave(locator: makeLocator())
     }
 
     // MARK: - Selection
@@ -325,26 +273,6 @@ final class TXTReaderViewModel {
 
     // MARK: - Private: Locator Construction
 
-    /// Lightweight locator without quote/context extraction (for transient progress).
-    private func makeLightLocator() -> Locator {
-        let progression = totalTextLengthUTF16 > 0
-            ? Double(currentOffsetUTF16) / Double(totalTextLengthUTF16)
-            : 0.0
-
-        return LocatorFactory.txtPosition(
-            fingerprint: bookFingerprint,
-            charOffsetUTF16: currentOffsetUTF16,
-            totalProgression: progression
-        ) ?? Locator(
-            bookFingerprint: bookFingerprint,
-            href: nil, progression: nil, totalProgression: progression,
-            cfi: nil, page: nil,
-            charOffsetUTF16: currentOffsetUTF16,
-            charRangeStartUTF16: nil, charRangeEndUTF16: nil,
-            textQuote: nil, textContextBefore: nil, textContextAfter: nil
-        )
-    }
-
     /// Full locator with quote/context extraction (for persistence).
     /// Internal access for bookmark creation from container views.
     func makeLocator() -> Locator {
@@ -367,35 +295,6 @@ final class TXTReaderViewModel {
         )
     }
 
-    // MARK: - Private: Session Time Tracking
-
-    private func startPeriodicFlush() {
-        flushTask?.cancel()
-        flushTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(Self.sessionFlushInterval))
-                    guard let self else { break }
-                    try sessionTracker.periodicFlush()
-                    updateTimeDisplays()
-                } catch is CancellationError {
-                    break
-                } catch {
-                    // Non-fatal
-                }
-            }
-        }
-    }
-
-    private func updateTimeDisplays() {
-        var total = accumulatedActiveSeconds
-        if let start = segmentStartDate {
-            total += Date().timeIntervalSince(start)
-        }
-        let sessionSeconds = Int(total)
-        sessionTimeDisplay = ReadingTimeFormatter.formatReadingTime(totalSeconds: sessionSeconds)
-    }
-
     // MARK: - Private: State Reset
 
     private func resetState() {
@@ -405,9 +304,6 @@ final class TXTReaderViewModel {
         currentOffsetUTF16 = 0
         currentSelectionStart = nil
         currentSelectionEnd = nil
-        segmentStartDate = nil
-        accumulatedActiveSeconds = 0
-        sessionTimeDisplay = nil
         isOpenComplete = false
         restoreSuppressUntil = nil
     }

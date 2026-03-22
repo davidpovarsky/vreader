@@ -47,18 +47,66 @@ enum ZIPError: Error, Sendable {
 // MARK: - Reader
 
 /// Reads entries from a ZIP archive file.
+/// PERF: Uses memory-mapped Data for the central directory parse, then
+/// FileHandle for on-demand entry extraction. Does NOT load the entire
+/// archive into heap memory (Legado-inspired lazy access pattern).
 actor ZIPReader {
-    private let data: Data
+    private let fileURL: URL
+    private let data: Data  // memory-mapped, not heap-copied
     private let entries: [ZIPEntry]
+    /// Lookup by path for O(1) entry access.
+    private let entryIndex: [String: ZIPEntry]
 
     /// Opens a ZIP archive at the given URL.
+    /// Uses .mappedIfSafe to memory-map the file (OS pages in on demand)
+    /// instead of reading the entire file into heap memory.
     init(fileURL: URL) throws {
-        self.data = try Data(contentsOf: fileURL)
-        self.entries = try Self.parseEntries(data)
+        self.fileURL = fileURL
+        self.data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        let parsed = try Self.parseEntries(data)
+        self.entries = parsed
+        self.entryIndex = Dictionary(
+            parsed.map { ($0.path, $0) },
+            uniquingKeysWith: { _, last in last }
+        )
     }
 
     /// Returns all entries in the archive.
     func listEntries() -> [ZIPEntry] { entries }
+
+    /// Finds an entry by path (O(1) lookup).
+    func entry(forPath path: String) -> ZIPEntry? { entryIndex[path] }
+
+    /// Extracts a single entry by path and writes to destination.
+    /// Returns the destination URL. Creates parent directories as needed.
+    func extractEntry(path: String, to directory: URL) throws -> URL {
+        guard let entry = entryIndex[path] else {
+            throw ZIPError.entryNotFound(path)
+        }
+        try Self.validateEntryPath(entry.path)
+        let dest = directory.appendingPathComponent(entry.path).standardizedFileURL
+        let fm = FileManager.default
+        try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let entryData = try extractData(for: entry)
+        try entryData.write(to: dest)
+        return dest
+    }
+
+    /// Extracts multiple entries by path prefix (e.g., "OEBPS/") to directory.
+    func extractEntries(matching prefix: String, to directory: URL) throws {
+        let fm = FileManager.default
+        let canonicalRoot = directory.standardizedFileURL.path
+        for entry in entries where entry.path.hasPrefix(prefix) && !entry.isDirectory {
+            try Self.validateEntryPath(entry.path)
+            let dest = directory.appendingPathComponent(entry.path).standardizedFileURL
+            guard dest.path.hasPrefix(canonicalRoot) else {
+                throw ZIPError.pathTraversal(entry.path)
+            }
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let entryData = try extractData(for: entry)
+            try entryData.write(to: dest)
+        }
+    }
 
     /// Extracts the data for a single entry.
     func extractData(for entry: ZIPEntry) throws -> Data {

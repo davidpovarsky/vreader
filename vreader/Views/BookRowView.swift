@@ -7,25 +7,35 @@
 // - Dynamic Type supported via system fonts.
 // - Reading time label omitted for zero reading time.
 //
-// @coordinates-with: AccessibilityFormatters.swift, LibraryBookItem.swift
+// @coordinates-with: AccessibilityFormatters.swift, LibraryBookItem.swift, CustomCoverStore.swift
 
 import SwiftUI
 
 /// List row view for a single book in the library.
 struct BookRowView: View {
     let book: LibraryBookItem
+    /// Bumped by parent when custom cover changes, to force reload.
+    var coverVersion: Int = 0
 
     var body: some View {
         HStack(spacing: 12) {
-            // Format icon
+            // Format icon or custom cover
             ZStack {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(formatColor)
                     .frame(width: 44, height: 44)
 
-                Image(systemName: formatIcon)
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white)
+                if let customCover = customCoverImage {
+                    Image(uiImage: customCover)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else {
+                    Image(systemName: formatIcon)
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white)
+                }
             }
 
             // Title and author
@@ -80,6 +90,13 @@ struct BookRowView: View {
     }
 
     // MARK: - Private
+
+    /// Loads the custom cover for this book (if any). `coverVersion` dependency
+    /// ensures SwiftUI re-evaluates when covers change.
+    private var customCoverImage: UIImage? {
+        _ = coverVersion // force re-evaluation when version changes
+        return CustomCoverStore.loadCover(for: book.fingerprintKey)
+    }
 
     private var formatColor: Color {
         switch book.format.lowercased() {

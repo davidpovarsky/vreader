@@ -71,7 +71,7 @@ struct SearchView: View {
                 Button {
                     onNavigate(result.locator)
                 } label: {
-                    SearchResultRow(result: result)
+                    SearchResultRow(result: result, query: viewModel.query)
                 }
                 .foregroundStyle(.primary)
                 .accessibilityIdentifier("searchResult_\(result.id)")

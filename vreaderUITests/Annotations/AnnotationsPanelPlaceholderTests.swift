@@ -77,7 +77,7 @@ final class AnnotationsPanelPlaceholderTests: XCTestCase {
         selectTab("Bookmarks")
 
         // Bookmarks tab should show placeholder text
-        let placeholderText = app.staticTexts["Bookmarks will appear here once the reader is fully wired."]
+        let placeholderText = app.staticTexts["Add bookmarks to quickly return to important pages."]
         XCTAssertTrue(
             placeholderText.waitForExistence(timeout: 3),
             "Bookmarks tab should show placeholder description"
@@ -92,7 +92,7 @@ final class AnnotationsPanelPlaceholderTests: XCTestCase {
 
         selectTab("Contents")
 
-        let placeholderText = app.staticTexts["Table of contents will appear here once the reader is fully wired."]
+        let placeholderText = app.staticTexts["No table of contents available for this document."]
         XCTAssertTrue(
             placeholderText.waitForExistence(timeout: 3),
             "Contents tab should show placeholder description"
@@ -107,7 +107,7 @@ final class AnnotationsPanelPlaceholderTests: XCTestCase {
 
         selectTab("Highlights")
 
-        let placeholderText = app.staticTexts["Highlights will appear here once the reader is fully wired."]
+        let placeholderText = app.staticTexts["Highlight text in the reader to save important passages."]
         XCTAssertTrue(
             placeholderText.waitForExistence(timeout: 3),
             "Highlights tab should show placeholder description"
@@ -122,7 +122,7 @@ final class AnnotationsPanelPlaceholderTests: XCTestCase {
 
         selectTab("Notes")
 
-        let placeholderText = app.staticTexts["Notes will appear here once the reader is fully wired."]
+        let placeholderText = app.staticTexts["Add notes to remember your thoughts about the text."]
         XCTAssertTrue(
             placeholderText.waitForExistence(timeout: 3),
             "Notes tab should show placeholder description"

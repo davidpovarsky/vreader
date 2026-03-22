@@ -20,6 +20,11 @@ final class SearchIndexCore: @unchecked Sendable {
     private var db: OpaquePointer?
     private let lock = OSAllocatedUnfairLock()
 
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "vreader",
+        category: "SearchIndexCore"
+    )
+
     /// Opens an in-memory SQLite database.
     init() throws {
         var dbPtr: OpaquePointer?
@@ -31,8 +36,86 @@ final class SearchIndexCore: @unchecked Sendable {
         self.db = dbPtr
     }
 
+    /// Opens a file-backed SQLite database at the given path.
+    /// Creates parent directories if needed. If the existing DB is corrupt,
+    /// deletes it and creates a fresh one (corruption recovery).
+    init(databasePath: String) throws {
+        // Ensure parent directory exists
+        let dirPath = (databasePath as NSString).deletingLastPathComponent
+        if !dirPath.isEmpty {
+            try FileManager.default.createDirectory(
+                atPath: dirPath, withIntermediateDirectories: true
+            )
+        }
+
+        var dbPtr: OpaquePointer?
+        let rc = sqlite3_open(databasePath, &dbPtr)
+
+        if rc == SQLITE_OK, let dbPtr {
+            // Verify integrity -- detect corruption
+            if Self.isCorrupt(db: dbPtr) {
+                Self.logger.warning("Corrupt database at \(databasePath), recreating")
+                sqlite3_close(dbPtr)
+                Self.deleteDBFiles(at: databasePath)
+                var freshPtr: OpaquePointer?
+                let freshRC = sqlite3_open(databasePath, &freshPtr)
+                guard freshRC == SQLITE_OK, let freshPtr else {
+                    let msg = freshPtr.flatMap {
+                        String(cString: sqlite3_errmsg($0))
+                    } ?? "unknown"
+                    throw SearchIndexError.databaseOpenFailed(msg)
+                }
+                self.db = freshPtr
+            } else {
+                self.db = dbPtr
+            }
+        } else if FileManager.default.fileExists(atPath: databasePath) {
+            Self.logger.warning("Failed to open DB at \(databasePath), recreating")
+            if let dbPtr { sqlite3_close(dbPtr) }
+            Self.deleteDBFiles(at: databasePath)
+            var freshPtr: OpaquePointer?
+            let freshRC = sqlite3_open(databasePath, &freshPtr)
+            guard freshRC == SQLITE_OK, let freshPtr else {
+                let msg = freshPtr.flatMap {
+                    String(cString: sqlite3_errmsg($0))
+                } ?? "unknown"
+                throw SearchIndexError.databaseOpenFailed(msg)
+            }
+            self.db = freshPtr
+        } else {
+            let msg = dbPtr.flatMap {
+                String(cString: sqlite3_errmsg($0))
+            } ?? "unknown"
+            throw SearchIndexError.databaseOpenFailed(msg)
+        }
+    }
+
     deinit {
         if let db { sqlite3_close(db) }
+    }
+
+    // MARK: - Corruption Recovery
+
+    /// Checks if a database is corrupt via integrity_check pragma.
+    private static func isCorrupt(db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        let sql = "PRAGMA integrity_check(1)"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK,
+              let stmt else {
+            return true
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return true }
+        guard let text = sqlite3_column_text(stmt, 0) else { return true }
+        return String(cString: text).lowercased() != "ok"
+    }
+
+    /// Deletes a SQLite database file and its journal/WAL companions.
+    private static func deleteDBFiles(at path: String) {
+        let fm = FileManager.default
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            try? fm.removeItem(atPath: path + suffix)
+        }
     }
 
     // MARK: - Thread-Safe Access

@@ -57,6 +57,8 @@ struct ReaderContainerView: View {
     @State var ttsService = TTSService()
     /// Reading progress for the unified renderer (WI-B04).
     @State var unifiedReadingProgress: Double = 0
+    /// Current reading position for TOC scroll-to-current.
+    @State var currentLocator: Locator?
 
     // MARK: - Coordinators
 
@@ -151,6 +153,7 @@ struct ReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
             guard let locator = notification.object as? Locator else { return }
+            currentLocator = locator
             resolvedAICoordinator.currentLocator = locator
             if resolvedAICoordinator.loadedTextContent != nil {
                 resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
@@ -205,6 +208,7 @@ struct ReaderContainerView: View {
                 bookFingerprintKey: book.fingerprintKey,
                 modelContainer: modelContext.container,
                 tocEntries: tocEntries,
+                currentLocator: currentLocator,
                 onNavigate: { locator in
                     NotificationCenter.default.post(
                         name: .readerNavigateToLocator,

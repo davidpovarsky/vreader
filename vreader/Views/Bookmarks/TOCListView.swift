@@ -1,5 +1,6 @@
 // Purpose: Hierarchical table of contents display with navigation.
 // Shows absent state for formats without TOC (TXT).
+// Scrolls to and highlights the active chapter on appear.
 //
 // @coordinates-with: TOCProvider.swift, TOCEntry.swift
 
@@ -8,6 +9,7 @@ import SwiftUI
 /// Displays a table of contents with hierarchical indentation.
 struct TOCListView: View {
     let entries: [TOCEntry]
+    let currentLocator: Locator?
     let onNavigate: (Locator) -> Void
 
     var body: some View {
@@ -31,16 +33,74 @@ struct TOCListView: View {
         .accessibilityIdentifier("tocEmptyState")
     }
 
+    /// Index of the active TOC entry based on the current reading position.
+    /// Matches by charOffsetUTF16 (TXT/MD), href (EPUB), or page (PDF).
+    /// Picks the last entry whose position is at or before the current locator.
+    private var activeEntryIndex: Int? {
+        guard let loc = currentLocator else { return nil }
+
+        // TXT / MD — compare charOffsetUTF16
+        if let currentOffset = loc.charOffsetUTF16 {
+            var bestIndex: Int?
+            for (i, entry) in entries.enumerated() {
+                if let entryOffset = entry.locator.charOffsetUTF16, entryOffset <= currentOffset {
+                    bestIndex = i
+                }
+            }
+            return bestIndex
+        }
+
+        // PDF — compare page
+        if let currentPage = loc.page {
+            var bestIndex: Int?
+            for (i, entry) in entries.enumerated() {
+                if let entryPage = entry.locator.page, entryPage <= currentPage {
+                    bestIndex = i
+                }
+            }
+            return bestIndex
+        }
+
+        // EPUB — compare href (match the last entry with the same href)
+        if let currentHref = loc.href {
+            var bestIndex: Int?
+            for (i, entry) in entries.enumerated() {
+                if entry.locator.href == currentHref {
+                    bestIndex = i
+                }
+            }
+            return bestIndex
+        }
+
+        return nil
+    }
+
     @ViewBuilder
     private var tocList: some View {
-        List {
-            ForEach(entries) { entry in
-                Button {
-                    onNavigate(entry.locator)
-                } label: {
-                    TOCRowView(entry: entry)
+        let activeIndex = activeEntryIndex
+        ScrollViewReader { proxy in
+            List {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    let isActive = index == activeIndex
+                    Button {
+                        onNavigate(entry.locator)
+                    } label: {
+                        TOCRowView(entry: entry, isActive: isActive)
+                    }
+                    .id(entry.id)
+                    .listRowBackground(isActive ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .accessibilityIdentifier("tocRow-\(entry.id)")
                 }
-                .accessibilityIdentifier("tocRow-\(entry.id)")
+            }
+            .onAppear {
+                if let activeIndex, entries.indices.contains(activeIndex) {
+                    // Small delay to let List finish layout
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(entries[activeIndex].id, anchor: .center)
+                        }
+                    }
+                }
             }
         }
     }
@@ -50,6 +110,7 @@ struct TOCListView: View {
 
 private struct TOCRowView: View {
     let entry: TOCEntry
+    let isActive: Bool
 
     /// Indentation per nesting level.
     private static let indentPerLevel: CGFloat = 20
@@ -58,8 +119,8 @@ private struct TOCRowView: View {
         HStack(spacing: 8) {
             Text(entry.title)
                 .font(entry.level == 0 ? .body : .subheadline)
-                .fontWeight(entry.level == 0 ? .medium : .regular)
-                .foregroundStyle(entry.level == 0 ? .primary : .secondary)
+                .fontWeight(isActive ? .semibold : (entry.level == 0 ? .medium : .regular))
+                .foregroundStyle(isActive ? Color.accentColor : (entry.level == 0 ? .primary : .secondary))
                 .lineLimit(2)
         }
         .padding(.leading, CGFloat(entry.level) * Self.indentPerLevel)

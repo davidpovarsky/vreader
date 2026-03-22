@@ -145,6 +145,11 @@ final class TTSService: NSObject {
         state = .idle
         currentOffsetUTF16 = 0
         baseOffsetUTF16 = 0
+
+        // Release audio session so other audio resumes (bug #96 audit)
+        #if canImport(AVFoundation)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     // MARK: - Position Tracking

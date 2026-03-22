@@ -202,7 +202,7 @@ extension ReaderContainerView {
                 ),
                 textContent: ai.currentTextContent,
                 format: resolvedBookFormat,
-                onDismiss: { showAIPanel = false; aiInitialTab = .summarize },
+                onDismiss: { showAIPanel = false },
                 initialTab: aiInitialTab
             )
             .presentationDetents([.medium, .large])

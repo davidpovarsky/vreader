@@ -24,8 +24,6 @@ enum SchemaV3: VersionedSchema {
             ReadingSession.self,
             ReadingStats.self,
             BookCollection.self,
-            BookSource.self, // bug #101
-            ContentReplacementRule.self, // bug #98
         ]
     }
 }

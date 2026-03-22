@@ -125,7 +125,7 @@ struct ReaderContainerView: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(!isChromeVisible)
         .ignoresSafeArea(edges: .top)
-        .sheet(isPresented: $showAIPanel) { aiSheet }
+        .sheet(isPresented: $showAIPanel, onDismiss: { aiInitialTab = .summarize }) { aiSheet }
         .onReceive(NotificationCenter.default.publisher(for: .readerDefineRequested)) { notification in
             guard let info = notification.object as? TextSelectionInfo else { return }
             if let word = DictionaryLookup.extractWord(from: info.selectedText) {

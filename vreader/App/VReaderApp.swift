@@ -34,7 +34,7 @@ struct VReaderApp: App {
         #endif
 
         do {
-            let schema = Schema(SchemaV3.models)
+            let schema = Schema(SchemaV4.models)
 
             #if DEBUG
             // Use in-memory store for UI testing to ensure clean state

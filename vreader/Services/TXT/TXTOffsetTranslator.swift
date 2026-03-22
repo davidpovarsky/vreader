@@ -41,7 +41,8 @@ enum TXTOffsetTranslator {
     static func toGlobal(chapterIndex: Int, localUTF16: Int, chapters: [TXTChapter]) -> Int? {
         guard chapterIndex >= 0, chapterIndex < chapters.count else { return nil }
         let chapter = chapters[chapterIndex]
-        guard localUTF16 >= 0, localUTF16 < chapter.textLengthUTF16 else { return nil }
+        // Allow terminal offset (== textLengthUTF16) for caret/position at chapter end (audit fix)
+        guard localUTF16 >= 0, localUTF16 <= chapter.textLengthUTF16 else { return nil }
         return chapter.globalStartUTF16 + localUTF16
     }
 

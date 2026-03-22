@@ -266,6 +266,9 @@ private extension TXTChapterIndexBuilder {
     }
 
     /// Walks back from `from` to the last newline (0x0A), not below `floor`.
+    /// Works for UTF-8, GBK, Big5, Shift_JIS, EUC-KR (byte 0x0A is always LF).
+    /// For UTF-16 encoded files, this may fail — but UTF-16 TXT files are extremely rare
+    /// and the fallback (full-block decode) handles them correctly.
     static func walkBackToNewline(data: Data, from: Int, floor: Int) -> Int {
         var pos = from - 1
         while pos > floor {

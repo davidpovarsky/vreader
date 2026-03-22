@@ -261,7 +261,7 @@ final class TXTReaderViewModel {
         } catch is CancellationError {
             resetState(); isLoading = false; return
         } catch {
-            isLoading = false; await open(url: url); return
+            await txtService.close(); isLoading = false; await open(url: url); return
         }
 
         guard myGeneration == openGeneration else {
@@ -280,7 +280,7 @@ final class TXTReaderViewModel {
                 let text = try await openResult.contentLoader.loadChapter(target)
                 currentChapterText = text; textContent = text
             } catch {
-                resetChapterState(); isLoading = false; await open(url: url); return
+                resetChapterState(); await txtService.close(); isLoading = false; await open(url: url); return
             }
         } else {
             currentChapterText = ""; textContent = ""

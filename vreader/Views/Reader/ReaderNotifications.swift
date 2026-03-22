@@ -56,6 +56,9 @@ extension Notification.Name {
     /// Posted after annotation import completes (bug #88).
     /// Reader containers observe this to re-render persisted highlights.
     static let readerHighlightsDidImport = Notification.Name("vreader.readerHighlightsDidImport")
+    /// Posted when a footnote link is detected in EPUB content (foliate-js).
+    /// Object is [String: String] with "href" and "text" keys.
+    static let epubFootnoteDetected = Notification.Name("vreader.epubFootnoteDetected")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

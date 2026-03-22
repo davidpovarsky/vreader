@@ -130,6 +130,8 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         )
         userContentController.addUserScript(selectionScript)
         userContentController.add(weakHandler, name: "selectionChanged")
+        // Footnote detection handler (foliate-js)
+        userContentController.add(weakHandler, name: "footnoteHandler")
 
         let highlightScript = WKUserScript(
             source: EPUBHighlightBridge.highlightAPIJS,

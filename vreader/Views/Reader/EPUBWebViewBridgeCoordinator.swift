@@ -54,6 +54,10 @@ extension EPUBWebViewBridge {
                 handleSelectionMessage(message.body)
                 return
             }
+            if message.name == "footnoteHandler" {
+                handleFootnoteMessage(message.body)
+                return
+            }
             guard message.name == "progressHandler",
                   let progress = message.body as? Double else { return }
             Task { @MainActor in
@@ -73,6 +77,20 @@ extension EPUBWebViewBridge {
             )
             Task { @MainActor in
                 onSelectionEvent?(event)
+            }
+        }
+
+        private func handleFootnoteMessage(_ body: Any) {
+            guard let dict = body as? [String: Any],
+                  let href = dict["href"] as? String,
+                  let text = dict["text"] as? String else { return }
+            // Post notification for the container to show a footnote popover
+            let info: [String: String] = ["href": href, "text": text]
+            Task { @MainActor in
+                NotificationCenter.default.post(
+                    name: .epubFootnoteDetected,
+                    object: info
+                )
             }
         }
 

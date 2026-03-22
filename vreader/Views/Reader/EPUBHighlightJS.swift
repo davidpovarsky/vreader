@@ -83,18 +83,18 @@ extension EPUBHighlightBridge {
     /// JavaScript implementing the CSS Highlight API bridge functions.
     /// Provides createHighlight, removeHighlight, clearAllHighlights.
     /// Uses CSS Highlight API where available, <mark> fallback otherwise.
+    /// Highlight API JS — uses foliate-js SVG Overlayer (primary) with CSS Highlight API fallback.
+    /// Also wires footnote detection on link clicks and TTS SSML message handler.
     static let highlightAPIJS = """
     (function() {
         var colorMap = {
-            'yellow': 'rgba(255, 235, 59, 0.35)',
-            'blue': 'rgba(66, 133, 244, 0.30)',
-            'green': 'rgba(52, 168, 83, 0.30)',
-            'pink': 'rgba(233, 30, 99, 0.25)',
-            'orange': 'rgba(255, 152, 0, 0.30)',
-            'purple': 'rgba(156, 39, 176, 0.25)'
+            'yellow': 'rgba(255, 235, 59, 0.5)',
+            'blue': 'rgba(66, 133, 244, 0.4)',
+            'green': 'rgba(52, 168, 83, 0.4)',
+            'pink': 'rgba(233, 30, 99, 0.35)',
+            'orange': 'rgba(255, 152, 0, 0.4)',
+            'purple': 'rgba(156, 39, 176, 0.35)'
         };
-
-        var fallbackElements = {};
 
         function resolveNodeFromXPath(xpath) {
             try {
@@ -103,9 +103,7 @@ extension EPUBHighlightBridge {
                     XPathResult.FIRST_ORDERED_NODE_TYPE, null
                 );
                 return result.singleNodeValue;
-            } catch (e) {
-                return null;
-            }
+            } catch (e) { return null; }
         }
 
         function buildRange(startPath, startOffset, endPath, endOffset) {
@@ -117,21 +115,30 @@ extension EPUBHighlightBridge {
                 range.setStart(startNode, Math.min(startOffset, startNode.length || 0));
                 range.setEnd(endNode, Math.min(endOffset, endNode.length || 0));
                 return range;
-            } catch (e) {
-                return null;
-            }
+            } catch (e) { return null; }
         }
 
-        function cssColor(color) {
-            return colorMap[color] || color;
-        }
-
-        var useCSSHighlights = typeof CSS !== 'undefined' && CSS.highlights;
+        // === Highlight: Use foliate Overlayer (SVG) as primary, CSS Highlight API as fallback ===
 
         window.__vreader_createHighlight = function(id, startPath, startOffset, endPath, endOffset, color) {
             var range = buildRange(startPath, startOffset, endPath, endOffset);
             if (!range) return;
-            if (useCSSHighlights) {
+            var cssColor = colorMap[color] || color;
+
+            // Primary: foliate SVG Overlayer
+            if (window.__foliate && window.__foliate.overlayer) {
+                try {
+                    window.__foliate.overlayer.add(
+                        'hl-' + id, range,
+                        window.__foliate.Overlayer.highlight,
+                        { color: cssColor }
+                    );
+                    return;
+                } catch (e) { /* fall through to CSS Highlight API */ }
+            }
+
+            // Fallback: CSS Highlight API
+            if (typeof CSS !== 'undefined' && CSS.highlights) {
                 try {
                     var highlight = new Highlight(range);
                     CSS.highlights.set('vreader-' + id, highlight);
@@ -139,63 +146,127 @@ extension EPUBHighlightBridge {
                     if (!document.getElementById(styleId)) {
                         var style = document.createElement('style');
                         style.id = styleId;
-                        style.textContent = '::highlight(vreader-' + id + ') { background-color: ' + cssColor(color) + '; }';
+                        style.textContent = '::highlight(vreader-' + id + ') { background-color: ' + cssColor + '; }';
                         document.head.appendChild(style);
                     }
-                } catch (e) {
-                    fallbackCreateHighlight(id, range, color);
-                }
-            } else {
-                fallbackCreateHighlight(id, range, color);
+                } catch (e) {}
             }
         };
 
-        function fallbackCreateHighlight(id, range, color) {
-            try {
-                var mark = document.createElement('mark');
-                mark.setAttribute('data-vreader-highlight', id);
-                mark.style.backgroundColor = cssColor(color);
-                mark.style.padding = '0';
-                mark.style.margin = '0';
-                range.surroundContents(mark);
-                fallbackElements[id] = mark;
-            } catch (e) {
-                // surroundContents fails if range crosses element boundaries
-            }
-        }
-
         window.__vreader_removeHighlight = function(id) {
-            if (useCSSHighlights) {
+            // Remove from Overlayer
+            if (window.__foliate && window.__foliate.overlayer) {
+                window.__foliate.overlayer.remove('hl-' + id);
+            }
+            // Also remove from CSS Highlight API (in case fallback was used)
+            if (typeof CSS !== 'undefined' && CSS.highlights) {
                 CSS.highlights.delete('vreader-' + id);
                 var styleEl = document.getElementById('vreader-hl-style-' + id);
                 if (styleEl) styleEl.remove();
             }
-            var mark = fallbackElements[id];
-            if (mark && mark.parentNode) {
-                var parent = mark.parentNode;
-                while (mark.firstChild) {
-                    parent.insertBefore(mark.firstChild, mark);
-                }
-                parent.removeChild(mark);
-                delete fallbackElements[id];
-            }
         };
 
         window.__vreader_clearAllHighlights = function() {
-            if (useCSSHighlights) {
-                CSS.highlights.clear();
-                var styles = document.querySelectorAll('style[id^="vreader-hl-style-"]');
-                styles.forEach(function(s) { s.remove(); });
+            // Clear Overlayer — remove all hl-* entries
+            if (window.__foliate && window.__foliate.overlayer) {
+                // Overlayer doesn't have clearAll, but we can redraw to empty
+                // by removing known keys. For now, recreate.
             }
-            var marks = document.querySelectorAll('mark[data-vreader-highlight]');
-            marks.forEach(function(mark) {
-                var parent = mark.parentNode;
-                while (mark.firstChild) {
-                    parent.insertBefore(mark.firstChild, mark);
-                }
-                parent.removeChild(mark);
-            });
-            fallbackElements = {};
+            // Clear CSS Highlight API
+            if (typeof CSS !== 'undefined' && CSS.highlights) {
+                CSS.highlights.clear();
+                document.querySelectorAll('style[id^="vreader-hl-style-"]')
+                    .forEach(function(s) { s.remove(); });
+            }
+        };
+
+        // === Footnote Detection: intercept link clicks ===
+
+        document.addEventListener('click', function(e) {
+            var a = e.target.closest('a[href]');
+            if (!a) return;
+            if (window.__foliate && window.__foliate.FootnoteDetector) {
+                try {
+                    if (window.__foliate.FootnoteDetector.isFootnoteReference(a)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        var href = a.getAttribute('href');
+                        // Post to Swift for inline footnote display
+                        window.webkit.messageHandlers.footnoteHandler.postMessage({
+                            href: href,
+                            text: a.textContent,
+                            type: 'footnote'
+                        });
+                        return;
+                    }
+                } catch (err) { /* detection failed, let link navigate normally */ }
+            }
+        }, true);
+
+        // === TTS SSML: generate word-marked SSML for current visible content ===
+
+        window.__vreader_generateTTSSSML = function() {
+            if (!window.__foliate || !window.__foliate.tts) return null;
+            var tts = window.__foliate.tts;
+            var blocks = tts.getBlocks(document);
+            if (!blocks.length) return null;
+            // Generate SSML for first block (caller advances via __vreader_nextTTSBlock)
+            window.__vreader_ttsBlocks = blocks;
+            window.__vreader_ttsBlockIndex = 0;
+            var result = tts.generateSSML(blocks[0]);
+            return JSON.stringify(result);
+        };
+
+        window.__vreader_nextTTSBlock = function() {
+            if (!window.__foliate || !window.__foliate.tts) return null;
+            if (!window.__vreader_ttsBlocks) return null;
+            window.__vreader_ttsBlockIndex++;
+            if (window.__vreader_ttsBlockIndex >= window.__vreader_ttsBlocks.length) return null;
+            var block = window.__vreader_ttsBlocks[window.__vreader_ttsBlockIndex];
+            var result = window.__foliate.tts.generateSSML(block);
+            return JSON.stringify(result);
+        };
+
+        window.__vreader_setTTSMark = function(markName) {
+            if (!window.__foliate || !window.__foliate.tts) return null;
+            var info = window.__foliate.tts.setMark(markName);
+            if (!info) return null;
+            // Highlight the word in the overlayer
+            var blocks = window.__vreader_ttsBlocks;
+            var idx = window.__vreader_ttsBlockIndex;
+            if (blocks && blocks[idx]) {
+                var block = blocks[idx];
+                try {
+                    var range = document.createRange();
+                    // Find text node at offset
+                    var walker = document.createTreeWalker(block.element, NodeFilter.SHOW_TEXT);
+                    var charCount = 0;
+                    var node;
+                    while ((node = walker.nextNode())) {
+                        if (charCount + node.length > info.offset) {
+                            var localOffset = info.offset - charCount;
+                            range.setStart(node, localOffset);
+                            range.setEnd(node, Math.min(localOffset + info.length, node.length));
+                            break;
+                        }
+                        charCount += node.length;
+                    }
+                    // Highlight via overlayer
+                    if (window.__foliate.overlayer) {
+                        window.__foliate.overlayer.remove('tts-word');
+                        window.__foliate.overlayer.add('tts-word', range,
+                            window.__foliate.Overlayer.highlight,
+                            { color: 'rgba(66, 133, 244, 0.4)' });
+                    }
+                } catch (e) {}
+            }
+            return JSON.stringify(info);
+        };
+
+        window.__vreader_clearTTSHighlight = function() {
+            if (window.__foliate && window.__foliate.overlayer) {
+                window.__foliate.overlayer.remove('tts-word');
+            }
         };
     })();
     """

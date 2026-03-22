@@ -81,6 +81,9 @@ extension EPUBWebViewBridge {
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: "selectionChanged"
         )
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: "footnoteHandler"
+        )
     }
 
     // MARK: - JavaScript

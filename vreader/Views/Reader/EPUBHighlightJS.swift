@@ -167,10 +167,12 @@ extension EPUBHighlightBridge {
         };
 
         window.__vreader_clearAllHighlights = function() {
-            // Clear Overlayer — remove all hl-* entries
+            // Clear Overlayer — recreate SVG element (audit fix: stale artifacts)
             if (window.__foliate && window.__foliate.overlayer) {
-                // Overlayer doesn't have clearAll, but we can redraw to empty
-                // by removing known keys. For now, recreate.
+                var svg = window.__foliate.overlayer.element;
+                while (svg.firstChild) svg.removeChild(svg.firstChild);
+                window.__foliate.overlayer = new window.__foliate.Overlayer();
+                svg.parentNode.replaceChild(window.__foliate.overlayer.element, svg);
             }
             // Clear CSS Highlight API
             if (typeof CSS !== 'undefined' && CSS.highlights) {

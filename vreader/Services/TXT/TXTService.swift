@@ -15,11 +15,14 @@ import Foundation
 /// Production TXT file loader.
 actor TXTService: TXTServiceProtocol {
     private var _isOpen = false
+    /// Guards against concurrent open() calls (audit fix: Task.detached reentrancy).
+    private var _isOpening = false
 
     var isOpen: Bool { _isOpen }
 
     func open(url: URL) async throws -> TXTFileMetadata {
-        guard !_isOpen else { throw TXTServiceError.alreadyOpen }
+        guard !_isOpen, !_isOpening else { throw TXTServiceError.alreadyOpen }
+        _isOpening = true
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw TXTServiceError.fileNotFound(url.lastPathComponent)
         }
@@ -63,6 +66,7 @@ actor TXTService: TXTServiceProtocol {
         }.value
 
         _isOpen = true
+        _isOpening = false
         return result
     }
 

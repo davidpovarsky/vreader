@@ -169,11 +169,10 @@ struct ReaderContainerView: View {
                 settingsStore.applyResolvedSettings(resolved)
             }
         }
-        // PERF: Defer search service prep — don't block book open (was bug #79 eager).
-        // Search panel will prepare on first open instead.
+        // PERF: Search prep runs in background Task — yields to file open first (audit fix: no hardcoded delay).
         .task {
-            // Delay search prep by 2s so file open completes first
-            try? await Task.sleep(for: .seconds(2))
+            // Yield to let higher-priority .task blocks (file open) start first
+            await Task.yield()
             guard !Task.isCancelled else { return }
             if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
                 await searchCoordinator.prepareService(fingerprint: fp)

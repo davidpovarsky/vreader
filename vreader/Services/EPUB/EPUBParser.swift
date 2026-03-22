@@ -41,15 +41,21 @@ actor EPUBParser: EPUBParserProtocol {
     /// Cached ZIP reader for on-demand entry extraction.
     private var zipReader: ZIPReader?
 
+    /// Guards against concurrent open() calls (audit fix: actor reentrancy).
+    private var _isOpening = false
+
     func open(url: URL) async throws -> EPUBMetadata {
-        guard !_isOpen else { throw EPUBParserError.alreadyOpen }
+        guard !_isOpen, !_isOpening else { throw EPUBParserError.alreadyOpen }
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw EPUBParserError.fileNotFound(url.lastPathComponent)
         }
+        _isOpening = true
+        defer { _isOpening = false }
 
-        // PERF: Use persistent cache directory keyed by file size + name hash.
-        // If cache exists from a previous session, skip extraction entirely.
-        let cacheKey = "\(url.lastPathComponent)-\(url.fileSizeOrZero)"
+        // PERF: Persistent cache keyed by name + size + modification date (audit fix: stronger key).
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let modDate = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let cacheKey = "\(url.lastPathComponent)-\(url.fileSizeOrZero)-\(Int(modDate))"
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent("EPUBCache", isDirectory: true)
             .appendingPathComponent(cacheKey, isDirectory: true)

@@ -92,13 +92,17 @@ struct TOCListView: View {
                     .accessibilityIdentifier("tocRow-\(entry.id)")
                 }
             }
-            .onAppear {
-                if let activeIndex, entries.indices.contains(activeIndex) {
-                    // Small delay to let List finish layout
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo(entries[activeIndex].id, anchor: .center)
-                        }
+            .task(id: activeIndex) {
+                guard let activeIndex, entries.indices.contains(activeIndex) else { return }
+                let targetID = entries[activeIndex].id
+                // Retry scroll with increasing delays to handle lazy List rendering.
+                // For short lists the first attempt succeeds; for 1000+ entries
+                // later attempts catch rows that haven't been materialized yet.
+                for delay in [100, 300, 600] {
+                    try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(targetID, anchor: .center)
                     }
                 }
             }

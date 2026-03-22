@@ -114,10 +114,13 @@ actor TXTService: TXTServiceProtocol {
                 ) {
                     if cachedIndex.totalTextLengthUTF16 == 0 && !cachedIndex.chapters.isEmpty {
                         var chs = cachedIndex.chapters
-                        TXTOffsetTranslator.populateUTF16Offsets(chapters: &chs) { ch in
+                        try TXTOffsetTranslator.populateUTF16Offsets(chapters: &chs) { ch in
                             let s = Int(ch.startByte), e = min(Int(ch.endByte), data.count)
                             guard s < e else { return "" }
-                            return String(data: data[s..<e], encoding: encoding) ?? ""
+                            guard let decoded = String(data: data[s..<e], encoding: encoding) else {
+                            throw TXTServiceError.decodingFailed("Chapter \(ch.index) decode failed")
+                        }
+                        return decoded
                         }
                         let total = chs.last.map { $0.globalStartUTF16 + $0.textLengthUTF16 } ?? 0
                         cachedIndex = TXTChapterIndex(
@@ -148,10 +151,13 @@ actor TXTService: TXTServiceProtocol {
                 )
 
                 var chapters = index.chapters
-                TXTOffsetTranslator.populateUTF16Offsets(chapters: &chapters) { ch in
+                try TXTOffsetTranslator.populateUTF16Offsets(chapters: &chapters) { ch in
                     let s = Int(ch.startByte), e = min(Int(ch.endByte), data.count)
                     guard s < e else { return "" }
-                    return String(data: data[s..<e], encoding: encoding) ?? ""
+                    guard let decoded = String(data: data[s..<e], encoding: encoding) else {
+                            throw TXTServiceError.decodingFailed("Chapter \(ch.index) decode failed")
+                        }
+                        return decoded
                 }
                 let totalUTF16 = chapters.last.map { $0.globalStartUTF16 + $0.textLengthUTF16 } ?? 0
                 index = TXTChapterIndex(
@@ -186,12 +192,14 @@ actor TXTService: TXTServiceProtocol {
     // MARK: - File Helpers
 
     /// Returns a cache directory for chapter index persistence.
+    /// Uses a stable key derived from filename + file size (audit fix: hashValue is randomized per process).
     private static func cacheDirectory(for url: URL) -> URL {
         let cacheBase = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        let bookHash = url.absoluteString.data(using: .utf8)
-            .map { String($0.hashValue) } ?? "unknown"
-        return cacheBase.appendingPathComponent("chapter-index/\(bookHash)")
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let stableKey = "\(url.lastPathComponent)-\(size)"
+            .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "unknown"
+        return cacheBase.appendingPathComponent("chapter-index/\(stableKey)")
     }
 
     /// Returns the modification date of a file.

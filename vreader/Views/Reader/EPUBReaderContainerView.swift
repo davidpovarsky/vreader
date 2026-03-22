@@ -293,7 +293,11 @@ struct EPUBReaderContainerView: View {
             contentURL: contentURL,
             baseDirectory: accessRoot,
             themeCSS: settingsStore.map {
-                $0.theme.epubOverrideCSS(fontSize: $0.typography.fontSize)
+                $0.theme.epubOverrideCSS(
+                    fontSize: $0.typography.fontSize,
+                    lineHeight: $0.typography.lineSpacing,
+                    letterSpacing: $0.typography.cjkSpacing ? $0.typography.fontSize * 0.05 / $0.typography.fontSize : 0
+                )
             },
             scrollFraction: seekScrollFraction,
             currentHref: viewModel.currentPosition?.href,

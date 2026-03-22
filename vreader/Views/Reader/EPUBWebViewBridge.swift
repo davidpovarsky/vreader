@@ -83,6 +83,14 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         let userContentController = WKUserContentController()
 
+        // Inject CSS preprocessing early to fix EPUB styling issues (foliate-js pattern)
+        let preprocessScript = WKUserScript(
+            source: Self.cssPreprocessJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        userContentController.addUserScript(preprocessScript)
+
         // Add scroll progress tracking script (throttled)
         let script = WKUserScript(
             source: Self.progressTrackingJS,
@@ -122,9 +130,10 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         config.preferences.isElementFullscreenEnabled = false
 
         let webView = WKWebView(frame: .zero, configuration: config)
-        webView.isOpaque = true
-        webView.backgroundColor = .systemBackground
-        webView.scrollView.backgroundColor = .systemBackground
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         context.coordinator.themeCSS = themeCSS
         context.coordinator.allowedRoot = baseDirectory
         context.coordinator.currentHref = currentHref

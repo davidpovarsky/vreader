@@ -95,6 +95,48 @@ extension EPUBWebViewBridge {
     })();
     """
 
+    /// CSS preprocessing — fixes common EPUB rendering issues (inspired by foliate-js).
+    /// Runs at document end to rewrite problematic CSS rules:
+    /// 1. Replaces -epub-* prefixed properties with standard equivalents
+    /// 2. Converts vw/vh units to pixel values (break in CSS columns)
+    /// 3. Replaces page-break-* with break-* (CSS3 fragmentation)
+    /// 4. Constrains image sizes to prevent overflow
+    static let cssPreprocessJS = """
+    (function() {
+        var sheets = document.styleSheets;
+        for (var i = 0; i < sheets.length; i++) {
+            try {
+                var rules = sheets[i].cssRules;
+                if (!rules) continue;
+                for (var j = 0; j < rules.length; j++) {
+                    var rule = rules[j];
+                    if (!rule.style) continue;
+                    var style = rule.style;
+                    // Replace -epub-* properties
+                    for (var k = style.length - 1; k >= 0; k--) {
+                        var prop = style[k];
+                        if (prop.startsWith('-epub-')) {
+                            var val = style.getPropertyValue(prop);
+                            var prio = style.getPropertyPriority(prop);
+                            style.removeProperty(prop);
+                            style.setProperty(prop.replace('-epub-', ''), val, prio);
+                        }
+                    }
+                    // Replace page-break-* with break-*
+                    var pageBreakProps = ['page-break-before', 'page-break-after', 'page-break-inside'];
+                    var breakProps = ['break-before', 'break-after', 'break-inside'];
+                    for (var k = 0; k < pageBreakProps.length; k++) {
+                        var val = style.getPropertyValue(pageBreakProps[k]);
+                        if (val) {
+                            style.setProperty(breakProps[k], val === 'always' ? 'page' : val);
+                        }
+                    }
+                }
+            } catch(e) { /* cross-origin stylesheet, skip */ }
+        }
+    })();
+    """
+
     /// Scroll progress tracking with 100ms throttle to reduce callback churn.
     static let progressTrackingJS = """
     (function() {

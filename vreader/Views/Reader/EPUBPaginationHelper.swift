@@ -25,20 +25,28 @@ enum EPUBPaginationHelper {
     ///   - viewportWidth: The WKWebView viewport width in points.
     ///   - viewportHeight: The WKWebView viewport height in points.
     /// - Returns: A CSS string with column layout rules.
+    /// Column gap between pages (prevents text clipping at edges).
+    static let columnGap: Int = 40
+
     static func paginationCSS(viewportWidth: CGFloat, viewportHeight: CGFloat) -> String {
-        let w = Int(viewportWidth)
+        let colWidth = Int(viewportWidth) - columnGap
         let h = Int(viewportHeight)
         return """
         html {
             overflow: hidden;
         }
         body {
-            column-width: \(w)px;
-            column-gap: 0px;
+            column-width: \(colWidth)px;
+            column-gap: \(columnGap)px;
+            column-fill: auto;
             height: \(h)px;
             overflow: hidden;
             margin: 0;
-            padding: 0;
+            -webkit-column-break-inside: avoid;
+        }
+        img, svg, video, figure {
+            break-inside: avoid;
+            page-break-inside: avoid;
         }
         """
     }

@@ -82,12 +82,10 @@ Each host owns its ViewModel lifecycle via `@State`:
 
 ### 6. Data Layer (`vreader/Models/`)
 
-SwiftData SchemaV3 entities:
+SwiftData SchemaV4 entities:
 - `Book` (fingerprintKey unique) → `ReadingPosition`, `Highlight`, `Bookmark`, `AnnotationNote`, `BookCollection`
 - `ReadingSession`, `ReadingStats`
-
-Additional `@Model` types (not in SchemaV3.models but registered separately):
-- `ContentReplacementRule`, `BookSource`
+- `BookSource`, `ContentReplacementRule` (added in SchemaV4)
 
 Key types:
 - `DocumentFingerprint` — `{format}:{SHA256}:{byteCount}` deterministic identity

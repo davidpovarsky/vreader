@@ -94,6 +94,38 @@ Test on device. Check off as verified. BLOCKED section at the bottom has known b
 - [ ] WebDAV restore → data recovered
 - [ ] HTTP TTS → cloud voice reads
 
+## Latest Fixes (2026-03-22)
+
+### #95 — Translate opens correct tab
+
+- [x] Select word in TXT → "Translate" → AI panel opens on Translate tab (not Summarize)
+- [ ] Open AI panel via toolbar → opens on Summarize tab (default)
+- [ ] Swipe-dismiss AI panel → next open defaults to Summarize
+
+### #96 — TTS produces sound
+
+- [ ] Tap speaker icon → audio plays from speaker
+- [ ] Stop → audio stops, other app audio resumes (not ducked)
+
+### #101 — Book sources visible after import
+
+- [ ] Settings → Book Sources → import Legado JSON → sources appear in list
+- [ ] Search button active after import
+
+### #100 — Book source saves persist
+
+- [ ] Create new source → close/reopen app → still there
+
+### #92 — AI reads actual content
+
+- [ ] Open GBK/Big5 TXT → AI summarize → shows real content (not just title)
+- [ ] Chat with book → AI references actual text
+
+### #89 — Books open faster
+
+- [ ] Open any book → content appears without noticeable delay
+- [ ] Search panel opens instantly
+
 ---
 
 ## BLOCKED — Known Bugs / Missing UI (skip until fixed)

@@ -32,23 +32,19 @@ Rapid feature development across 6 phases accumulated debt that causes recurring
 
 **Effort**: Medium.
 
-### Phase R2 — Extend Notification Modifier to EPUB/PDF
+### Phase R2 — Extend Notification Modifier to EPUB/PDF ✅ (revised)
 
-**Goal**: Unify notification handling across all 4 formats.
+**Goal**: Unify common notification handling; keep format-specific handlers local.
 
-**Note**: `ReaderNotificationModifier` already handles 5 notifications for TXT/MD with tests (`ReaderNotificationHandlerTests`). Extend it, don't replace it.
+**Note**: `ReaderNotificationModifier` handles shared text-reader notifications (bookmark, navigate, highlight, annotation, highlightRemoved) for TXT/MD. EPUB/PDF have format-specific handlers that cannot be unified (JS injection, PDFAnnotation, spine navigation, page navigation).
 
-**Scope**:
+**What was done**:
+- Moved `highlightRemoved` into modifier for TXT/MD
+- EPUB/PDF keep format-specific `.onReceive` handlers (bookmark, navigate, page, highlightRemoved, textSelected) — these are **justified** because they need format-specific logic
 
-- Adapt `ReaderNotificationModifier` to support EPUB highlight flow (JS-based)
-- Adapt it to support PDF annotation flow (PDFAnnotation-based)
-- Move EPUB's 6 scattered `.onReceive` handlers into the modifier
-- Move PDF's handlers into the modifier
-- Reduce each container to ≤2 direct `.onReceive` calls
+**Acceptance (revised)**: TXT/MD use modifier for all shared handlers. EPUB/PDF keep justified format-specific handlers. No unjustified duplication.
 
-**Acceptance**: All 4 containers use `ReaderNotificationModifier`. Each has ≤2 direct `.onReceive`.
-
-**Effort**: Medium.
+**Effort**: Small (original scope was too broad).
 
 ### Phase R3 — Shared Text Reader UI State ✅
 

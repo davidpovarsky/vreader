@@ -219,13 +219,16 @@ struct PDFReaderContainerView: View {
             pendingSelectionEvent = event
             showHighlightSheet = true
         }
-        // Phase R4a: handle highlight removal — fixes bug #87 (PDF highlight delete)
+        // Phase R4b: delegate highlight removal to coordinator (fixes bug #87)
         .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
             guard let idString = notification.object as? String,
                   let highlightId = UUID(uuidString: idString) else { return }
-            // Remove annotation visually via renderer
-            highlightRenderer.remove(id: highlightId)
-            // Update savedHighlightRecords so bridge stays consistent
+            if let coordinator = highlightCoordinator {
+                Task { await coordinator.handleRemoval(highlightId: highlightId) }
+            } else {
+                // Fallback: direct renderer removal
+                highlightRenderer.remove(id: highlightId)
+            }
             savedHighlightRecords?.removeAll { $0.highlightId == highlightId }
         }
         .confirmationDialog(

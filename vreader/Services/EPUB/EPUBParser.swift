@@ -1,18 +1,27 @@
-// Purpose: Production EPUB parser. Extracts EPUB (ZIP) to a temp directory,
+// Purpose: Production EPUB parser. Selectively extracts EPUB entries on demand,
 // parses container.xml and OPF for metadata/spine, and serves content.
 //
 // Key decisions:
-// - Extracts entire EPUB to a temp directory for WKWebView file access.
+// - Selective extraction: only container.xml + OPF + first chapter + CSS/fonts on open.
+// - On-demand: additional chapters extracted when contentForSpineItem() is called.
+// - Persistent cache: extracted files in Caches/EPUBCache/{key}/ survive app restart.
+//   iOS purges Caches/ under storage pressure automatically.
+// - ZIPReader uses memory-mapped Data (not heap copy) for random access.
 // - Parses container.xml to find the OPF rootfile path.
 // - Parses OPF using XMLParser for metadata, manifest, and spine.
-// - Validates all resolved paths stay within the extracted directory.
-// - Checks XMLParser success and propagates parse errors.
-// - Temp directory cleaned up on close().
+// - Validates all resolved paths stay within the cache directory.
 // - Actor-isolated for thread safety.
 //
 // @coordinates-with: EPUBParserProtocol.swift, ZIPReader.swift, EPUBTypes.swift
 
 import Foundation
+
+private extension URL {
+    /// File size in bytes, or 0 if unavailable. Used for cache key generation.
+    var fileSizeOrZero: Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+    }
+}
 
 /// Production implementation of EPUBParserProtocol.
 /// Extracts the EPUB to a temporary directory and parses its structure.
@@ -25,12 +34,12 @@ actor EPUBParser: EPUBParserProtocol {
     var isOpen: Bool { _isOpen }
 
     deinit {
-        // Safety net: remove temp directory if close() was never called.
-        // Actor deinit runs outside isolation, so we capture the URL value.
-        if let dir = extractedDir {
-            try? FileManager.default.removeItem(at: dir)
-        }
+        // PERF: No cleanup needed — cache directory is persistent.
+        // iOS purges Caches/ under storage pressure automatically.
     }
+
+    /// Cached ZIP reader for on-demand entry extraction.
+    private var zipReader: ZIPReader?
 
     func open(url: URL) async throws -> EPUBMetadata {
         guard !_isOpen else { throw EPUBParserError.alreadyOpen }
@@ -38,35 +47,50 @@ actor EPUBParser: EPUBParserProtocol {
             throw EPUBParserError.fileNotFound(url.lastPathComponent)
         }
 
-        // Extract EPUB to temp directory
-        // Do NOT call .standardizedFileURL here — it resolves symlinks inconsistently
-        // depending on whether the path exists on disk, causing /private/var vs /var mismatches.
-        // validateContainment() handles standardization internally for security checks.
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("epub-\(UUID().uuidString)", isDirectory: true)
-        let zip = try ZIPReader(fileURL: url)
-        try await zip.extractAll(to: tempDir)
-        extractedDir = tempDir
+        // PERF: Use persistent cache directory keyed by file size + name hash.
+        // If cache exists from a previous session, skip extraction entirely.
+        let cacheKey = "\(url.lastPathComponent)-\(url.fileSizeOrZero)"
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("EPUBCache", isDirectory: true)
+            .appendingPathComponent(cacheKey, isDirectory: true)
+        let fm = FileManager.default
 
-        // Parse container.xml to find OPF path
-        let containerURL = tempDir
+        // Check if we have a valid cache (container.xml exists = cache hit)
+        let cachedContainer = cacheDir
             .appendingPathComponent("META-INF")
             .appendingPathComponent("container.xml")
-        guard FileManager.default.fileExists(atPath: containerURL.path) else {
-            throw EPUBParserError.invalidFormat("Missing META-INF/container.xml")
+        let isCacheHit = fm.fileExists(atPath: cachedContainer.path)
+
+        let zip: ZIPReader
+        if isCacheHit {
+            // Cache hit — reuse extracted files, still need ZIP for on-demand entries
+            zip = try ZIPReader(fileURL: url)
+        } else {
+            // Cache miss — selective extraction (NOT extractAll)
+            try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            zip = try ZIPReader(fileURL: url)
+
+            // Extract only META-INF/container.xml first
+            _ = try await zip.extractEntry(path: "META-INF/container.xml", to: cacheDir)
         }
-        let containerData = try Data(contentsOf: containerURL)
+
+        zipReader = zip
+        extractedDir = cacheDir
+
+        // Parse container.xml to find OPF path
+        let containerData = try Data(contentsOf: cachedContainer.path == cachedContainer.path ? cachedContainer : cacheDir.appendingPathComponent("META-INF/container.xml"))
         let opfRelPath = try Self.parseContainerXML(containerData)
 
-        // Resolve OPF path and validate it stays within extracted directory.
-        // Do NOT call .standardizedFileURL — keep the same URL base as tempDir
-        // so WKWebView sees consistent paths for contentURL and allowingReadAccessTo.
-        // validateContainment standardizes internally for security checks.
-        let opfURL = tempDir.appendingPathComponent(opfRelPath)
-        try Self.validateContainment(child: opfURL, parent: tempDir)
+        // Extract OPF if not cached
+        let opfURL = cacheDir.appendingPathComponent(opfRelPath)
+        if !fm.fileExists(atPath: opfURL.path) {
+            _ = try await zip.extractEntry(path: opfRelPath, to: cacheDir)
+        }
+
+        try Self.validateContainment(child: opfURL, parent: cacheDir)
         opfDir = opfURL.deletingLastPathComponent()
 
-        guard FileManager.default.fileExists(atPath: opfURL.path) else {
+        guard fm.fileExists(atPath: opfURL.path) else {
             throw EPUBParserError.invalidFormat("OPF file not found")
         }
 
@@ -74,7 +98,39 @@ actor EPUBParser: EPUBParserProtocol {
         let opfData = try Data(contentsOf: opfURL)
         let result = try Self.parseOPF(opfData)
 
+        // Extract first chapter + shared resources (CSS, fonts) for immediate display
+        let opfDirRel = (opfRelPath as NSString).deletingLastPathComponent
+        if let firstSpine = result.metadata.spineItems.first {
+            let chapterPath = opfDirRel.isEmpty ? firstSpine.href : "\(opfDirRel)/\(firstSpine.href)"
+            if !fm.fileExists(atPath: cacheDir.appendingPathComponent(chapterPath).path) {
+                _ = try? await zip.extractEntry(path: chapterPath, to: cacheDir)
+            }
+        }
+        // Extract CSS/font files from ZIP for first chapter rendering
+        let styleExtensions: Set<String> = ["css", "ttf", "otf", "woff", "woff2"]
+        for entry in await zip.listEntries() {
+            let ext = (entry.path as NSString).pathExtension.lowercased()
+            guard styleExtensions.contains(ext), !entry.isDirectory else { continue }
+            if !fm.fileExists(atPath: cacheDir.appendingPathComponent(entry.path).path) {
+                _ = try? await zip.extractEntry(path: entry.path, to: cacheDir)
+            }
+        }
+
         // Parse nav/NCX for real TOC titles (bug #74)
+        // Extract nav/ncx if needed
+        if let navHref = result.navHref {
+            let navPath = opfDirRel.isEmpty ? navHref : "\(opfDirRel)/\(navHref)"
+            if !fm.fileExists(atPath: cacheDir.appendingPathComponent(navPath).path) {
+                _ = try? await zip.extractEntry(path: navPath, to: cacheDir)
+            }
+        }
+        if let ncxHref = result.ncxHref {
+            let ncxPath = opfDirRel.isEmpty ? ncxHref : "\(opfDirRel)/\(ncxHref)"
+            if !fm.fileExists(atPath: cacheDir.appendingPathComponent(ncxPath).path) {
+                _ = try? await zip.extractEntry(path: ncxPath, to: cacheDir)
+            }
+        }
+
         let opfDirURL = opfURL.deletingLastPathComponent()
         var metadata = result.metadata
         let navTitles = Self.extractNavTitles(
@@ -93,10 +149,10 @@ actor EPUBParser: EPUBParserProtocol {
     func close() async {
         _isOpen = false
         opfDir = nil
-        if let dir = extractedDir {
-            try? FileManager.default.removeItem(at: dir)
-            extractedDir = nil
-        }
+        zipReader = nil
+        // PERF: Do NOT delete cache directory — persistent cache for instant reopen.
+        // Cache is in Caches/ directory, so iOS can purge it under storage pressure.
+        extractedDir = nil
     }
 
     func contentForSpineItem(href: String) async throws -> String {
@@ -105,6 +161,14 @@ actor EPUBParser: EPUBParserProtocol {
         // Validate resolved path stays within extracted directory
         let fileURL = opfDir.appendingPathComponent(href).standardizedFileURL
         try Self.validateContainment(child: fileURL, parent: extractedDir)
+
+        // PERF: On-demand extraction — extract from ZIP if not already cached
+        if !FileManager.default.fileExists(atPath: fileURL.path), let zip = zipReader {
+            let relPath = fileURL.path.replacingOccurrences(
+                of: extractedDir.standardizedFileURL.path + "/", with: ""
+            )
+            _ = try? await zip.extractEntry(path: relPath, to: extractedDir)
+        }
 
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw EPUBParserError.resourceNotFound(href)

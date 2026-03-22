@@ -24,41 +24,46 @@ actor TXTService: TXTServiceProtocol {
             throw TXTServiceError.fileNotFound(url.lastPathComponent)
         }
 
-        // Use mappedIfSafe to avoid copying entire file into heap memory
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        // PERF: Move ALL heavy work (file I/O + decode + word count) off the
+        // calling actor to prevent UI thread stall. This is the #1 performance
+        // fix for TXT opening — Legado-inspired (they never block the UI thread
+        // with file operations).
+        let result: TXTFileMetadata = try await Task.detached {
+            // Use mappedIfSafe to avoid copying entire file into heap memory
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
 
-        // Phase 1: Detect encoding from 8KB sample (fast — avoids scanning full
-        // 15MB file with wrong encodings like UTF-8 on a GBK file). (bug #60)
-        let hintName = Self.detectEncodingFromSample(data)
-        let text: String
-        let detectedEncoding: String
+            // Phase 1: Detect encoding from 8KB sample (fast)
+            let hintName = Self.detectEncodingFromSample(data)
+            let text: String
+            let detectedEncoding: String
 
-        if let hintEnc = Self.encodingFromName(hintName),
-           let decoded = String(data: data, encoding: hintEnc) {
-            text = decoded
-            detectedEncoding = hintName
-        } else if let (decoded, enc) = Self.decodeText(data) {
-            // Fallback to full detection if sample hint was wrong
-            text = decoded
-            detectedEncoding = enc
-        } else {
-            throw TXTServiceError.decodingFailed(
-                "Could not decode the file with any supported encoding"
+            if let hintEnc = Self.encodingFromName(hintName),
+               let decoded = String(data: data, encoding: hintEnc) {
+                text = decoded
+                detectedEncoding = hintName
+            } else if let (decoded, enc) = Self.decodeText(data) {
+                text = decoded
+                detectedEncoding = enc
+            } else {
+                throw TXTServiceError.decodingFailed(
+                    "Could not decode the file with any supported encoding"
+                )
+            }
+
+            // Phase 2: Word count in same background context (no extra hop)
+            let wordCount = Self.countWords(text)
+
+            return TXTFileMetadata(
+                text: text,
+                fileByteCount: Int64(data.count),
+                detectedEncoding: detectedEncoding,
+                totalTextLengthUTF16: text.utf16.count,
+                totalWordCount: wordCount
             )
-        }
+        }.value
 
         _isOpen = true
-
-        // Phase 2: Defer word count to background (bug #60)
-        let wordCount = await Task.detached { Self.countWords(text) }.value
-
-        return TXTFileMetadata(
-            text: text,
-            fileByteCount: Int64(data.count),
-            detectedEncoding: detectedEncoding,
-            totalTextLengthUTF16: text.utf16.count,
-            totalWordCount: wordCount
-        )
+        return result
     }
 
     func close() async {

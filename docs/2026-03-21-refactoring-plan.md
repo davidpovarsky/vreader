@@ -102,29 +102,24 @@ Rapid feature development across 6 phases accumulated debt that causes recurring
 
 **Goal**: Container views under 350 lines.
 
-**Scope**:
+**What was done**:
+- All containers split into main file + extensions (`+Highlights`, `+Navigation`, `+Overlays`, `+Helpers`)
+- `ReaderContainerView`: 619→321 lines (deferred setup stays inline, format hosts already extracted)
+- `EPUBReaderContainerView`: 616→342 lines (highlight sheet + spine nav to extensions)
+- `TXTReaderContainerView`: 515→338 lines (reduced by R3 shared state)
 
-- `ReaderContainerView` (619 lines): extract deferred setup to `ReaderSetupCoordinator`
-- `EPUBReaderContainerView` (616 lines): extract spine nav + highlight sheet to subviews
-- `TXTReaderContainerView` (515 lines): reduced by R3
-
-**Acceptance**: No container view exceeds 350 lines.
-
-**Effort**: Medium. Pure extraction — no logic changes.
+**Acceptance**: All containers ≤350 lines ✓
 
 ### Phase R5b — Bridge Slimming ✅
 
 **Goal**: Bridge files under 400 lines.
 
-**Scope**:
+**What was done**:
+- `EPUBWebViewBridge`: 535→229 lines (JS constants extracted to `EPUBWebViewBridgeJS.swift`)
+- `TXTTextViewBridge`: 467→234 lines (coordinator logic extracted to extensions)
+- `TXTChunkedReaderBridge`: 537→387 lines (cache/restore logic extracted)
 
-- `TXTChunkedReaderBridge` (537 lines): extract chunk manager
-- `EPUBWebViewBridge` (535 lines): extract JS injection to `EPUBJSInjector`
-- `TXTTextViewBridge` (467 lines): extract offset mapping (already partial via `TXTOffsetMapper`)
-
-**Acceptance**: No bridge file exceeds 400 lines.
-
-**Effort**: Medium. Pure extraction.
+**Acceptance**: All bridges ≤400 lines ✓
 
 ### Phase R6 — Shared Reader ViewModel Lifecycle ✅
 

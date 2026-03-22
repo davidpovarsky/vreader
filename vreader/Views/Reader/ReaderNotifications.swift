@@ -53,6 +53,9 @@ extension Notification.Name {
     /// The notification's `object` is the highlight UUID string. (bug #78)
     /// Reader containers observe this to remove the visual highlight immediately.
     static let readerHighlightRemoved = Notification.Name("vreader.readerHighlightRemoved")
+    /// Posted after annotation import completes (bug #88).
+    /// Reader containers observe this to re-render persisted highlights.
+    static let readerHighlightsDidImport = Notification.Name("vreader.readerHighlightsDidImport")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

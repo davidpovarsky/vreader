@@ -222,6 +222,12 @@ struct PDFReaderContainerView: View {
             pendingSelectionEvent = event
             showHighlightSheet = true
         }
+        // Bug #88: re-render highlights after annotation import
+        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightsDidImport)) { _ in
+            if let coordinator = highlightCoordinator {
+                Task { await coordinator.restoreAll() }
+            }
+        }
         // Phase R4b: delegate highlight removal to coordinator (fixes bug #87)
         .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
             guard let idString = notification.object as? String,

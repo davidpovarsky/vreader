@@ -1,4 +1,4 @@
-// Purpose: TXT chapter detection engine with 25 Legado-ported regex rules.
+// Purpose: TXT chapter detection engine with 25 Legado-ported regex rules (14 enabled).
 // Auto-detects the best matching rule by sampling text, then extracts TOC entries.
 //
 // Key decisions:
@@ -137,7 +137,7 @@ enum TXTTocRuleEngine {
 private extension TXTTocRuleEngine {
 
     /// Builds the 25 default rules ported from Legado's txtTocRule.json.
-    /// Rules are ordered by serialNumber. 8 are enabled by default.
+    /// Rules are ordered by serialNumber. 14 are enabled by default (bug #83: broadened).
     // swiftlint:disable:next function_body_length
     static func buildDefaultRules() -> [TXTTocRule] {
         [
@@ -208,11 +208,11 @@ private extension TXTTocRuleEngine {
                 serialNumber: 8
             ),
 
-            // --- Disabled by default (17 rules) ---
+            // --- Disabled by default (but commonly needed — enabled for bug #83) ---
 
             TXTTocRule(
                 id: 9,
-                enabled: false,
+                enabled: true,
                 name: "Volume + Number",
                 rule: #"^[ 　\t]{0,4}[Vv]ol(?:ume)?\s{0,4}\d{1,4}.{0,30}$"#,
                 example: "Volume 1 Title",
@@ -220,7 +220,7 @@ private extension TXTTocRuleEngine {
             ),
             TXTTocRule(
                 id: 10,
-                enabled: false,
+                enabled: true,
                 name: "Book + Number",
                 rule: #"^[ 　\t]{0,4}[Bb]ook\s{0,4}\d{1,4}.{0,30}$"#,
                 example: "Book 1 Title",
@@ -244,7 +244,7 @@ private extension TXTTocRuleEngine {
             ),
             TXTTocRule(
                 id: 13,
-                enabled: false,
+                enabled: true,
                 name: "数字序号（圆括号）",
                 rule: #"^[ 　\t]{0,4}[\(（]\d{1,5}[\)）].{1,30}$"#,
                 example: "(1) 标题",
@@ -252,7 +252,7 @@ private extension TXTTocRuleEngine {
             ),
             TXTTocRule(
                 id: 14,
-                enabled: false,
+                enabled: true,
                 name: "数字序号（点号）",
                 rule: #"^[ 　\t]{0,4}\d{1,5}\..{1,30}$"#,
                 example: "1.标题",
@@ -300,7 +300,7 @@ private extension TXTTocRuleEngine {
             ),
             TXTTocRule(
                 id: 20,
-                enabled: false,
+                enabled: true,
                 name: "Prologue/Epilogue/Interlude",
                 rule: #"^[ 　\t]{0,4}(?:[Pp]rologue|[Ee]pilogue|[Ii]nterlude|[Pp]reface|[Ff]oreword|[Aa]fterword|[Ii]ntroduction|[Cc]onclusion).{0,30}$"#,
                 example: "Prologue",
@@ -324,7 +324,7 @@ private extension TXTTocRuleEngine {
             ),
             TXTTocRule(
                 id: 23,
-                enabled: false,
+                enabled: true,
                 name: "中文回/话",
                 rule: #"^[ 　\t]{0,4}第\s{0,4}[\d〇零一二两三四五六七八九十百千万壹贰叁肆伍陆柒捌玖拾佰仟]+?\s{0,4}[回话].{0,30}$"#,
                 example: "第一回 标题",

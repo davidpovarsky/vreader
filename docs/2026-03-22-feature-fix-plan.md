@@ -26,32 +26,25 @@ Reproduce and write RED tests for uncertain bugs. Do NOT implement fixes yet.
 - #26 TTS: #96 fixed but #97 (bar overlap) still open → stays in Phase 2
 - #35 Export/import: #88 (imported highlights don't render) still open → stays in Phase 2
 
-## Phase 2 — Bug Fixes (code exists, specific bugs)
+## Phase 2 — Bug Fixes (code exists, specific bugs) ✓ DONE
 
-### Priority order:
+### Quick fixes (already done before this session):
+| Bug | Feature | Status |
+|-----|---------|--------|
+| #97 | #26 TTS bar overlap | FIXED |
+| #85 | #34 Collections context menu | FIXED |
+| #86 | #34 Tags in sidebar | FIXED |
+| #84 | #37 Per-book settings | FIXED |
 
-**Quick fixes:**
-| Bug | Feature | Root Cause | Fix |
-|-----|---------|-----------|-----|
-| #97 | #26 TTS | TTSControlBar overlaps bottom bar | Fix z-order/spacing |
-| #85 | #34 Collections | No "Add to Collection" in context menu | Add context menu action |
-| #86 | #34 Collections | allTags:[] hardcoded | Load tags from PersistenceActor |
-| #84 | #37 Per-book | resolve() never called | Wire into ReaderSettingsStore on book open |
-
-**Moderate fixes (after discovery):**
-| Bug | Feature | Fix (pending repro) |
-|-----|---------|-----|
-| #77 | #11 EPUB highlights | Depends on discovery — likely JS selection fallback |
-| #82 | #21 Paged mode | Depends on discovery — per-format diagnosis needed |
-| #98 | #27/#28 Transforms | Depends on discovery |
-| #88 | #35 Export/import | Extend export format with locator data; trigger restoreAll after import |
-| #83 | #23 TXT TOC | Broaden rule patterns after analyzing failing files |
-| #31 auto page turn blocked by #82 |
-
-**Execution order:**
-```
-#97 → #85/#86 → #84 → (discovery results) → #77 → #98 → #88 → #82 → #83 → #31
-```
+### Moderate fixes (done this session):
+| Bug | Feature | Fix Applied |
+|-----|---------|-------------|
+| #77 | #11 EPUB highlights | JS buffering in EPUBHighlightRenderer (deliverOrBuffer + didSet flush) |
+| #98 | #27/#28 Transforms | sourceText storage + didSet on activeTransforms re-applies |
+| #88 | #35 Import highlights | .readerHighlightsDidImport notification → coordinator.restoreAll() |
+| #82 | #21 Paged mode | Split guard: preserve navigator when attrText nil in paged mode |
+| #83 | #23 TXT TOC | Enabled 6 more rules (9,10,13,14,20,23) — 14/25 active |
+| #31 | Auto page turn | Unblocked by #82 fix (no code change needed) |
 
 ## Phase 3 — Device Verification (no known bugs, just needs testing)
 

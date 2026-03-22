@@ -65,6 +65,10 @@ struct ReaderNotificationModifier: ViewModifier {
                 uiState.pendingAnnotationInfo = info
                 uiState.annotationNoteText = ""
             }
+            // Bug #88: re-render highlights after annotation import
+            .onReceive(NotificationCenter.default.publisher(for: .readerHighlightsDidImport)) { _ in
+                Task { await highlightCoordinator.restoreAll() }
+            }
             // Phase R4b: delegate removal to coordinator (removes visual + re-fetches)
             .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
                 guard let idString = notification.object as? String,

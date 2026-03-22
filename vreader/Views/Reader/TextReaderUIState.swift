@@ -75,9 +75,15 @@ final class TextReaderUIState: ReaderNotificationHandlerStateProtocol {
         autoPageTurnEnabled: Bool,
         autoPageTurnInterval: TimeInterval
     ) {
-        guard isPagedMode, let attrStr = attributedText else {
+        guard isPagedMode else {
+            // Explicit switch to scroll mode — destroy navigator.
             autoPageTurner?.stop()
             pageNavigator = nil
+            return
+        }
+        guard let attrStr = attributedText else {
+            // Bug #82: isPagedMode=true but attributedText not ready yet.
+            // Preserve existing navigator to avoid falling back to scroll.
             return
         }
 

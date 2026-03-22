@@ -30,10 +30,10 @@ struct TXTTocRuleEngineTests {
         #expect(TXTTocRuleEngine.defaultRules.count == 25)
     }
 
-    @Test("8 rules are enabled by default")
+    @Test("14 rules are enabled by default (bug #83: broadened)")
     func enabledRulesCount() {
         let enabled = TXTTocRuleEngine.defaultRules.filter(\.enabled)
-        #expect(enabled.count == 8)
+        #expect(enabled.count == 14)
     }
 
     @Test("each rule has unique ID")

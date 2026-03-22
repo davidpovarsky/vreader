@@ -212,6 +212,12 @@ struct EPUBReaderContainerView: View {
                 }
             }
         }
+        // Bug #88: re-render highlights after annotation import
+        .onReceive(NotificationCenter.default.publisher(for: .readerHighlightsDidImport)) { _ in
+            if let coordinator = highlightCoordinator {
+                Task { await coordinator.restoreAll() }
+            }
+        }
         // Remove highlight visual when deleted from annotations panel (bug #78)
         // Phase R4b: delegate to coordinator (renderer generates remove JS)
         .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in

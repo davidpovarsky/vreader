@@ -51,17 +51,14 @@ struct TransformsBug98Tests {
     func transformsAfterLoad_shouldReapply() {
         let coordinator = ReaderUnifiedCoordinator()
 
-        // Simulate text already loaded (e.g., loadTextContent completed)
+        // Simulate text loaded via loadTextContent (sets both sourceText and textContent)
+        coordinator.sourceText = "hello foo world"
         coordinator.textContent = "hello foo world"
 
         // Now transforms arrive (e.g., loadReplacementRules completed after text load)
         coordinator.activeTransforms = [FooBarTransform()]
 
-        // BUG: textContent is still "hello foo world" because setting activeTransforms
-        // does NOT trigger re-application. The coordinator has no didSet observer or
-        // onChange handler for activeTransforms.
-        //
-        // Correct behavior: textContent should reflect the new transforms.
+        // Fix: didSet on activeTransforms re-applies transforms from sourceText
         #expect(coordinator.textContent == "hello bar world",
                 "textContent should be re-transformed when activeTransforms changes after load")
     }
@@ -74,17 +71,14 @@ struct TransformsBug98Tests {
     func chineseConversionToggle_shouldUpdateContent() {
         let coordinator = ReaderUnifiedCoordinator()
 
-        // Load text without transforms
-        coordinator.activeTransforms = []
-        coordinator.textContent = "国家"  // Simplified Chinese
+        // Simulate text loaded (sourceText stored by load method)
+        coordinator.sourceText = "国家"
+        coordinator.textContent = "国家"
 
         // User toggles simp→trad conversion
         coordinator.activeTransforms = [SimpTradTransform(direction: .simpToTrad)]
 
-        // BUG: textContent still shows "国家" (simplified) because the coordinator
-        // doesn't re-apply transforms when activeTransforms changes.
-        //
-        // Correct behavior: textContent should show "國家" (traditional).
+        // Fix: didSet re-applies transform from sourceText → "國家"
         #expect(coordinator.textContent != "国家",
                 "textContent should change when Chinese conversion transform is added")
     }
@@ -97,22 +91,17 @@ struct TransformsBug98Tests {
     func removeTransforms_shouldRevert() {
         let coordinator = ReaderUnifiedCoordinator()
 
-        // Set transforms first, then load text
+        // Simulate: source text loaded, then transformed
+        coordinator.sourceText = "hello world"
         coordinator.activeTransforms = [UppercaseTransform()]
-        // Simulate the load path calling applyTransforms internally
-        // Since applyTransforms is private, we set textContent directly
-        // to what applyTransforms would produce:
-        coordinator.textContent = "HELLO WORLD"
+        // didSet fires → textContent becomes "HELLO WORLD"
+        #expect(coordinator.textContent == "HELLO WORLD")
 
         // User disables all transforms
         coordinator.activeTransforms = []
 
-        // BUG: textContent is still "HELLO WORLD" — original text is lost.
-        // The coordinator doesn't store the original source text, so it can't revert.
-        //
-        // Correct behavior: coordinator should store source text separately and
-        // revert to it when transforms are removed.
-        #expect(coordinator.textContent != "HELLO WORLD",
+        // Fix: didSet re-applies (empty transforms → identity → sourceText)
+        #expect(coordinator.textContent == "hello world",
                 "textContent should revert to original when transforms are removed")
     }
 
@@ -120,24 +109,21 @@ struct TransformsBug98Tests {
     // RACE CONDITION: transforms not ready at load time
     // -----------------------------------------------------------------------
 
-    @Test("applyTransforms with empty activeTransforms returns source text unchanged")
+    @Test("late-arriving transforms should be applied to already-loaded text")
     func applyTransforms_empty_returnsIdentity() {
         let coordinator = ReaderUnifiedCoordinator()
         coordinator.activeTransforms = []
 
-        // This verifies the base case: when no transforms are set (race condition:
-        // loadReplacementRules hasn't completed), the text passes through unchanged.
-        // The text is loaded without transforms — this is the bug scenario.
+        // Simulate text loaded while transforms are empty (race)
+        coordinator.sourceText = "original text foo"
         coordinator.textContent = "original text foo"
 
-        // The text is unchanged because transforms were empty.
-        // This isn't a failure — it's the setup for the race.
         #expect(coordinator.textContent == "original text foo")
 
         // Now transforms arrive late...
         coordinator.activeTransforms = [FooBarTransform()]
 
-        // BUG: textContent still shows "original text foo"
+        // Fix: didSet re-applies from sourceText
         #expect(coordinator.textContent == "original text bar",
                 "Late-arriving transforms should be applied to already-loaded text")
     }
@@ -150,29 +136,18 @@ struct TransformsBug98Tests {
     func sourceTextPreserved_forRetransformation() {
         let coordinator = ReaderUnifiedCoordinator()
 
-        // Load with transform
+        // Set source text and apply initial transform
+        coordinator.sourceText = "foo baz foo"
         coordinator.activeTransforms = [FooBarTransform()]
-        coordinator.textContent = "foo baz foo"
-        // In current code, textContent is the raw value set externally.
-        // If loadTextContent was used, it would call applyTransforms internally.
-        // We simulate that result:
-        // coordinator.textContent would be "bar baz bar" after applyTransforms
+        // didSet fires → textContent = "bar baz bar"
+        #expect(coordinator.textContent == "bar baz bar")
 
-        // The coordinator should expose the source text for re-transformation.
-        // BUG: No source text storage exists. The coordinator only has textContent
-        // which is the display text. Once set, the original is lost.
-        //
-        // We can't test a property that doesn't exist, so we test the behavioral
-        // consequence: changing transforms should produce correct output.
+        // Switch to a different transform
         coordinator.activeTransforms = [UppercaseTransform()]
 
-        // If source text was "foo baz foo", applying UppercaseTransform should give
-        // "FOO BAZ FOO". But since source is lost, textContent is still whatever
-        // was previously set.
-        //
-        // This test documents the design gap. A fix would add a sourceText property.
-        #expect(coordinator.textContent != "foo baz foo",
-                "After changing transforms, text should reflect the new transform")
+        // Fix: re-applies UppercaseTransform to sourceText ("foo baz foo") → "FOO BAZ FOO"
+        #expect(coordinator.textContent == "FOO BAZ FOO",
+                "After changing transforms, text should reflect the new transform on source text")
     }
 
     // -----------------------------------------------------------------------

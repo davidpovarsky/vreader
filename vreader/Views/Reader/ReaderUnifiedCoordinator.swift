@@ -15,7 +15,10 @@ import SwiftUI
 final class ReaderUnifiedCoordinator {
 
     /// Text loaded for the unified reflow engine (WI-B04). Nil until loaded.
+    /// This is the *display* text (after transforms). Use `sourceText` for the original.
     var textContent: String?
+    /// Original (untransformed) text. Stored for re-transformation when transforms change (bug #98).
+    var sourceText: String?
     /// Attributed text for unified MD/EPUB rendering (WI-B05, WI-B07). Nil until loaded.
     var attributedText: NSAttributedString?
     /// Whether EPUB unified loading completed (true = done loading, false = still loading).
@@ -26,8 +29,17 @@ final class ReaderUnifiedCoordinator {
     var offsetMap: OffsetMap?
 
     /// Active text transforms to apply after loading content.
-    /// Set by the container view before loading starts.
-    var activeTransforms: [any TextTransform] = []
+    /// On change, re-applies transforms to the stored source text (bug #98).
+    var activeTransforms: [any TextTransform] = [] {
+        didSet { reapplyTransforms() }
+    }
+
+    /// Re-applies active transforms to the stored source text (bug #98).
+    /// Called when activeTransforms changes after text is already loaded.
+    private func reapplyTransforms() {
+        guard let source = sourceText else { return }
+        textContent = applyTransforms(to: source)
+    }
 
     /// Applies active text transforms (replacement rules, simp/trad) to loaded text.
     /// Updates textContent and stores the offsetMap for bidirectional offset lookup.
@@ -45,6 +57,7 @@ final class ReaderUnifiedCoordinator {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
         if let text, !text.isEmpty {
+            sourceText = text
             textContent = applyTransforms(to: text)
         }
     }
@@ -56,6 +69,7 @@ final class ReaderUnifiedCoordinator {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
         guard let rawText, !rawText.isEmpty else { return }
+        sourceText = rawText
 
         // Apply text transforms to raw text before parsing
         let transformedText = applyTransforms(to: rawText)
@@ -108,6 +122,7 @@ final class ReaderUnifiedCoordinator {
             )
 
             if allSimple, combinedText.length > 0 {
+                sourceText = combinedText.string
                 let displayText = applyTransforms(to: combinedText.string)
                 textContent = displayText
                 // Note: attributedText is not transform-aware yet (text-only transform).

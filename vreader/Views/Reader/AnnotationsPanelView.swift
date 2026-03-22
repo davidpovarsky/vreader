@@ -236,6 +236,10 @@ struct AnnotationsPanelView: View {
             await bookmarkVM?.loadBookmarks()
             await highlightVM?.loadHighlights()
             await annotationVM?.loadAnnotations()
+            // Bug #88: Notify reader to refresh visual highlights
+            if result.importedCount > 0 {
+                NotificationCenter.default.post(name: .readerHighlightsDidImport, object: nil)
+            }
         } catch {
             importMessage = "Import failed: \(error.localizedDescription)"
         }

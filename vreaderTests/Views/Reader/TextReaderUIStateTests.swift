@@ -189,10 +189,12 @@ struct TextReaderUIStateTests {
         #expect(state.pageNavigator == nil)
     }
 
-    @Test @MainActor func updatePaginationTearsDownWhenNilText() {
+    @Test @MainActor func updatePaginationPreservesNavigatorWhenNilText() {
         let state = TextReaderUIState()
         state.pageNavigator = NativeTextPageNavigator()
 
+        // Bug #82: isPagedMode=true with nil attributedText should PRESERVE navigator
+        // (attr string rebuild not ready yet). Only isPagedMode=false destroys it.
         state.updatePagination(
             isPagedMode: true,
             attributedText: nil,
@@ -201,7 +203,8 @@ struct TextReaderUIStateTests {
             autoPageTurnInterval: 5.0
         )
 
-        #expect(state.pageNavigator == nil)
+        #expect(state.pageNavigator != nil,
+                "Bug #82: navigator preserved when attrText nil but paged mode on")
     }
 
     // MARK: - Auto Page Turner

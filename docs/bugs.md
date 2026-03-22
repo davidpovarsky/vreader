@@ -46,26 +46,12 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
-### Bug #77 — Cannot add highlight in native EPUB
-- **Repro**: Open an EPUB in native mode, select text, look for Highlight option
-- **Expected**: Context menu shows Highlight/Add Note options
-- **Actual**: No highlight option available or selection doesn't trigger the menu
-- **Root cause**: EPUBHighlightRenderer.onInjectJS is nil when apply() is called — .task callback setup races with bridge creation. JS silently dropped via optional chaining. Secondary: restoreHighlightsOnLoad callback swap can misdirect new-highlight JS during restore.
-- **RED test**: `EPUBHighlightRendererBug77Tests.swift` — 4 tests covering nil callback, restore race, happy path
-
-### Bug #82 — Paged mode still scrolls instead of paginating
-- **Repro**: Toggle epubLayout to .paged in settings, open TXT/MD file
-- **Expected**: Content displays in pages with swipe navigation
-- **Actual**: Content remains scrollable, no pagination
-- **Root cause**: TextReaderUIState.updatePagination() called with isPagedMode=true but nil attributedText (attr string rebuild hasn't completed). Guard clause destroys pageNavigator → view falls back to scroll mode (`isPagedMode && nav != nil` → false).
-- **RED test**: `PagedModeBug82Tests.swift` — 4 tests covering nil-attr race, mode switch recovery, atomic transition, position restore
-
-### Bug #98 — Text Transforms fail (simp/trad or replacement)
-- **Repro**: Add replacement rule or toggle simp/trad conversion, open file in unified mode
-- **Expected**: Text is transformed according to rules
-- **Actual**: Text shows untransformed content
-- **Root cause**: Race condition — loadReplacementRules() and text loading are independent .task blocks with no coordination. Text loads and calls applyTransforms() while activeTransforms is still empty. Also: onChange(chineseConversion) updates activeTransforms but doesn't re-apply to already-loaded textContent. No source text storage for re-transformation.
-- **RED test**: `TransformsBug98Tests.swift` — 6 tests covering late transform, Chinese toggle, revert, race, ordering, invalid regex
+### Bug #88 — Imported annotations not visually highlighted
+- **Repro**: Import annotations JSON, check if highlights are rendered in reader
+- **Expected**: Imported highlights visible in the reader
+- **Actual**: DB records created but reader doesn't refresh visual highlights
+- **Root cause**: Import writes to DB but no notification to reader to re-render
+- **Fix**: Added `.readerHighlightsDidImport` notification; all format containers observe and call `coordinator.restoreAll()`
 
 
 ## Summary
@@ -148,18 +134,18 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 74 | EPUB TOC shows "Section XXX" instead of real chapter titles                                           | EPUB/*    | Medium   | FIXED    | Parse EPUB 3 nav.xhtml + EPUB 2 toc.ncx for real titles; `withResolvedTitles()` applies to spine items |
 | 75 | Sort preference not remembered across restarts                                                        | Library/* | Medium   | FIXED    | Wired `PreferenceStore` into LibraryViewModel init; persist sortOrder/viewMode on change, restore on creation |
 | 76 | Annotations panel tab order — Contents should be before Bookmarks                                    | Reader/*  | Low      | FIXED    | Swapped enum case order: Contents first, Bookmarks second. Default tab → .toc |
-| 77 | Cannot add highlight in native EPUB                                                                   | EPUB/*    | High     | TODO     | Root cause: onInjectJS nil race + callback swap. RED tests in EPUBHighlightRendererBug77Tests.swift |
+| 77 | Cannot add highlight in native EPUB                                                                   | EPUB/*    | High     | FIXED    | JS buffering in EPUBHighlightRenderer; deliverOrBuffer flushes on callback set. Callback swap race documented but low-impact |
 | 78 | Highlight visual persists after deletion                                                              | Reader/*  | Medium   | FIXED    | Added `.readerHighlightRemoved` notification; EPUB: injects removeHighlightJS; TXT/MD: re-fetches persistedHighlightRanges |
 | 79 | Search panel slow to open — deferred setup delay                                                      | Reader/*  | Medium   | FIXED    | Split setup: `prepareService()` eagerly creates store+service+VM on reader open; indexing still deferred |
 | 80 | Cannot set custom book cover via context menu                                                         | Library/* | Medium   | FIXED    | Separate `isShowingCoverPicker` state + 0.3s delay for context menu dismissal before picker presents |
 | 81 | Tap zones do nothing in native mode                                                                   | Reader/*  | High     | FIXED    | Center tap works via bridge handlers; left/right zones only functional in unified paged mode (by design) |
-| 82 | Paged mode still scrolls instead of paginating                                                        | Reader/*  | High     | TODO     | Root cause: updatePagination destroys navigator when attrText nil (race). RED tests in PagedModeBug82Tests.swift |
-| 83 | TXT TOC not detected for some files                                                                   | Reader/*  | Medium   | TODO     | Feature #23 implemented (25 rules) but user's TXT files don't match any rule pattern |
+| 82 | Paged mode still scrolls instead of paginating                                                        | Reader/*  | High     | FIXED    | Split guard: isPagedMode=false destroys navigator; isPagedMode=true with nil attrText preserves it |
+| 83 | TXT TOC not detected for some files                                                                   | Reader/*  | Medium   | FIXED    | Enabled 6 more rules (9,10,13,14,20,23) — now 14/25 enabled by default |
 | 84 | Per-book settings affect all books instead of one                                                     | Reader/*  | Medium   | FIXED    | Added applyResolvedSettings() + .task on book open to load/apply per-book overrides |
 | 85 | Cannot add books to collections                                                                       | Library/* | Medium   | FIXED    | Added "Add to Collection" submenu to book context menu with collection picker |
 | 86 | Tags never shown in collection sidebar                                                                | Library/* | Medium   | FIXED    | Added fetchAllTags()/fetchAllSeriesNames(); LibraryView now loads and passes real data |
 | 87 | PDF highlights still visible after deletion                                                           | PDF/*     | Medium   | FIXED    | PDFReaderContainerView now delegates highlightRemoved to HighlightCoordinator (R4b audit fix) |
-| 88 | Imported annotations not visually highlighted                                                         | Reader/*  | Medium   | TODO     | Import restores DB records but reader doesn't refresh persistedHighlightRanges |
+| 88 | Imported annotations not visually highlighted                                                         | Reader/*  | Medium   | FIXED    | Added .readerHighlightsDidImport notification; all containers call coordinator.restoreAll() |
 | 89 | Books still slow to open                                                                              | Reader/*  | High     | FIXED    | prepareService now async — SQLite open doesn't block main thread |
 | 90 | AI buttons visible when consent is off                                                                | AI/*      | Medium   | TODO     | AIReaderAvailability only checks feature flag + API key, not consent |
 | 91 | Blank panel when tapping Translate without AI configured                                              | AI/*      | Medium   | TODO     | No guard for missing API key/consent before presenting AI panel |
@@ -169,7 +155,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 95 | "Translate" opens Summarize panel instead of Translation                                              | AI/*      | High     | FIXED    | AIReaderPanel accepts initialTab parameter; translate handler passes .translate |
 | 96 | TTS no sound and no error indication                                                                  | TTS/*     | High     | FIXED    | Added AVAudioSession.setCategory(.playback) before speaking |
 | 97 | TTS control bar overlaps bottom bar                                                                   | Reader/*  | Medium   | FIXED    | Pass ttsService to format containers; hide bottom overlay when TTS active |
-| 98 | Text Transforms fail (simp/trad or replacement)                                                       | Reader/*  | Medium   | TODO     | Root cause: race — transforms load after text; no re-apply on change. RED tests in TransformsBug98Tests.swift |
+| 98 | Text Transforms fail (simp/trad or replacement)                                                       | Reader/*  | Medium   | FIXED    | sourceText storage + didSet on activeTransforms re-applies; all 3 load methods store sourceText |
 | 99 | Search results not highlighted in some TXT files                                                      | Search/*  | Medium   | TODO     | Highlight navigation fails for specific encoding/chunking cases |
 | 100| Book source cannot be saved                                                                           | BookSrc/* | High     | FIXED    | Added explicit modelContext.save() after insert in BookSourceListView |
 | 101| Imported book sources not visible, search button grey                                                 | BookSrc/* | High     | FIXED    | Added BookSource + ContentReplacementRule to SchemaV3.models |

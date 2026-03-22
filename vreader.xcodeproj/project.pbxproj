@@ -571,6 +571,7 @@
 		F3958B26AAD50F2152E03AEB /* TTSControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F63868C11B04D324F09751 /* TTSControlBar.swift */; };
 		F51F7B9360A990E857FE1373 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C6686ECBBE526053A51CBA2 /* ChatMessage.swift */; };
 		F5A31837AE39AA372B31F1B5 /* LocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E8B92C301E5470AB98C87E /* LocatorTests.swift */; };
+		12EEEB491529363AA73948A6 /* foliate-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = 4715C71E34A3BC44C7D5D64F /* foliate-bridge.js */; };
 		F78B9D218FBB628F31479271 /* EPUBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E742DD046F5CE970132E0C /* EPUBParser.swift */; };
 		F7AD55517859473DA4E4F4D5 /* legado_multiple_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = F1D3CAC117B849EE88AE0A5F /* legado_multiple_sources.json */; };
 		F7D4BCC9E389D8F7956277AA /* TXTTextChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B189F7F32FF82BCF254923 /* TXTTextChunker.swift */; };
@@ -992,6 +993,7 @@
 		C6F7EC017FF822492219E162 /* TextReaderUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReaderUIState.swift; sourceTree = "<group>"; };
 		A6F1C998AAACA679A10A86D2 /* BookCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCollection.swift; sourceTree = "<group>"; };
 		A77D3287AEC40129E6AA379F /* LibraryDynamicTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDynamicTypeTests.swift; sourceTree = "<group>"; };
+		4715C71E34A3BC44C7D5D64F /* foliate-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = foliate-bridge.js; sourceTree = "<group>"; };
 		A7E742DD046F5CE970132E0C /* EPUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParser.swift; sourceTree = "<group>"; };
 		A84BF17CCCD4B376BDDF8CD1 /* utf8_bom.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = utf8_bom.txt; sourceTree = "<group>"; };
 		A8B682E216B5A24055B696F0 /* SwiftDataSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftDataSessionStore.swift; sourceTree = "<group>"; };
@@ -2426,6 +2428,7 @@
 				DCA9065CD56F7F0C7AF165FE /* EPUBComplexityClassifier.swift */,
 				E6AEAC075B9C38B3783D207A /* EPUBFileLoader.swift */,
 				A7E742DD046F5CE970132E0C /* EPUBParser.swift */,
+				4715C71E34A3BC44C7D5D64F /* foliate-bridge.js */,
 				C3C15E361FF460BCE57B8675 /* EPUBParserProtocol.swift */,
 				FE7F4B7C906FB04E87EE16F5 /* EPUBTextStripper.swift */,
 				A457F48D22CD5B4952817701 /* EPUBTypes.swift */,

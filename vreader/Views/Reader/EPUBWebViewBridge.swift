@@ -83,7 +83,19 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         let userContentController = WKUserContentController()
 
-        // Inject CSS preprocessing early to fix EPUB styling issues (foliate-js pattern)
+        // Inject foliate-js bridge (CFI, overlayer, TTS, footnotes)
+        if let bridgeURL = Bundle.main.url(forResource: "foliate-bridge", withExtension: "js", subdirectory: nil)
+            ?? Bundle.main.url(forResource: "foliate-bridge", withExtension: "js"),
+           let bridgeSource = try? String(contentsOf: bridgeURL) {
+            let bridgeScript = WKUserScript(
+                source: bridgeSource,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            userContentController.addUserScript(bridgeScript)
+        }
+
+        // Inject CSS preprocessing (foliate-js pattern)
         let preprocessScript = WKUserScript(
             source: Self.cssPreprocessJS,
             injectionTime: .atDocumentEnd,

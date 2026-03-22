@@ -156,6 +156,19 @@ struct ReaderContainerView: View {
                 resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
             }
         }
+        // Apply per-book settings on open (bug #84)
+        .task {
+            let perBook = PerBookSettingsStore.settings(
+                for: book.fingerprintKey,
+                baseURL: Self.perBookSettingsBaseURL
+            )
+            if perBook != nil {
+                let resolved = PerBookSettingsStore.resolve(
+                    perBook: perBook, global: settingsStore
+                )
+                settingsStore.applyResolvedSettings(resolved)
+            }
+        }
         // Pre-create search service+VM eagerly so search panel opens instantly (bug #79)
         .task {
             if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
@@ -292,27 +305,31 @@ struct ReaderContainerView: View {
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
-                settingsStore: settingsStore
+                settingsStore: settingsStore,
+                ttsService: ttsService
             )
         case "pdf":
             PDFReaderHost(
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint,
-                modelContainer: modelContext.container
+                modelContainer: modelContext.container,
+                ttsService: ttsService
             )
         case "txt":
             TXTReaderHost(
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
-                settingsStore: settingsStore
+                settingsStore: settingsStore,
+                ttsService: ttsService
             )
         case "md":
             MDReaderHost(
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
-                settingsStore: settingsStore
+                settingsStore: settingsStore,
+                ttsService: ttsService
             )
         default:
             unsupportedFormatView(format: book.format.uppercased())

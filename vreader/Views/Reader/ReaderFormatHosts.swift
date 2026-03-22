@@ -16,13 +16,14 @@ struct TXTReaderHost: View {
     let fingerprint: DocumentFingerprint
     let modelContainer: ModelContainer
     let settingsStore: ReaderSettingsStore
+    let ttsService: TTSService
 
     @State private var viewModel: TXTReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService)
             } else {
                 ProgressView()
             }
@@ -51,13 +52,14 @@ struct PDFReaderHost: View {
     let fileURL: URL
     let fingerprint: DocumentFingerprint
     let modelContainer: ModelContainer
+    let ttsService: TTSService
 
     @State private var viewModel: PDFReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer)
+                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer, ttsService: ttsService)
             } else {
                 ProgressView()
             }
@@ -86,13 +88,14 @@ struct MDReaderHost: View {
     let fingerprint: DocumentFingerprint
     let modelContainer: ModelContainer
     let settingsStore: ReaderSettingsStore
+    let ttsService: TTSService
 
     @State private var viewModel: MDReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer)
+                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService)
             } else {
                 ProgressView()
             }
@@ -122,6 +125,7 @@ struct EPUBReaderHost: View {
     let fingerprint: DocumentFingerprint
     let modelContainer: ModelContainer
     let settingsStore: ReaderSettingsStore
+    let ttsService: TTSService
 
     @State private var viewModel: EPUBReaderViewModel?
     @State private var parser: EPUBParser?
@@ -134,7 +138,8 @@ struct EPUBReaderHost: View {
                     viewModel: viewModel,
                     parser: parser,
                     settingsStore: settingsStore,
-                    modelContainer: modelContainer
+                    modelContainer: modelContainer,
+                    ttsService: ttsService
                 )
             } else {
                 ProgressView()

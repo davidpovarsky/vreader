@@ -37,6 +37,8 @@ struct LibraryView: View {
     @State private var isShowingCollections = false
     @State private var activeFilter: LibraryFilter = .allBooks
     @State private var collectionRecords: [CollectionRecord] = []
+    @State private var allTags: [String] = []
+    @State private var allSeries: [String] = []
     /// Fingerprint keys of books with new chapters detected by UpdateChecker (D07a).
     @State private var booksWithUpdates: Set<String> = []
     @State private var coverPickerItem: PhotosPickerItem?
@@ -77,6 +79,9 @@ struct LibraryView: View {
             }
             .task {
                 await viewModel.loadBooks()
+                // Load collections eagerly for context menu "Add to Collection" (bug #85)
+                let persistence = PersistenceActor(modelContainer: modelContext.container)
+                collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
             }
             .onReceive(NotificationCenter.default.publisher(for: .readerDidClose)) { notification in
                 // Bug #45 v4: Update in-memory lastReadAt and re-sort immediately.
@@ -156,8 +161,8 @@ struct LibraryView: View {
                 CollectionSidebar(
                     activeFilter: $activeFilter,
                     collections: collectionRecords,
-                    allTags: [],
-                    allSeries: [],
+                    allTags: allTags,
+                    allSeries: allSeries,
                     onCreateCollection: { name in
                         let persistence = PersistenceActor(modelContainer: modelContext.container)
                         _ = try? await persistence.createCollection(name: name)
@@ -355,6 +360,8 @@ struct LibraryView: View {
                 Task {
                     let persistence = PersistenceActor(modelContainer: modelContext.container)
                     collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    allTags = (try? await persistence.fetchAllTags()) ?? []
+                    allSeries = (try? await persistence.fetchAllSeriesNames()) ?? []
                     isShowingCollections = true
                 }
             } label: {
@@ -444,6 +451,32 @@ struct LibraryView: View {
             } label: {
                 Label("Remove Cover", systemImage: "photo.badge.minus")
             }
+        }
+
+        Divider()
+
+        // Add to Collection submenu (bug #85)
+        Menu {
+            if collectionRecords.isEmpty {
+                Text("No collections yet")
+            } else {
+                ForEach(collectionRecords, id: \.name) { collection in
+                    Button {
+                        Task {
+                            let persistence = PersistenceActor(modelContainer: modelContext.container)
+                            try? await persistence.addBookToCollection(
+                                bookFingerprintKey: book.fingerprintKey,
+                                collectionName: collection.name
+                            )
+                            collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                        }
+                    } label: {
+                        Label(collection.name, systemImage: "folder")
+                    }
+                }
+            }
+        } label: {
+            Label("Add to Collection", systemImage: "folder.badge.plus")
         }
 
         Divider()

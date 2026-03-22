@@ -62,6 +62,44 @@ struct TagPersistenceTests {
         }
     }
 
+    @Test("fetchAllTags returns unique sorted tags across books")
+    func fetchAllTagsSorted() async throws {
+        let persistence = try CollectionTestHelper.makePersistence()
+        let sha1 = String(repeating: "c", count: 64)
+        let sha2 = String(repeating: "d", count: 64)
+
+        let key1 = try await CollectionTestHelper.insertBook(
+            persistence: persistence, title: "B1", sha: sha1
+        )
+        let key2 = try await CollectionTestHelper.insertBook(
+            persistence: persistence, title: "B2", sha: sha2
+        )
+
+        try await persistence.addTagToBook(
+            bookFingerprintKey: key1, tag: "sci-fi"
+        )
+        try await persistence.addTagToBook(
+            bookFingerprintKey: key1, tag: "fiction"
+        )
+        try await persistence.addTagToBook(
+            bookFingerprintKey: key2, tag: "sci-fi"
+        )
+        try await persistence.addTagToBook(
+            bookFingerprintKey: key2, tag: "classics"
+        )
+
+        let tags = try await persistence.fetchAllTags()
+        #expect(tags == ["classics", "fiction", "sci-fi"])
+    }
+
+    @Test("fetchAllTags empty when no tags")
+    func fetchAllTagsEmpty() async throws {
+        let persistence = try CollectionTestHelper.makePersistence()
+        _ = try await CollectionTestHelper.insertBook(persistence: persistence)
+        let tags = try await persistence.fetchAllTags()
+        #expect(tags.isEmpty)
+    }
+
     @Test("addTag deduplicates")
     func addTagDeduplicates() async throws {
         let persistence = try CollectionTestHelper.makePersistence()
@@ -178,6 +216,45 @@ struct SeriesPersistenceTests {
         #expect(series.count == 2)
         #expect(series[0].title == "Indexed")
         #expect(series[1].title == "Unindexed")
+    }
+
+    @Test("fetchAllSeriesNames returns unique sorted names")
+    func fetchAllSeriesNamesSorted() async throws {
+        let persistence = try CollectionTestHelper.makePersistence()
+        let shaX = String(repeating: "7", count: 64)
+        let shaY = String(repeating: "8", count: 64)
+        let shaZ = String(repeating: "9", count: 64)
+
+        let key1 = try await CollectionTestHelper.insertBook(
+            persistence: persistence, title: "B1", sha: shaX
+        )
+        let key2 = try await CollectionTestHelper.insertBook(
+            persistence: persistence, title: "B2", sha: shaY
+        )
+        let key3 = try await CollectionTestHelper.insertBook(
+            persistence: persistence, title: "B3", sha: shaZ
+        )
+
+        try await persistence.setBookSeries(
+            bookFingerprintKey: key1, seriesName: "Zebra", seriesIndex: 1
+        )
+        try await persistence.setBookSeries(
+            bookFingerprintKey: key2, seriesName: "Alpha", seriesIndex: 1
+        )
+        try await persistence.setBookSeries(
+            bookFingerprintKey: key3, seriesName: "Zebra", seriesIndex: 2
+        )
+
+        let names = try await persistence.fetchAllSeriesNames()
+        #expect(names == ["Alpha", "Zebra"])
+    }
+
+    @Test("fetchAllSeriesNames empty when no series")
+    func fetchAllSeriesNamesEmpty() async throws {
+        let persistence = try CollectionTestHelper.makePersistence()
+        _ = try await CollectionTestHelper.insertBook(persistence: persistence)
+        let names = try await persistence.fetchAllSeriesNames()
+        #expect(names.isEmpty)
     }
 
     @Test("series same name different books")

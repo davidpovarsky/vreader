@@ -211,6 +211,34 @@ extension PersistenceActor {
         try context.save()
     }
 
+    // MARK: - Aggregate Queries
+
+    /// Fetches all unique tags across all books, sorted alphabetically.
+    func fetchAllTags() async throws -> [String] {
+        let context = ModelContext(modelContainer)
+        let allBooks = try context.fetch(FetchDescriptor<Book>())
+        var tagSet = Set<String>()
+        for book in allBooks {
+            for tag in book.tags {
+                tagSet.insert(tag)
+            }
+        }
+        return tagSet.sorted()
+    }
+
+    /// Fetches all unique series names across all books, sorted alphabetically.
+    func fetchAllSeriesNames() async throws -> [String] {
+        let context = ModelContext(modelContainer)
+        let allBooks = try context.fetch(FetchDescriptor<Book>())
+        var nameSet = Set<String>()
+        for book in allBooks {
+            if let name = book.seriesName, !name.isEmpty {
+                nameSet.insert(name)
+            }
+        }
+        return nameSet.sorted()
+    }
+
     // MARK: - Series Operations
 
     /// Sets the series info for a book.

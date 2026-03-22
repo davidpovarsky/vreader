@@ -251,3 +251,23 @@ Moved from `docs/bugs.md` to reduce file size. The Summary table in `docs/bugs.m
 - **Root cause**: `TapZoneModifier` placed `Color.clear.contentShape(Rectangle()).onTapGesture` in a ZStack above the native reader content. In SwiftUI, the topmost hit-testable view "owns" touches — `contentShape(Rectangle())` made the overlay intercept ALL touch events, preventing scroll/drag gestures from ever reaching the underlying UIKit views (UITextView, WKWebView, PDFView). The touch wasn't re-routed even when the tap recognizer failed.
 - **Solution**: Removed `.tapZoneOverlay()` from the native reader path in `ReaderContainerView`. All four native bridges already had their own `UITapGestureRecognizer` with `shouldRecognizeSimultaneously` (or JS click handler for EPUB) that posts `.readerContentTapped`. The overlay is now only used for the unified renderer (SwiftUI-native, no UIKit views underneath).
 - **Lessons**: (1) Never place a SwiftUI `contentShape(Rectangle())` overlay in a ZStack above UIKit scroll views — it blocks ALL gestures, not just the ones it handles. (2) For UIKit-wrapped views, tap detection belongs inside the bridge using native `UITapGestureRecognizer` with `shouldRecognizeSimultaneously`. (3) SwiftUI's gesture routing is "top view wins" — failed gesture recognizers do NOT forward touches to views behind in a ZStack.
+
+### Bug #97 — TTS control bar overlaps bottom bar
+- **Root cause**: TTSControlBar was rendered in ReaderContainerView's ZStack at the bottom, but format-specific containers also had their own bottom overlay (ReadingProgressBar + ReaderBottomOverlay) in a separate ZStack layer. When TTS was active and chrome was visible, both bars competed for the bottom position.
+- **Solution**: Passed `ttsService` through format hosts to all 4 container views. Each container now hides its bottom overlay when `ttsService.state != .idle`. The TTS bar replaces the bottom overlay during playback.
+- **Lessons**: (1) Overlapping overlays across ZStack layers need explicit coordination — SwiftUI won't auto-stack them. (2) Passing observable state down the view hierarchy is cleaner than notifications for simple boolean conditions.
+
+### Bug #85 — Cannot add books to collections
+- **Root cause**: The library context menu (`bookContextMenu`) had Info, Share, Set Cover, and Delete actions but no collection management option. The persistence layer (`addBookToCollection`) was already implemented.
+- **Solution**: Added "Add to Collection" submenu to `bookContextMenu` with a list of existing collections. Collections are loaded eagerly on library appear. Selecting a collection calls `PersistenceActor.addBookToCollection()`.
+- **Lessons**: Context menus should expose all major entity operations — CRUD for relationships is as important as single-entity actions.
+
+### Bug #86 — Tags never shown in collection sidebar
+- **Root cause**: `LibraryView` passed `allTags: []` and `allSeries: []` to `CollectionSidebar`. No methods existed to aggregate tags/series across all books.
+- **Solution**: Added `fetchAllTags()` and `fetchAllSeriesNames()` to `PersistenceActor+Collections`. LibraryView now loads tags and series when opening the collections sidebar.
+- **Lessons**: When adding aggregate UI (sidebar filters), the corresponding aggregate queries must exist in the persistence layer.
+
+### Bug #84 — Per-book settings affect all books instead of one
+- **Root cause**: `PerBookSettingsStore.resolve()` existed and was tested, but `ReaderContainerView` never called it on book open. The settings panel saved per-book overrides to disk, but opening a book always loaded global `UserDefaults` settings.
+- **Solution**: Added `applyResolvedSettings(_:)` to `ReaderSettingsStore` that maps `ResolvedSettings` fields back to store properties. Added `.task` in `ReaderContainerView` to load per-book settings and apply them on book open.
+- **Lessons**: (1) Feature implementation is incomplete until the "load on open" path is wired — save-only is half the feature. (2) Adding a method to apply resolved settings back to the store closes the read/write symmetry gap.

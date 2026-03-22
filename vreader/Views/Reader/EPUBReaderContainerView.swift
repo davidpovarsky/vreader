@@ -17,6 +17,7 @@ struct EPUBReaderContainerView: View {
     let parser: any EPUBParserProtocol
     var settingsStore: ReaderSettingsStore?
     var modelContainer: ModelContainer?
+    var ttsService: TTSService?
 
     /// OPF directory — spine hrefs are resolved relative to this.
     @State var resourceBase: URL?
@@ -74,7 +75,9 @@ struct EPUBReaderContainerView: View {
             }
 
             // Bottom navigation overlay (Issue 9: spacing: 0 to match PDF/TXT containers)
-            if viewModel.metadata != nil, !viewModel.isLoading, isChromeVisible {
+            // Hidden when TTS is active to avoid overlap (bug #97)
+            if viewModel.metadata != nil, !viewModel.isLoading, isChromeVisible,
+               (ttsService?.state ?? .idle) == .idle {
                 VStack(spacing: 0) {
                     Spacer()
                     bottomOverlay

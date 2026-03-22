@@ -16,6 +16,7 @@ struct TXTReaderContainerView: View {
     let viewModel: TXTReaderViewModel
     var settingsStore: ReaderSettingsStore?
     var modelContainer: ModelContainer?
+    var ttsService: TTSService?
 
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
@@ -96,7 +97,9 @@ struct TXTReaderContainerView: View {
             }
 
             // Bottom overlay for session time, progress, and scrubber (bug #33, WI-004b)
-            if viewModel.textContent != nil && !viewModel.isLoading && isChromeVisible {
+            // Hidden when TTS is active to avoid overlap (bug #97)
+            if viewModel.textContent != nil && !viewModel.isLoading && isChromeVisible
+                && (ttsService?.state ?? .idle) == .idle {
                 VStack(spacing: 0) {
                     Spacer()
                     ReadingProgressBar(

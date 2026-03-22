@@ -209,6 +209,70 @@ struct PerBookSettingsTests {
         #expect(restored?.themeName == "dark")
     }
 
+    // MARK: - Apply Resolved Settings (Bug #84)
+
+    @Test @MainActor func applyResolvedSettings_overridesStoreFields() {
+        let store = makeGlobalStore()
+        store.typography.fontSize = 18
+        store.typography.lineSpacing = 1.4
+        store.typography.fontFamily = .system
+        store.theme = .light
+        store.readingMode = .native
+
+        let resolved = ResolvedSettings(
+            fontSize: 26, fontName: "serif", lineSpacing: 2.0,
+            letterSpacing: 0.1, themeName: "dark", readingMode: "unified"
+        )
+        store.applyResolvedSettings(resolved)
+
+        #expect(store.typography.fontSize == 26)
+        #expect(store.typography.fontFamily == .serif)
+        #expect(store.typography.lineSpacing == 2.0)
+        #expect(store.theme == .dark)
+        #expect(store.readingMode == .unified)
+    }
+
+    @Test @MainActor func applyResolvedSettings_doesNotPollutedUserDefaults() {
+        let suiteName = "PerBookApplyPollutionTest-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let store = ReaderSettingsStore(defaults: defaults)
+        store.typography.fontSize = 18
+        store.theme = .light
+
+        // Verify global defaults are set to 18/light
+        #expect(defaults.double(forKey: ReaderSettingsStore.typographyKey) != 0 || defaults.data(forKey: ReaderSettingsStore.typographyKey) != nil)
+
+        let resolved = ResolvedSettings(
+            fontSize: 30, fontName: "serif", lineSpacing: 2.0,
+            letterSpacing: 0, themeName: "dark", readingMode: "unified"
+        )
+        store.applyResolvedSettings(resolved)
+
+        // Store should have the per-book values
+        #expect(store.typography.fontSize == 30)
+        #expect(store.theme == .dark)
+
+        // But UserDefaults should still have the original global values
+        #expect(defaults.string(forKey: ReaderSettingsStore.themeKey) == "light")
+        #expect(defaults.string(forKey: ReaderSettingsStore.readingModeKey) == "native")
+    }
+
+    @Test @MainActor func applyResolvedSettings_noopWhenAlreadyMatching() {
+        let store = makeGlobalStore()
+        store.typography.fontSize = 20
+        store.theme = .sepia
+        store.readingMode = .native
+
+        let resolved = ResolvedSettings(
+            fontSize: 20, fontName: "system", lineSpacing: store.typography.lineSpacing,
+            letterSpacing: 0, themeName: "sepia", readingMode: "native"
+        )
+        store.applyResolvedSettings(resolved)
+
+        #expect(store.typography.fontSize == 20)
+        #expect(store.theme == .sepia)
+    }
+
     // MARK: - Helpers
 
     @MainActor

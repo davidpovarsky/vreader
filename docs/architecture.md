@@ -36,7 +36,7 @@ VReader is an iOS e-book reader built with SwiftUI + SwiftData. It supports TXT,
 
 ### 2. Library Layer (`vreader/Views/LibraryView.swift`, `vreader/ViewModels/LibraryViewModel.swift`)
 - Grid/list view with sort (persisted via `PreferenceStore`)
-- Context menu: Info, Share, Set Cover, Delete
+- Context menu: Info, Share, Set Cover, Add to Collection, Delete
 - Collections sidebar, OPDS catalog, AI chat entry points
 
 ### 3. Reader Layer (`vreader/Views/Reader/`)

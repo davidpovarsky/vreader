@@ -32,6 +32,7 @@ struct PDFReaderContainerView: View {
     let fileURL: URL
     let viewModel: PDFReaderViewModel
     var modelContainer: ModelContainer?
+    var ttsService: TTSService?
 
     @State var password: String = ""
     @State var submittedPassword: String?
@@ -97,7 +98,9 @@ struct PDFReaderContainerView: View {
             }
 
             // Bottom overlay for progress bar, page indicator, and session time
-            if viewModel.isDocumentLoaded && isChromeVisible {
+            // Hidden when TTS is active to avoid overlap (bug #97)
+            if viewModel.isDocumentLoaded && isChromeVisible
+                && (ttsService?.state ?? .idle) == .idle {
                 VStack(spacing: 0) {
                     Spacer()
                     progressBar

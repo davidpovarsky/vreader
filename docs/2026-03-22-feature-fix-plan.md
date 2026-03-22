@@ -2,25 +2,25 @@
 
 All TODO features — prioritized by effort, dependency, and risk.
 
-## Phase 0 — Discovery (before any fixes)
+## Phase 0 — Discovery (before any fixes) ✓ DONE
 
 Reproduce and write RED tests for uncertain bugs. Do NOT implement fixes yet.
 
-| Bug | Feature | Task |
-|-----|---------|------|
-| #77 | #11 EPUB highlights | Repro on device: select text in EPUB, observe if selectionChanged fires. Write failing test |
-| #82 | #21 Paged mode | Repro per format: TXT small, TXT large, EPUB, PDF. Identify which formats actually fail |
-| #98 | #27/#28 Transforms | Repro: add replacement rule, toggle simp/trad. Determine crash vs silent no-op |
+| Bug | Feature | Root Cause | RED Test |
+|-----|---------|-----------|----------|
+| #77 | #11 EPUB highlights | onInjectJS nil race + callback swap in restoreHighlightsOnLoad | EPUBHighlightRendererBug77Tests.swift (4 tests) |
+| #82 | #21 Paged mode | updatePagination destroys navigator when attrText nil (race) | PagedModeBug82Tests.swift (4 tests) |
+| #98 | #27/#28 Transforms | loadReplacementRules races text load; no re-apply on change; no source text | TransformsBug98Tests.swift (6 tests) |
 
-**Acceptance**: Each bug has a confirmed root cause and a failing test.
+**Acceptance**: Each bug has a confirmed root cause and a failing test. ✓
 
-## Phase 1 — Verify & Close (bugs already fixed, verify on device)
+## Phase 1 — Verify & Close (bugs already fixed, verify on device) ✓ DONE
 
-| # | Feature | Blocking Bug | Remaining Bugs | Verify |
-|---|---------|-------------|----------------|--------|
-| 13 | AI summarize | #92 FIXED | None | Open non-UTF-8 TXT → AI summarize → shows real content |
-| 18 | AI translate | #95 FIXED | None | Select word → Translate → opens Translate tab |
-| 24 | Book sources | #100, #101 FIXED | None | Import JSON → sources visible → search works |
+| # | Feature | Blocking Bug | Status | Result |
+|---|---------|-------------|--------|--------|
+| 13 | AI summarize | #92 FIXED | DONE | Device verified: non-UTF-8 TXT → AI summarize → real content |
+| 18 | AI translate | #95 FIXED | DONE | Device verified: Select word → Translate → opens Translate tab |
+| 24 | Book sources | #100, #101 FIXED | DONE | Device verified: Import JSON → sources visible → search works |
 
 **NOT ready to verify** (still have open bugs):
 - #26 TTS: #96 fixed but #97 (bar overlap) still open → stays in Phase 2

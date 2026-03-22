@@ -16,7 +16,8 @@ struct EPUBPaginationCSSTests {
     func paginationCSS_containsColumnWidth() {
         let css = EPUBPaginationHelper.paginationCSS(viewportWidth: 375, viewportHeight: 667)
         #expect(css.contains("column-width"))
-        #expect(css.contains("375"))
+        // column-width = viewportWidth - columnGap = 375 - 40 = 335
+        #expect(css.contains("335"))
     }
 
     @Test("CSS constrains height to viewport")
@@ -36,18 +37,24 @@ struct EPUBPaginationCSSTests {
         #expect(css.contains("body"))
     }
 
-    @Test("CSS sets column-gap to 0")
-    func paginationCSS_columnGapZero() {
+    @Test("CSS sets column-gap to 40px")
+    func paginationCSS_columnGap40() {
         let css = EPUBPaginationHelper.paginationCSS(viewportWidth: 375, viewportHeight: 667)
         #expect(css.contains("column-gap"))
-        #expect(css.contains("0px"))
+        #expect(css.contains("40px"))
+    }
+
+    @Test("CSS sets column-fill to auto")
+    func paginationCSS_columnFillAuto() {
+        let css = EPUBPaginationHelper.paginationCSS(viewportWidth: 375, viewportHeight: 667)
+        #expect(css.contains("column-fill: auto"))
     }
 
     @Test("CSS uses integer pixel values for width and height")
     func paginationCSS_integerPixelValues() {
         let css = EPUBPaginationHelper.paginationCSS(viewportWidth: 375.5, viewportHeight: 667.8)
-        // Should use integer pixel values (truncated/rounded)
-        #expect(css.contains("375px") || css.contains("376px"))
+        // column-width = Int(375.5) - 40 = 335, height = Int(667.8) = 667
+        #expect(css.contains("335px"))
         #expect(css.contains("667px") || css.contains("668px"))
     }
 

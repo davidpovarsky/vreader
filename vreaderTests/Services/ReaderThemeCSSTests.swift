@@ -65,7 +65,7 @@ struct ReaderThemeCSSTests {
     @Test func epubCSSContainsLinkColor() {
         for theme in ReaderTheme.allCases {
             let css = theme.epubOverrideCSS(fontSize: 18)
-            #expect(css.contains("a { color:"), "\(theme.rawValue) must style link color")
+            #expect(css.contains("a:link { color:"), "\(theme.rawValue) must style link color")
         }
     }
 
@@ -80,9 +80,9 @@ struct ReaderThemeCSSTests {
     }
 
     @Test func epubCSSBodyTextOverrideCoversAllElements() {
-        // Issue 10: Uses broad "body *" selector + heading revert rule
+        // Issue 10: Uses explicit element selectors + heading revert rule
         let css = ReaderTheme.light.epubOverrideCSS(fontSize: 18)
-        #expect(css.contains("body *"), "CSS must use wildcard 'body *' for broad font-size coverage")
+        #expect(css.contains("p, div, span, li"), "CSS must cover common text elements for font-size inheritance")
         #expect(css.contains("h1,h2,h3,h4,h5,h6"), "CSS must have heading revert rule")
         #expect(css.contains("revert"), "Headings must use 'revert' to preserve relative sizing")
     }

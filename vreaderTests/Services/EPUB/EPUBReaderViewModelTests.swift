@@ -187,8 +187,11 @@ struct EPUBReaderViewModelOpenTests {
 
         await vm.open(url: testURL)
 
+        // updateLastOpened fires in a detached Task; allow it to complete
+        try? await Task.sleep(for: .milliseconds(50))
+
         let count = await positionStore.updateLastOpenedCallCount
-        #expect(count == 1)
+        #expect(count >= 1)
     }
 
     @Test("open with empty spine sets nil position")
@@ -712,14 +715,14 @@ struct EPUBPositionClampingTests {
     }
 }
 
-// MARK: - Session Start Failure Rollback
+// MARK: - Session Start Failure (Non-Fatal)
 
-@Suite("EPUBReaderViewModel - Session Rollback")
+@Suite("EPUBReaderViewModel - Session Non-Fatal")
 @MainActor
-struct EPUBReaderViewModelSessionRollbackTests {
+struct EPUBReaderViewModelSessionNonFatalTests {
 
-    @Test("session start failure clears metadata and position")
-    func sessionStartFailureClearsState() async {
+    @Test("session start failure preserves metadata and position (non-fatal)")
+    func sessionStartFailurePreservesState() async {
         let parser = MockEPUBParser()
         await parser.setMetadata(testMetadata)
 
@@ -743,13 +746,17 @@ struct EPUBReaderViewModelSessionRollbackTests {
 
         await vm.open(url: testURL)
 
-        #expect(vm.metadata == nil)
-        #expect(vm.currentPosition == nil)
-        #expect(vm.errorMessage == "Failed to start reading session.")
+        // Session failure is non-fatal — user can still read
+        #expect(vm.metadata != nil)
+        #expect(vm.metadata?.title == "Test Book")
+        #expect(vm.currentPosition != nil)
+        #expect(vm.currentPosition?.href == "chapter1.xhtml")
+        #expect(vm.errorMessage == nil)
         #expect(vm.isLoading == false)
 
+        // Parser should NOT have been closed by rollback
         let parserClosed = await parser.closeCallCount
-        #expect(parserClosed >= 1)
+        #expect(parserClosed == 0)
     }
 }
 

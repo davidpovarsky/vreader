@@ -16,13 +16,14 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 - **Reading position** — Auto-saves scroll position, survives app kills and relaunches
 - **CJK encoding** — Auto-detect GBK, Big5, Shift-JIS, EUC-KR (8KB sample-based)
 - **Large file support** — Chunked UITableView for TXT files >500K characters
-- **Paginated mode** — CSS columns (EPUB), TextKit containers (TXT/MD), PDFKit pages (has known bugs)
+- **Paginated mode** — CSS columns (EPUB), TextKit containers (TXT/MD), PDFKit pages
 - **Page turn animations** — Slide, cover-flip, or instant
 - **Auto page turning** — Timer-based advancement with configurable interval
+- **Configurable tap zones** — Left/center/right zones mapped to customizable actions
 
 ### Annotations
-- **Bookmarks, highlights, notes** — Full CRUD for TXT/MD/PDF (EPUB highlight has a known bug)
-- **EPUB highlights** — CSS Highlight API with JS bridge
+- **Bookmarks, highlights, notes** — Full CRUD for all formats (TXT/MD/PDF/EPUB)
+- **EPUB highlights** — CSS Highlight API with JS bridge + buffered delivery
 - **PDF highlights** — PDFAnnotation-based with selection detection
 - **TXT/MD highlights** — NSAttributedString with persistent rendering
 - **Export/import** — Markdown + JSON export, VReader JSON round-trip import
@@ -49,20 +50,24 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 
 ### Text Processing
 - **TTS** — System (AVSpeechSynthesizer) + cloud HTTP TTS with playback controls
-- **Simp/Trad Chinese** — Toggle conversion via ICU
-- **Content replacement** — Regex rules for text cleanup
+- **TTS sentence highlight** — NLTokenizer-based sentence detection synced to speech position
+- **TTS auto-scroll** — Text view follows speech position in real-time
+- **Simp/Trad Chinese** — Toggle conversion via ICU (live re-apply without reloading)
+- **Content replacement** — Regex rules for text cleanup (live re-apply via source text storage)
 - **Reading time tracking** — Per-book session stats and speed calculations
 
 ### Sync & Backup
+- **iCloud Sync** (foundation) — CloudKit sync engine, record mapper (8 types), device identity, change tokens, durable tombstones, settings bridge (NSUbiquitousKeyValueStore)
 - **WebDAV backup** — Archive to any WebDAV server (Nutstore compatible)
-- **Reading settings** — Font, theme, spacing, letter spacing (global)
+- **Per-book settings** — Font, theme, spacing overrides per book (JSON-persisted)
+- **Theme backgrounds** — Custom background images via PhotosPicker with per-theme opacity
 
 ## Tech Stack
 
 | Component   | Technology                                         |
 | ----------- | -------------------------------------------------- |
 | UI          | SwiftUI                                            |
-| Persistence | SwiftData (SchemaV3)                               |
+| Persistence | SwiftData (SchemaV4)                               |
 | EPUB        | WKWebView bridge with CSS theme injection + JS highlight API |
 | PDF         | PDFKit + PDFAnnotation for highlights              |
 | TXT         | TextKit 1 (UITextView) + chunked UITableView       |
@@ -70,7 +75,7 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 | Search      | SQLite FTS5 with CJK tokenization                  |
 | AI          | OpenAI-compatible API (summarize, chat, translate) |
 | TTS         | AVSpeechSynthesizer + HTTP cloud TTS               |
-| Backup      | WebDAV client                                      |
+| Backup      | WebDAV client + iCloud Sync foundation (CloudKit)  |
 | Encoding    | ICU + heuristic detection (UTF-8/GBK/Big5/Shift-JIS) |
 | Concurrency | Swift 6 strict concurrency                         |
 
@@ -111,9 +116,10 @@ vreader/
 │   ├── Search/          # FTS5 indexing, text extraction
 │   ├── AI/, TTS/        # AI service, TTS providers
 │   ├── Backup/          # WebDAV client, BackupProvider
+│   ├── Sync/            # iCloud sync engine, CloudKit mapper, tombstones
 │   ├── TextMapping/     # Simp/Trad, replacement rules
 │   └── Locator/         # Reading position (Readium-inspired)
-vreaderTests/            # Unit tests (3135+ test cases)
+vreaderTests/            # Unit tests (3200+ test cases)
 vreaderUITests/          # UI tests (XCUITest)
 ```
 
@@ -166,7 +172,7 @@ Shared rules for all AI agents live in [`AGENTS.md`](AGENTS.md):
 
 ## Status
 
-Active development. See [features](docs/features.md) (33 done, 4 in progress) and [bugs](docs/bugs.md) for current state.
+Active development. See [features](docs/features.md) (38 done) and [bugs](docs/bugs.md) (87 fixed) for current state.
 
 ## License
 

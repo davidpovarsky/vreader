@@ -54,26 +54,15 @@ Reproduce and write RED tests for uncertain bugs. Do NOT implement fixes yet.
 | 29 | WebDAV backup | Backup creates archive; restore recovers data. Test with real WebDAV server |
 | 36 | OPDS catalog | Add catalog URL, browse, download book → appears in library |
 
-## Phase 4 — New Implementation (requires PLANNED status first)
+## Phase 4 — New Implementation ✓ DONE (4 of 5)
 
-Each feature must have Problem/Scope/Edge Cases/Test Plan/Acceptance Criteria in features.md before implementation.
-
-**Small:**
-| # | Feature | Scope |
-|---|---------|-------|
-| 25 | Tap zone settings UI | TapZoneSettingsView in ReaderSettingsPanel. Picker for left/center/right actions |
-| 32 | Theme bg image picker | PhotosPicker in ReaderSettingsPanel. Wire to ThemeBackgroundStore.saveBackground() |
-
-**Medium (TXT/MD only first — not cross-format):**
-| # | Feature | Scope |
-|---|---------|-------|
-| 40 | TTS sentence highlight | AVSpeechSynthesizerDelegate willSpeakRange → highlight in TXT/MD only. EPUB/PDF deferred |
-| 41 | TTS auto-scroll | Use TTS UTF-16 offset to scroll TXT/MD. EPUB/PDF deferred |
-
-**Large (architecture spike first):**
-| # | Feature | Scope |
-|---|---------|-------|
-| 10 | iCloud backup | Spike: validate if BackupProvider abstraction fits CloudKit. If not, separate sync service. Then implement |
+| # | Feature | Implementation | Status |
+|---|---------|---------------|--------|
+| 25 | Tap zone settings UI | tapZoneSection in ReaderSettingsPanel, 3 Pickers wired to TapZoneStore | DONE |
+| 32 | Theme bg image picker | PhotosPicker + opacity slider + remove button in ReaderSettingsPanel | DONE |
+| 40 | TTS sentence highlight | TTSHighlightCoordinator: NLTokenizer → binary search → highlightRange | DONE |
+| 41 | TTS auto-scroll | Same coordinator → scrollToOffset. TXT/MD only | DONE |
+| 10 | iCloud backup | Architecture spike needed — deferred to future session | DEFERRED |
 
 ## Rules
 

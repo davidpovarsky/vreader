@@ -140,6 +140,9 @@ actor DurableTombstoneStore {
         tombstones = loadFromDisk()
     }
 
+    /// Last I/O error (audit fix: surface errors instead of swallowing).
+    private(set) var lastError: Error?
+
     /// Reads and decodes the JSON file. Returns empty dict on any failure.
     private func loadFromDisk() -> [DurableTombstoneKey: Tombstone] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
@@ -155,23 +158,25 @@ actor DurableTombstoneStore {
                 let key = DurableTombstoneKey(entityType: tombstone.entityType, entityId: tombstone.entityId)
                 result[key] = tombstone
             }
+            lastError = nil
             return result
         } catch {
-            // Graceful recovery: corrupt file -> empty store
+            lastError = error
             return [:]
         }
     }
 
     /// Encodes and writes all tombstones to disk.
+    /// Stores error in lastError on failure (audit fix: surface I/O errors).
     private func writeToDisk() {
         guard let tombstones = tombstones else { return }
         let codables = tombstones.values.map { CodableTombstone(from: $0) }
         do {
             let data = try encoder.encode(codables)
             try data.write(to: fileURL, options: .atomic)
+            lastError = nil
         } catch {
-            // Write failure is non-fatal; data remains in memory.
-            // A future write will retry.
+            lastError = error
         }
     }
 }

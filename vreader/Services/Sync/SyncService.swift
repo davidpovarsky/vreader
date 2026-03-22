@@ -24,7 +24,7 @@ actor SyncService {
     private let featureFlags: FeatureFlags
     private let conflictResolver: SyncConflictResolver
     private let stateMachine: FileAvailabilityStateMachine
-    private var tombstoneStore: InMemoryTombstoneStore
+    private let tombstoneStore: DurableTombstoneStore
 
     /// Per-book file availability state.
     private var fileStates: [String: FileAvailability] = [:]
@@ -36,16 +36,22 @@ actor SyncService {
 
     // MARK: - Init
 
+    /// Tombstone retention: 30 days (audit fix: extract from hardcoded inline).
+    static let tombstoneRetentionSeconds: TimeInterval = 30 * 24 * 3600
+
     init(
         featureFlags: FeatureFlags,
         conflictResolver: SyncConflictResolver = SyncConflictResolver(),
         stateMachine: FileAvailabilityStateMachine = FileAvailabilityStateMachine(),
-        tombstoneStore: InMemoryTombstoneStore = InMemoryTombstoneStore()
+        tombstoneStore: DurableTombstoneStore? = nil
     ) {
         self.featureFlags = featureFlags
         self.conflictResolver = conflictResolver
         self.stateMachine = stateMachine
-        self.tombstoneStore = tombstoneStore
+        self.tombstoneStore = tombstoneStore ?? DurableTombstoneStore(
+            directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Sync", isDirectory: true)
+        )
     }
 
     // MARK: - Metadata Sync
@@ -86,9 +92,9 @@ actor SyncService {
         entityType: TombstoneEntityType,
         entityId: String,
         deviceId: String
-    ) {
+    ) async {
         guard featureFlags.sync else { return }
-        tombstoneStore.addTombstone(
+        await tombstoneStore.addTombstone(
             entityType: entityType,
             entityId: entityId,
             deviceId: deviceId,
@@ -96,11 +102,11 @@ actor SyncService {
         )
     }
 
-    /// Purges tombstones older than 30 days.
+    /// Purges tombstones older than the retention period.
     @discardableResult
-    func purgeStaleTombstones() -> Int {
+    func purgeStaleTombstones() async -> Int {
         guard featureFlags.sync else { return 0 }
-        let cutoff = Date().addingTimeInterval(-30 * 24 * 3600)
-        return tombstoneStore.purgeTombstones(olderThan: cutoff)
+        let cutoff = Date().addingTimeInterval(-Self.tombstoneRetentionSeconds)
+        return await tombstoneStore.purgeTombstones(olderThan: cutoff)
     }
 }

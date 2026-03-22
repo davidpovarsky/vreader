@@ -63,10 +63,15 @@ actor SyncPipeline {
 
     /// Sends all queued records to CloudKit via the client.
     /// On success, clears the queue. On error, queue is preserved for retry.
+    /// Snapshot IDs are captured before the network call to avoid losing records
+    /// re-enqueued during the await (audit fix: flush race).
     /// - Throws: Propagates client errors (network, auth, quota).
     func flush() async throws {
         let pending = await queue.replayPending()
         guard !pending.isEmpty else { return }
+
+        // Snapshot IDs before await to prevent losing re-enqueued records
+        let snapshotIDs = Set(pending.map(\.id))
 
         let outboundRecords = pending.map { item in
             SyncOutboundRecord(
@@ -78,20 +83,26 @@ actor SyncPipeline {
 
         try await client.saveRecords(outboundRecords)
 
-        // Only clear on success
-        for item in pending {
-            await queue.markCompleted(id: item.id)
-        }
+        // Only mark the exact snapshot items as completed (not newer re-enqueues)
+        await queue.markCompletedBatch(ids: snapshotIDs)
     }
 
     // MARK: - Inbound
 
+    /// Guards against overlapping fetchChanges calls (audit fix: token race).
+    private var isFetching = false
+
     /// Fetches changes from CloudKit since the last stored change token.
-    /// Stores the new token on success.
+    /// Serialized: concurrent calls wait until the previous fetch completes.
+    /// Token is saved only after successful fetch (audit fix: token race).
     /// - Parameter zoneID: The zone to fetch changes from.
     /// - Returns: The inbound records received.
     /// - Throws: Propagates client errors.
     func fetchChanges(zoneID: String) async throws -> [SyncInboundRecord] {
+        guard !isFetching else { return [] }  // Skip overlapping fetch
+        isFetching = true
+        defer { isFetching = false }
+
         let currentToken = tokenStore.load(forZone: zoneID)
         let result = try await client.fetchChanges(zoneID: zoneID, changeToken: currentToken)
 

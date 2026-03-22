@@ -353,6 +353,7 @@
 		8CB032376D95F12AE86E7B24 /* NSUKVSBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AB651A97BA8CE8B5BD6E97B /* NSUKVSBridge.swift */; };
 		4D84426071C2283D632870F2 /* SyncOutboundQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555BC3B182915D99AE4D6E83 /* SyncOutboundQueue.swift */; };
 		1F67AE198719DAB2ED869FE1 /* SyncPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF51FC0C60A1FF5E749759B /* SyncPipeline.swift */; };
+		8D76452BF88CA5D2714EAB77 /* SyncRecordDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3F0345BFE29A78AF0467BC /* SyncRecordDTOs.swift */; };
 		8F202DA6CCCB6E1D83E7DC01 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC12F17B1F2EDD25E25B114C /* SyncService.swift */; };
 		8F280281FE847272C7E64547 /* CollectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E026EDF24B39D1CD50B39389 /* CollectionTests.swift */; };
 		8FFE1DA9C8F17FC318BE81BD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138AEC5BBAD52B075096E5C8 /* SettingsView.swift */; };
@@ -1012,6 +1013,7 @@
 		6AB651A97BA8CE8B5BD6E97B /* NSUKVSBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSUKVSBridge.swift; sourceTree = "<group>"; };
 		555BC3B182915D99AE4D6E83 /* SyncOutboundQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncOutboundQueue.swift; sourceTree = "<group>"; };
 		6CF51FC0C60A1FF5E749759B /* SyncPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPipeline.swift; sourceTree = "<group>"; };
+		DB3F0345BFE29A78AF0467BC /* SyncRecordDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRecordDTOs.swift; sourceTree = "<group>"; };
 		AC12F17B1F2EDD25E25B114C /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		AC38E517D1EE7098DCB96426 /* MarkdownExportFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExportFormatter.swift; sourceTree = "<group>"; };
 		AC517B8E3581F795DEDEC934 /* PersistenceActor+Highlights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PersistenceActor+Highlights.swift"; sourceTree = "<group>"; };
@@ -1285,6 +1287,7 @@
 				27C13EA240083857EA527F89 /* FileAvailabilityStateMachine.swift */,
 				8188B21271D103070EE8CDE6 /* SyncConflictResolver.swift */,
 				AC12F17B1F2EDD25E25B114C /* SyncService.swift */,
+				DB3F0345BFE29A78AF0467BC /* SyncRecordDTOs.swift */,
 				CA0DB65C8E6609BD73825B37 /* ChangeTokenStore.swift */,
 				338D1B6319B2BB8DF3BA6E99 /* CloudKitClient.swift */,
 				0D9AAF8DAE58F885C9741413 /* CloudKitRecordMapper.swift */,
@@ -3062,6 +3065,7 @@
 				84A03EDA45DB68CE01456609 /* SwiftDataSessionStore.swift in Sources */,
 				4FDDEB10D3E2014D806618AD /* SyncConflictResolver.swift in Sources */,
 				8F202DA6CCCB6E1D83E7DC01 /* SyncService.swift in Sources */,
+				8D76452BF88CA5D2714EAB77 /* SyncRecordDTOs.swift in Sources */,
 				680388290CA3707893F7085D /* ChangeTokenStore.swift in Sources */,
 				A7D1190541B235BE4894AEA1 /* CloudKitClient.swift in Sources */,
 				E19C8C3656F85AC8B7E45B92 /* CloudKitRecordMapper.swift in Sources */,

@@ -123,6 +123,9 @@ final class NSUKVSBridge {
             guard let localKey = Self.reversedKeys[cloudKey] else { continue }
             if let cloudValue = cloud.string(forKey: cloudKey) {
                 local.set(cloudValue, forKey: localKey)
+            } else {
+                // Audit fix: propagate cloud deletions to local
+                local.removeObject(forKey: localKey)
             }
         }
     }

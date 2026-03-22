@@ -119,7 +119,23 @@ actor SyncOutboundQueue {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         let item = items.remove(at: idx)
         let key = QueueDedupKey(recordType: item.recordType, recordID: item.recordID)
-        dedupIndex.removeValue(forKey: key)
+        // Only remove dedup entry if no newer item replaced it
+        if dedupIndex[key] == id {
+            dedupIndex.removeValue(forKey: key)
+        }
+    }
+
+    /// Removes a batch of items by their snapshot IDs (audit fix: flush race).
+    /// Only removes items whose IDs are in the set — newer re-enqueues are preserved.
+    func markCompletedBatch(ids: Set<UUID>) {
+        items.removeAll { item in
+            guard ids.contains(item.id) else { return false }
+            let key = QueueDedupKey(recordType: item.recordType, recordID: item.recordID)
+            if dedupIndex[key] == item.id {
+                dedupIndex.removeValue(forKey: key)
+            }
+            return true
+        }
     }
 
     // MARK: - Replay

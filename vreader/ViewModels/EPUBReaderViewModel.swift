@@ -114,21 +114,18 @@ final class EPUBReaderViewModel {
         metadata = loadResult.metadata
         currentPosition = loadResult.initialPosition
 
-        // Stage 3: Start reading session (rollback parser + state on failure)
+        // PERFORMANCE: Show content immediately — session/lastOpened are non-blocking
+        isLoading = false
+
+        // Stage 3: Start reading session (fire-and-forget, non-fatal)
         do {
             try lifecycle.beginSession()
         } catch {
-            metadata = nil
-            currentPosition = nil
-            await parser.close()
-            isLoading = false
-            errorMessage = "Failed to start reading session."
-            return
+            // Session failure is non-fatal — user can still read
         }
 
-        // Stage 4: Update last opened (non-fatal)
-        await lifecycle.updateLastOpened()
-        isLoading = false
+        // Stage 4: Update last opened (fire-and-forget)
+        Task { await lifecycle.updateLastOpened() }
     }
 
     /// Closes the reader, ending the session and flushing state.

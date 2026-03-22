@@ -150,23 +150,19 @@ final class MDReaderViewModel {
         renderedTextLengthUTF16 = loadResult.documentInfo.renderedTextLengthUTF16
         currentOffsetUTF16 = loadResult.restoredOffsetUTF16
 
-        // Stage 3: Start reading session (rollback on failure)
+        // PERFORMANCE: Show content immediately — session/lastOpened are non-blocking
+        isOpenComplete = true
+        isLoading = false
+
+        // Stage 3: Start reading session (fire-and-forget, non-fatal)
         do {
             try lifecycle.beginSession()
         } catch {
-            renderedText = nil
-            renderedAttributedString = nil
-            renderedTextLengthUTF16 = 0
-            currentOffsetUTF16 = 0
-            isLoading = false
-            errorMessage = "Failed to start reading session."
-            return
+            // Session failure is non-fatal — user can still read
         }
 
-        // Stage 4: Update last opened (non-fatal)
-        await lifecycle.updateLastOpened()
-        isOpenComplete = true
-        isLoading = false
+        // Stage 4: Update last opened (fire-and-forget)
+        Task { await lifecycle.updateLastOpened() }
     }
 
     /// Closes the reader, ending the session and flushing state.

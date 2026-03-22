@@ -35,9 +35,18 @@ final class TTSHighlightCoordinator {
     }
 
     /// Sets the source text and pre-computes sentence boundaries.
+    /// Can be called eagerly or lazily (see ensureConfigured).
     func configure(text: String) {
         sourceText = text
         sentenceRanges = Self.tokenizeSentences(in: text)
+    }
+
+    /// Lazily configures with the given text if not already configured.
+    /// Called on first TTS position update to defer the O(n) tokenization
+    /// from book open to TTS start (performance fix).
+    func ensureConfigured(text: String) {
+        guard sourceText == nil else { return }
+        configure(text: text)
     }
 
     /// Called when TTS position updates (e.g., from an observation or onChange).

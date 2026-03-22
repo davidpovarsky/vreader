@@ -128,27 +128,25 @@ struct TXTReaderContainerView: View {
         }
         .task {
             await viewModel.open(url: fileURL)
-            // Capture restored position once — do NOT read currentOffsetUTF16
-            // in body, as it changes on every scroll and creates a feedback loop.
             initialRestoreOffset = viewModel.currentOffsetUTF16
-            // Phase R4: set up highlight coordinator + restore highlights
+            // PERF: Create renderer/coordinator immediately, but defer DB restore
             let renderer = TextHighlightRenderer(uiState: uiState)
             highlightRenderer = renderer
-            if let container = modelContainer {
-                let persistence = PersistenceActor(modelContainer: container)
-                let coordinator = HighlightCoordinator(
-                    renderer: renderer,
-                    persistence: persistence,
-                    bookFingerprintKey: viewModel.bookFingerprintKey
-                )
-                highlightCoordinator = coordinator
-                await coordinator.restoreAll()
+            if let tts = ttsService {
+                ttsHighlightCoordinator = TTSHighlightCoordinator(ttsService: tts, uiState: uiState)
             }
-            // Feature #40/#41: set up TTS highlight coordinator
-            if let tts = ttsService, let text = viewModel.textContent {
-                let ttsCoord = TTSHighlightCoordinator(ttsService: tts, uiState: uiState)
-                ttsCoord.configure(text: text)
-                ttsHighlightCoordinator = ttsCoord
+            // Defer highlight restore — don't block content display
+            Task {
+                if let container = modelContainer {
+                    let persistence = PersistenceActor(modelContainer: container)
+                    let coordinator = HighlightCoordinator(
+                        renderer: renderer,
+                        persistence: persistence,
+                        bookFingerprintKey: viewModel.bookFingerprintKey
+                    )
+                    highlightCoordinator = coordinator
+                    await coordinator.restoreAll()
+                }
             }
         }
         .task(id: attrStringKey) {

@@ -167,14 +167,13 @@ final class TXTReaderViewModel {
             return
         }
 
-        // Guard: another open() may have started while we were awaiting.
-        // Close the service we just opened so it doesn't leak in .alreadyOpen state.
         guard myGeneration == openGeneration else {
             await txtService.close()
             isLoading = false
             return
         }
 
+        // Set content ASAP so the view can start rendering
         textContent = loadResult.metadata.text
         totalTextLengthUTF16 = loadResult.metadata.totalTextLengthUTF16
         totalWordCount = loadResult.metadata.totalWordCount
@@ -184,24 +183,19 @@ final class TXTReaderViewModel {
             ? Date().addingTimeInterval(Self.restoreSuppressDuration)
             : nil
 
-        // Stage 3: Start reading session (rollback on failure)
+        // PERF: Show content immediately — session/lastOpened are non-blocking
+        isOpenComplete = true
+        isLoading = false
+
+        // Stage 3: Start reading session (fire-and-forget, non-fatal)
         do {
             try lifecycle.beginSession()
         } catch {
-            textContent = nil
-            totalTextLengthUTF16 = 0
-            totalWordCount = 0
-            currentOffsetUTF16 = 0
-            await txtService.close()
-            isLoading = false
-            errorMessage = "Failed to start reading session."
-            return
+            // Session failure is non-fatal — user can still read
         }
 
-        // Stage 4: Update last opened (non-fatal)
-        await lifecycle.updateLastOpened()
-        isOpenComplete = true
-        isLoading = false
+        // Stage 4: Update last opened (fire-and-forget)
+        Task { await lifecycle.updateLastOpened() }
     }
 
     /// Closes the reader, ending the session and flushing state.

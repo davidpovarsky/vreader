@@ -138,28 +138,29 @@ struct PDFReaderContainerView: View {
         }
         .task(id: viewModel.isDocumentLoaded) {
             if viewModel.isDocumentLoaded {
-                try? viewModel.startSession()
+                // PERF: Restore position first (needed for display), defer the rest
                 restoredPage = await viewModel.restorePosition()
-                await viewModel.updateLastOpened()
-                // Initialize page navigator for tap zone integration (WI-B09)
                 pageNavigator.totalPages = viewModel.totalPages
                 if let page = restoredPage {
                     pageNavigator.syncCurrentPage(page)
                 }
-                // Restore saved highlights as visible annotations
-                // Phase R4: also set up coordinator for highlight lifecycle
-                if let container = modelContainer {
-                    let persistence = PersistenceActor(modelContainer: container)
-                    highlightCoordinator = HighlightCoordinator(
-                        renderer: highlightRenderer,
-                        persistence: persistence,
-                        bookFingerprintKey: viewModel.bookFingerprintKey
-                    )
-                    let records = try? await persistence.fetchHighlights(
-                        forBookWithKey: viewModel.bookFingerprintKey
-                    )
-                    if let records, !records.isEmpty {
-                        savedHighlightRecords = records
+                // Defer: session, lastOpened, highlights — don't block content
+                Task {
+                    try? viewModel.startSession()
+                    await viewModel.updateLastOpened()
+                    if let container = modelContainer {
+                        let persistence = PersistenceActor(modelContainer: container)
+                        highlightCoordinator = HighlightCoordinator(
+                            renderer: highlightRenderer,
+                            persistence: persistence,
+                            bookFingerprintKey: viewModel.bookFingerprintKey
+                        )
+                        let records = try? await persistence.fetchHighlights(
+                            forBookWithKey: viewModel.bookFingerprintKey
+                        )
+                        if let records, !records.isEmpty {
+                            savedHighlightRecords = records
+                        }
                     }
                 }
             }

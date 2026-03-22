@@ -63,11 +63,14 @@ actor SyncOutboundQueue {
     func enqueue(recordType: String, recordID: String, recordData: Data) {
         let key = QueueDedupKey(recordType: recordType, recordID: recordID)
 
-        // Dedup: replace existing item with same key
+        // Dedup: replace existing item with same key.
+        // New UUID on re-enqueue so in-flight flush snapshots can't delete this version
+        // (audit fix: flush race — snapshot IDs must be immutable).
         if let existingID = dedupIndex[key] {
             if let idx = items.firstIndex(where: { $0.id == existingID }) {
+                let newID = UUID()
                 let updated = SyncOutboundQueueItem(
-                    id: existingID,
+                    id: newID,
                     recordType: recordType,
                     recordID: recordID,
                     recordData: recordData,
@@ -75,6 +78,7 @@ actor SyncOutboundQueue {
                     retryCount: items[idx].retryCount
                 )
                 items[idx] = updated
+                dedupIndex[key] = newID
                 return
             }
         }

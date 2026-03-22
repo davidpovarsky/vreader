@@ -73,12 +73,13 @@ actor DurableTombstoneStore {
     // MARK: - Public interface
 
     /// Adds a tombstone. If one already exists for the same entity, keeps the later date.
+    /// Throws on write failure so callers can handle persistence errors (audit fix).
     func addTombstone(
         entityType: TombstoneEntityType,
         entityId: String,
         deviceId: String,
         deletedAt: Date
-    ) {
+    ) throws {
         ensureLoaded()
         let key = DurableTombstoneKey(entityType: entityType, entityId: entityId)
         if let existing = tombstones![key], existing.deletedAt >= deletedAt {
@@ -90,7 +91,7 @@ actor DurableTombstoneStore {
             deletedAt: deletedAt,
             deviceId: deviceId
         )
-        writeToDisk()
+        try writeToDiskThrowing()
     }
 
     /// Checks if a tombstone exists for the given entity.
@@ -115,7 +116,7 @@ actor DurableTombstoneStore {
             tombstones!.removeValue(forKey: key)
         }
         if !keysToPurge.isEmpty {
-            writeToDisk()
+            try? writeToDiskThrowing()
         }
         return keysToPurge.count
     }
@@ -166,15 +167,19 @@ actor DurableTombstoneStore {
         }
     }
 
-    /// Encodes and writes all tombstones to disk.
-    /// Stores error in lastError on failure (audit fix: surface I/O errors).
-    private func writeToDisk() {
+    /// Encodes and writes all tombstones to disk. Throws on failure (audit fix).
+    private func writeToDiskThrowing() throws {
         guard let tombstones = tombstones else { return }
         let codables = tombstones.values.map { CodableTombstone(from: $0) }
+        let data = try encoder.encode(codables)
+        try data.write(to: fileURL, options: .atomic)
+        lastError = nil
+    }
+
+    /// Non-throwing variant for internal use (purge). Stores error in lastError.
+    private func writeToDisk() {
         do {
-            let data = try encoder.encode(codables)
-            try data.write(to: fileURL, options: .atomic)
-            lastError = nil
+            try writeToDiskThrowing()
         } catch {
             lastError = error
         }

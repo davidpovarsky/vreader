@@ -94,7 +94,7 @@ actor SyncService {
         deviceId: String
     ) async {
         guard featureFlags.sync else { return }
-        await tombstoneStore.addTombstone(
+        try? await tombstoneStore.addTombstone(
             entityType: entityType,
             entityId: entityId,
             deviceId: deviceId,

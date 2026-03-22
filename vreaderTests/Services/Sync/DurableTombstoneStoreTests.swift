@@ -32,7 +32,7 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let now = SyncTestHelpers.refDate
 
-        await store.addTombstone(
+        try await store.addTombstone(
             entityType: .bookmark,
             entityId: "bm-001",
             deviceId: SyncTestHelpers.deviceA,
@@ -60,8 +60,8 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let now = SyncTestHelpers.refDate
 
-        await store.addTombstone(entityType: .bookmark, entityId: "b1", deviceId: "d", deletedAt: now)
-        await store.addTombstone(entityType: .highlight, entityId: "h1", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .bookmark, entityId: "b1", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .highlight, entityId: "h1", deviceId: "d", deletedAt: now)
 
         let all = await store.allTombstones
         #expect(all.count == 2)
@@ -82,8 +82,8 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let now = SyncTestHelpers.refDate
 
-        await store.addTombstone(entityType: .bookmark, entityId: "b1", deviceId: "d", deletedAt: now)
-        await store.addTombstone(entityType: .highlight, entityId: "h1", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .bookmark, entityId: "b1", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .highlight, entityId: "h1", deviceId: "d", deletedAt: now)
 
         let c = await store.count
         #expect(c == 2)
@@ -104,7 +104,7 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let now = SyncTestHelpers.refDate
 
-        await store.addTombstone(entityType: .bookmark, entityId: "bm-001", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .bookmark, entityId: "bm-001", deviceId: "d", deletedAt: now)
 
         // Verify the file exists
         let file = jsonFile(in: dir)
@@ -127,8 +127,8 @@ struct DurableTombstoneStoreTests {
 
         // First instance: add tombstones
         let store1 = DurableTombstoneStore(directory: dir)
-        await store1.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: now)
-        await store1.addTombstone(entityType: .highlight, entityId: "hl-1", deviceId: "d", deletedAt: now)
+        try await store1.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: now)
+        try await store1.addTombstone(entityType: .highlight, entityId: "hl-1", deviceId: "d", deletedAt: now)
 
         // Second instance: same directory — should see data
         let store2 = DurableTombstoneStore(directory: dir)
@@ -168,7 +168,7 @@ struct DurableTombstoneStoreTests {
         #expect(c == 0)
 
         // Store should still be functional — add works after corrupt load
-        await store.addTombstone(entityType: .bookmark, entityId: "b1", deviceId: "d", deletedAt: SyncTestHelpers.refDate)
+        try await store.addTombstone(entityType: .bookmark, entityId: "b1", deviceId: "d", deletedAt: SyncTestHelpers.refDate)
         let c2 = await store.count
         #expect(c2 == 1)
     }
@@ -181,8 +181,8 @@ struct DurableTombstoneStoreTests {
         let thirtyOneDaysAgo = SyncTestHelpers.refDate.addingTimeInterval(-31 * 24 * 3600)
         let fiveDaysAgo = SyncTestHelpers.refDate.addingTimeInterval(-5 * 24 * 3600)
 
-        await store.addTombstone(entityType: .bookmark, entityId: "old", deviceId: "d", deletedAt: thirtyOneDaysAgo)
-        await store.addTombstone(entityType: .bookmark, entityId: "recent", deviceId: "d", deletedAt: fiveDaysAgo)
+        try await store.addTombstone(entityType: .bookmark, entityId: "old", deviceId: "d", deletedAt: thirtyOneDaysAgo)
+        try await store.addTombstone(entityType: .bookmark, entityId: "recent", deviceId: "d", deletedAt: fiveDaysAgo)
 
         let purged = await store.purgeTombstones(olderThan: SyncTestHelpers.refDate.addingTimeInterval(-30 * 24 * 3600))
         #expect(purged == 1)
@@ -195,8 +195,8 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let old = SyncTestHelpers.refDate.addingTimeInterval(-40 * 24 * 3600)
 
-        await store.addTombstone(entityType: .bookmark, entityId: "old1", deviceId: "d", deletedAt: old)
-        await store.addTombstone(entityType: .highlight, entityId: "old2", deviceId: "d", deletedAt: old)
+        try await store.addTombstone(entityType: .bookmark, entityId: "old1", deviceId: "d", deletedAt: old)
+        try await store.addTombstone(entityType: .highlight, entityId: "old2", deviceId: "d", deletedAt: old)
 
         _ = await store.purgeTombstones(olderThan: SyncTestHelpers.refDate)
 
@@ -225,8 +225,8 @@ struct DurableTombstoneStoreTests {
         let earlier = SyncTestHelpers.date(offsetBy: -100)
         let later = SyncTestHelpers.date(offsetBy: 100)
 
-        await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: earlier)
-        await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: later)
+        try await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: earlier)
+        try await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: later)
 
         let result = await store.hasTombstone(entityType: .bookmark, entityId: "bm-1")
         #expect(result.deletedAt == later)
@@ -241,8 +241,8 @@ struct DurableTombstoneStoreTests {
         let earlier = SyncTestHelpers.date(offsetBy: -100)
         let later = SyncTestHelpers.date(offsetBy: 100)
 
-        await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: later)
-        await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: earlier)
+        try await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: later)
+        try await store.addTombstone(entityType: .bookmark, entityId: "bm-1", deviceId: "d", deletedAt: earlier)
 
         let result = await store.hasTombstone(entityType: .bookmark, entityId: "bm-1")
         #expect(result.deletedAt == later)
@@ -255,8 +255,8 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let now = SyncTestHelpers.refDate
 
-        await store.addTombstone(entityType: .bookmark, entityId: "id-1", deviceId: "d", deletedAt: now)
-        await store.addTombstone(entityType: .highlight, entityId: "id-1", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .bookmark, entityId: "id-1", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .highlight, entityId: "id-1", deviceId: "d", deletedAt: now)
 
         #expect(await store.hasTombstone(entityType: .bookmark, entityId: "id-1").exists == true)
         #expect(await store.hasTombstone(entityType: .highlight, entityId: "id-1").exists == true)
@@ -270,7 +270,7 @@ struct DurableTombstoneStoreTests {
         let store = DurableTombstoneStore(directory: dir)
         let now = SyncTestHelpers.refDate
 
-        await store.addTombstone(entityType: .annotation, entityId: "note-\u{4F60}\u{597D}", deviceId: "d", deletedAt: now)
+        try await store.addTombstone(entityType: .annotation, entityId: "note-\u{4F60}\u{597D}", deviceId: "d", deletedAt: now)
 
         let result = await store.hasTombstone(entityType: .annotation, entityId: "note-\u{4F60}\u{597D}")
         #expect(result.exists == true)
@@ -289,10 +289,10 @@ struct DurableTombstoneStoreTests {
         let now = SyncTestHelpers.refDate
 
         // Fire off 50 concurrent adds
-        await withTaskGroup(of: Void.self) { group in
+        try await withThrowingTaskGroup(of: Void.self) { group in
             for i in 0..<50 {
                 group.addTask {
-                    await store.addTombstone(
+                    try await store.addTombstone(
                         entityType: .bookmark,
                         entityId: "concurrent-\(i)",
                         deviceId: "d",

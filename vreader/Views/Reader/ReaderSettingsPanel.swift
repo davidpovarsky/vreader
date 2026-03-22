@@ -141,7 +141,7 @@ struct ReaderSettingsPanel: View {
                 .accessibilityLabel("Choose background image")
 
                 Button(role: .destructive) {
-                    ThemeBackgroundStore.removeBackground(for: store.theme.rawValue)
+                    try? ThemeBackgroundStore.removeBackground(for: store.theme.rawValue)
                     store.useCustomBackground = false
                 } label: {
                     Label("Remove Background", systemImage: "trash")

@@ -151,15 +151,6 @@ struct TXTReaderContainerView: View {
                 ttsHighlightCoordinator = ttsCoord
             }
         }
-        .onChange(of: ttsService?.currentOffsetUTF16) { _, newOffset in
-            guard let offset = newOffset else { return }
-            ttsHighlightCoordinator?.updateHighlight(offset: offset)
-        }
-        .onChange(of: ttsService?.state) { _, newState in
-            if newState != .speaking {
-                ttsHighlightCoordinator?.clearHighlight()
-            }
-        }
         .task(id: attrStringKey) {
             guard let text = viewModel.textContent else { return }
             let config = settingsStore?.txtViewConfig ?? TXTViewConfig()

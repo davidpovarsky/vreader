@@ -159,8 +159,11 @@ struct ReaderContainerView: View {
                 resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
             }
         }
-        // Apply per-book settings on open (bug #84)
+        // PERF: Single deferred .task for all non-critical setup.
+        // Per-book settings, search prep, and replacement rules all deferred
+        // to avoid contending with the format host's file-open .task.
         .task {
+            // Per-book settings (bug #84) — fast file read, do first
             let perBook = PerBookSettingsStore.settings(
                 for: book.fingerprintKey,
                 baseURL: Self.perBookSettingsBaseURL
@@ -171,20 +174,19 @@ struct ReaderContainerView: View {
                 )
                 settingsStore.applyResolvedSettings(resolved)
             }
-        }
-        // PERF: Search prep runs in background Task — yields to file open first (audit fix: no hardcoded delay).
-        .task {
-            // Yield to let higher-priority .task blocks (file open) start first
+            // Yield so format host .task can start file loading
             await Task.yield()
             guard !Task.isCancelled else { return }
-            if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                await searchCoordinator.prepareService(fingerprint: fp)
+            // Search prep (deferred — not needed until search panel opens)
+            Task {
+                if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
+                    await searchCoordinator.prepareService(fingerprint: fp)
+                }
             }
-        }
-        // Replacement rules only needed for unified mode (bug #64)
-        .task {
-            guard settingsStore.readingMode == .unified else { return }
-            await loadReplacementRules()
+            // Replacement rules (unified mode only)
+            if settingsStore.readingMode == .unified {
+                await loadReplacementRules()
+            }
         }
         .onChange(of: settingsStore.chineseConversion) { _, newDirection in
             var transforms = unifiedCoordinator.activeTransforms.filter { !($0 is SimpTradTransform) }

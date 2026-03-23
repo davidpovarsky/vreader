@@ -36,13 +36,16 @@ struct TXTReaderHost: View {
                 store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
-            viewModel = TXTReaderViewModel(
+            let vm = TXTReaderViewModel(
                 bookFingerprint: fingerprint,
                 txtService: TXTService(),
                 positionStore: persistence,
                 sessionTracker: tracker,
                 deviceId: ReaderContainerView.deviceId
             )
+            // PERF: Start loading immediately — don't wait for container's .task
+            await vm.openChapterBased(url: fileURL)
+            viewModel = vm
         }
     }
 }
@@ -108,13 +111,16 @@ struct MDReaderHost: View {
                 store: SwiftDataSessionStore(modelContainer: modelContainer),
                 deviceId: ReaderContainerView.deviceId
             )
-            viewModel = MDReaderViewModel(
+            let vm = MDReaderViewModel(
                 bookFingerprint: fingerprint,
                 parser: MDParser(),
                 positionStore: persistence,
                 sessionTracker: tracker,
                 deviceId: ReaderContainerView.deviceId
             )
+            // PERF: Start loading before container appears
+            await vm.open(url: fileURL)
+            viewModel = vm
         }
     }
 }
@@ -155,13 +161,16 @@ struct EPUBReaderHost: View {
             )
             let epubParser = EPUBParser()
             parser = epubParser
-            viewModel = EPUBReaderViewModel(
+            let vm = EPUBReaderViewModel(
                 bookFingerprint: fingerprint,
                 parser: epubParser,
                 positionStore: persistence,
                 sessionTracker: tracker,
                 deviceId: ReaderContainerView.deviceId
             )
+            // PERF: Start loading before container appears — eliminates one render cycle
+            await vm.open(url: fileURL)
+            viewModel = vm
         }
     }
 }

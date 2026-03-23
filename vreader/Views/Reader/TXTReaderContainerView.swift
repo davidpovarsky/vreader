@@ -170,9 +170,10 @@ struct TXTReaderContainerView: View {
             }
         }
         .task {
-            await viewModel.openChapterBased(url: fileURL)
-            // Capture restored position once — do NOT read currentOffsetUTF16
-            // in body, as it changes on every scroll and creates a feedback loop.
+            // PERF: open already called by TXTReaderHost — skip if content loaded
+            if viewModel.textContent == nil && viewModel.currentChapterText == nil {
+                await viewModel.openChapterBased(url: fileURL)
+            }
             initialRestoreOffset = viewModel.currentOffsetUTF16
             // Load persisted highlights from DB for visual rendering (bug #55)
             if let container = modelContainer {

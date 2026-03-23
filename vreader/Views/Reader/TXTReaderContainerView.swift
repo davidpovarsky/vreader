@@ -165,7 +165,7 @@ struct TXTReaderContainerView: View {
                         )
                         ChapterBottomOverlay(
                             viewModel: viewModel,
-                            bookProgress: viewModel.chapterScrollFraction,
+                            bookProgress: chapterScrollFraction,
                             settingsStore: settingsStore,
                             onNavigate: { chapterAttrString = nil }
                         )
@@ -293,6 +293,10 @@ struct TXTReaderContainerView: View {
             if !hasChapterDisplay {
                 uiState.readingProgress = viewModel.chapterScrollFraction
             }
+        }
+        // Also reset on chapter switch (localUTF16 may stay 0 → onChange won't fire)
+        .onChange(of: viewModel.currentChapterIdx) { _, _ in
+            chapterScrollFraction = viewModel.chapterScrollFraction
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {

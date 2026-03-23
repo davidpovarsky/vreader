@@ -143,11 +143,13 @@ struct TXTReaderContainerView: View {
                 }
             }
 
-            // Bottom overlay for session time and progress (bug #33)
+            // Bottom overlay for session time, progress, and scrubber (bug #33, WI-004b)
             // Show when either full text or chapter text is loaded.
+            // Hidden when TTS is active to avoid overlap (bug #97)
             if (viewModel.textContent != nil || viewModel.currentChapterText != nil)
-                && !viewModel.isLoading && isChromeVisible {
-                VStack {
+                && !viewModel.isLoading && isChromeVisible
+                && (ttsService?.state ?? .idle) == .idle {
+                VStack(spacing: 0) {
                     Spacer()
                     if hasChapterDisplay {
                         ChapterBottomOverlay(
@@ -159,6 +161,19 @@ struct TXTReaderContainerView: View {
                             onNavigate: { chapterAttrString = nil }
                         )
                     } else {
+                        ReadingProgressBar(
+                            progress: $uiState.readingProgress,
+                            onSeek: { seekValue in
+                                let charOffset = ScrollProgressHelper.charOffsetFromProgress(
+                                    progress: seekValue,
+                                    totalLengthUTF16: viewModel.totalTextLengthUTF16
+                                )
+                                uiState.scrollToOffset = charOffset
+                            },
+                            isVisible: viewModel.totalTextLengthUTF16 > 0,
+                            label: ScrollProgressHelper.percentageLabel(uiState.readingProgress),
+                            settingsStore: settingsStore
+                        )
                         ReaderBottomOverlay(
                             progress: viewModel.totalProgression,
                             sessionTime: viewModel.sessionTimeDisplay,

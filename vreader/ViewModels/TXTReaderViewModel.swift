@@ -320,7 +320,19 @@ final class TXTReaderViewModel {
         do {
             let text = try await loader.loadChapter(chapter)
             currentChapterIdx = index; currentChapterText = text; textContent = text
-            currentOffsetUTF16 = chapter.globalStartUTF16
+            // Use globalStartUTF16 only if populated; otherwise estimate from byte ratio
+            if chapter.globalStartUTF16 >= 0 {
+                currentOffsetUTF16 = chapter.globalStartUTF16
+            } else {
+                // Estimate: byte position × average chars/byte ratio
+                let totalBytes = chIdx.totalBytes
+                let totalUTF16 = totalTextLengthUTF16
+                if totalBytes > 0, totalUTF16 > 0 {
+                    currentOffsetUTF16 = Int(Double(chapter.startByte) / Double(totalBytes) * Double(totalUTF16))
+                } else {
+                    currentOffsetUTF16 = 0
+                }
+            }
         } catch { errorMessage = "Failed to load chapter \(index + 1)." }
         let chapters = chIdx.chapters
         Task.detached { [index] in
@@ -328,21 +340,54 @@ final class TXTReaderViewModel {
         }
     }
 
-    /// Navigates to the chapter containing the given global UTF-16 offset.
-    /// Used by TOC navigation — TOC entries have global offsets but the reader
-    /// shows one chapter at a time. (bug #102 TOC jump)
-    func navigateToGlobalOffset(_ globalUTF16: Int) async {
+    /// Navigates to the chapter matching a TOC entry title.
+    /// Used by TOC navigation — matches by title because UTF-16 offsets from
+    /// TOC (full-text regex) and chapters (byte-range decode) can drift. (GH #30)
+    func navigateToChapterByTitle(_ title: String) async {
         guard let chIdx = chapterIndex else { return }
-        // Find chapter containing this offset
-        var targetIndex = 0
-        for (i, ch) in chIdx.chapters.enumerated() {
-            if ch.globalStartUTF16 <= globalUTF16 {
-                targetIndex = i
-            } else {
-                break
-            }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let idx = chIdx.chapters.firstIndex(where: {
+            $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+        }) {
+            await navigateToChapter(idx)
         }
-        await navigateToChapter(targetIndex)
+    }
+
+    /// Navigates to the chapter containing the given global UTF-16 offset.
+    /// If globalStartUTF16 is populated, uses exact match.
+    /// Otherwise estimates chapter from byte-position ratio. (GH #30)
+    func navigateToGlobalOffset(_ globalUTF16: Int) async {
+        guard let chIdx = chapterIndex, !chIdx.chapters.isEmpty else { return }
+
+        // Check if offsets are populated
+        let hasOffsets = chIdx.chapters.first(where: { $0.globalStartUTF16 >= 0 }) != nil
+
+        if hasOffsets {
+            var targetIndex = 0
+            for (i, ch) in chIdx.chapters.enumerated() {
+                guard ch.globalStartUTF16 >= 0 else { continue }
+                if ch.globalStartUTF16 <= globalUTF16 {
+                    targetIndex = i
+                } else {
+                    break
+                }
+            }
+            await navigateToChapter(targetIndex)
+        } else {
+            // Estimate: map UTF-16 offset to byte position, find containing chapter
+            let totalUTF16 = max(totalTextLengthUTF16, 1)
+            let fraction = Double(globalUTF16) / Double(totalUTF16)
+            let estimatedByte = Int64(fraction * Double(chIdx.totalBytes))
+            var targetIndex = 0
+            for (i, ch) in chIdx.chapters.enumerated() {
+                if ch.startByte <= estimatedByte {
+                    targetIndex = i
+                } else {
+                    break
+                }
+            }
+            await navigateToChapter(targetIndex)
+        }
     }
 
     /// Advances to the next chapter. No-op if already at the last chapter.

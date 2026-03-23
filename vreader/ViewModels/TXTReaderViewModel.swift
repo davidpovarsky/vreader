@@ -328,6 +328,23 @@ final class TXTReaderViewModel {
         }
     }
 
+    /// Navigates to the chapter containing the given global UTF-16 offset.
+    /// Used by TOC navigation — TOC entries have global offsets but the reader
+    /// shows one chapter at a time. (bug #102 TOC jump)
+    func navigateToGlobalOffset(_ globalUTF16: Int) async {
+        guard let chIdx = chapterIndex else { return }
+        // Find chapter containing this offset
+        var targetIndex = 0
+        for (i, ch) in chIdx.chapters.enumerated() {
+            if ch.globalStartUTF16 <= globalUTF16 {
+                targetIndex = i
+            } else {
+                break
+            }
+        }
+        await navigateToChapter(targetIndex)
+    }
+
     /// Advances to the next chapter. No-op if already at the last chapter.
     func nextChapter() async { await navigateToChapter(currentChapterIdx + 1) }
 

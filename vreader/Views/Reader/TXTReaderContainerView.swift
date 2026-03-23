@@ -305,7 +305,14 @@ struct TXTReaderContainerView: View {
             },
             sourceText: { [viewModel] in viewModel.textContent },
             makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
-            onNavigate: { [viewModel] offset in viewModel.updateScrollPosition(charOffsetUTF16: offset) }
+            onNavigate: { [viewModel] offset in
+                if viewModel.chapterIndex != nil {
+                    // Chapter-based: translate global offset to chapter navigation
+                    Task { await viewModel.navigateToGlobalOffset(offset) }
+                } else {
+                    viewModel.updateScrollPosition(charOffsetUTF16: offset)
+                }
+            }
         )
     }
 

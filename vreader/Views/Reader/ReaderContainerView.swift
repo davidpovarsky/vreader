@@ -174,15 +174,8 @@ struct ReaderContainerView: View {
                 )
                 settingsStore.applyResolvedSettings(resolved)
             }
-            // Yield so format host .task can start file loading
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            // Search prep (deferred — not needed until search panel opens)
-            Task {
-                if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                    await searchCoordinator.prepareService(fingerprint: fp)
-                }
-            }
+            // PERF: Do NOT prep search on open — it opens SQLite on @MainActor.
+            // Search will self-prep when the search panel opens (SearchView.onAppear).
             // Replacement rules (unified mode only)
             if settingsStore.readingMode == .unified {
                 await loadReplacementRules()

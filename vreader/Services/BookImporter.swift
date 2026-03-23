@@ -207,6 +207,13 @@ final class BookImporter: BookImporting, Sendable {
             userInfo: ["fingerprintKey": fingerprintKey]
         )
 
+        // Step 13: EPUB pre-extraction for instant open (WI-8)
+        if persisted.fingerprint.format == .epub {
+            Task.detached(priority: .utility) {
+                await EPUBPreExtractor.preExtract(epubURL: sandboxURL)
+            }
+        }
+
         return ImportResult(
             fingerprintKey: persisted.fingerprintKey,
             title: persisted.title,

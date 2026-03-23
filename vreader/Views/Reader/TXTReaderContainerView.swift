@@ -170,7 +170,7 @@ struct TXTReaderContainerView: View {
             }
         }
         .task {
-            await viewModel.open(url: fileURL)
+            await viewModel.openChapterBased(url: fileURL)
             // Capture restored position once — do NOT read currentOffsetUTF16
             // in body, as it changes on every scroll and creates a feedback loop.
             initialRestoreOffset = viewModel.currentOffsetUTF16

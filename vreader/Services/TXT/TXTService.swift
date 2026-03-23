@@ -109,11 +109,28 @@ actor TXTService: TXTServiceProtocol {
                 let cacheDir = Self.cacheDirectory(for: url)
                 let fileModDate = Self.fileModificationDate(url: url) ?? Date()
 
-                if let cachedIndex = TXTChapterIndexStore.load(
+                if var cachedIndex = TXTChapterIndexStore.load(
                     cacheDir: cacheDir, fileByteCount: fileByteCount, fileModDate: fileModDate
                 ) {
-                    // PERF: Skip UTF-16 offset population on open — defer to first use.
                     let loader = TXTChapterContentLoader(fileData: data, encoding: encoding)
+                    // Populate UTF-16 offsets if not already done (GH #30)
+                    if cachedIndex.totalTextLengthUTF16 == 0, !cachedIndex.chapters.isEmpty {
+                        var chs = cachedIndex.chapters
+                        try TXTOffsetTranslator.populateUTF16Offsets(chapters: &chs) { ch in
+                            let s = Int(ch.startByte), e = min(Int(ch.endByte), data.count)
+                            guard s < e else { return "" }
+                            guard let decoded = String(data: data[s..<e], encoding: encoding) else {
+                                return ""
+                            }
+                            return decoded
+                        }
+                        cachedIndex = TXTChapterIndex(
+                            chapters: chs,
+                            totalBytes: cachedIndex.totalBytes,
+                            detectedEncoding: cachedIndex.detectedEncoding,
+                            totalTextLengthUTF16: chs.last.map { $0.globalStartUTF16 + $0.textLengthUTF16 } ?? 0
+                        )
+                    }
                     return TXTChapterOpenResult(
                         chapterIndex: cachedIndex, contentLoader: loader,
                         fileByteCount: fileByteCount, detectedEncoding: encodingName
@@ -130,9 +147,20 @@ actor TXTService: TXTServiceProtocol {
                     data: data, encoding: encoding, encodingName: encodingName, rule: rule
                 )
 
-                // PERF: Do NOT populate UTF-16 offsets on open — that decodes every chapter (O(file_size)).
-                // Offsets are only needed for highlights/search, not for displaying current chapter.
-                // They'll be populated lazily when first needed.
+                // Populate UTF-16 offsets eagerly — needed for TOC navigation,
+                // position restore, and progress display. (GH #30)
+                var chapters = index.chapters
+                try TXTOffsetTranslator.populateUTF16Offsets(chapters: &chapters) { ch in
+                    let s = Int(ch.startByte), e = min(Int(ch.endByte), data.count)
+                    guard s < e else { return "" }
+                    return String(data: data[s..<e], encoding: encoding) ?? ""
+                }
+                index = TXTChapterIndex(
+                    chapters: chapters,
+                    totalBytes: index.totalBytes,
+                    detectedEncoding: index.detectedEncoding,
+                    totalTextLengthUTF16: chapters.last.map { $0.globalStartUTF16 + $0.textLengthUTF16 } ?? 0
+                )
 
                 try? FileManager.default.createDirectory(
                     at: cacheDir, withIntermediateDirectories: true

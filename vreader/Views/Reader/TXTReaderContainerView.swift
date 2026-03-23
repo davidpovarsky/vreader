@@ -277,6 +277,10 @@ struct TXTReaderContainerView: View {
                 }
             }
         }
+        // Wire scroll progress to the ReadingProgressBar scrubber (bug #72 regression)
+        .onChange(of: viewModel.totalProgression) { _, newValue in
+            uiState.readingProgress = newValue ?? 0
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background, .inactive:
@@ -366,7 +370,7 @@ struct TXTReaderContainerView: View {
             attributedText: attributedText,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
             restoreOffset: initialRestoreOffset,
-            scrollToOffset: scrollToOffset,
+            scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
             highlightRange: highlightRange,
             highlightIsTemporary: highlightIsTemporary,
             persistedHighlights: persistedHighlightRanges,
@@ -421,7 +425,7 @@ struct TXTReaderContainerView: View {
             restoreIntraChunkOffset: intraFraction,
             delegate: viewModel,
             chunkStartOffsets: offsets,
-            scrollToOffset: scrollToOffset,
+            scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
             highlightRange: highlightRange,
             highlightIsTemporary: highlightIsTemporary,
             persistedHighlights: persistedHighlightRanges

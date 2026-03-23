@@ -165,9 +165,7 @@ struct TXTReaderContainerView: View {
                         )
                         ChapterBottomOverlay(
                             viewModel: viewModel,
-                            bookProgress: viewModel.chapterBasedProgression(
-                                scrollFraction: viewModel.chapterScrollFraction
-                            ),
+                            bookProgress: viewModel.chapterScrollFraction,
                             settingsStore: settingsStore,
                             onNavigate: { chapterAttrString = nil }
                         )

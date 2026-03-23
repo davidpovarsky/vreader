@@ -92,7 +92,7 @@ struct ChapterBottomOverlay: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 4)
 
-            // Book-level progress bar
+            // Chapter-level progress (book position shown by chapter indicator above)
             ReaderBottomOverlay(
                 progress: bookProgress,
                 sessionTime: viewModel.sessionTimeDisplay,

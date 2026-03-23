@@ -166,7 +166,7 @@ struct TXTReaderContainerView: View {
                         ChapterBottomOverlay(
                             viewModel: viewModel,
                             bookProgress: viewModel.chapterBasedProgression(
-                                scrollFraction: chapterScrollFraction
+                                scrollFraction: viewModel.chapterScrollFraction
                             ),
                             settingsStore: settingsStore,
                             onNavigate: { chapterAttrString = nil }
@@ -288,26 +288,12 @@ struct TXTReaderContainerView: View {
                 }
             }
         }
-        // Wire scroll progress to the ReadingProgressBar scrubber
-        .onChange(of: viewModel.currentOffsetUTF16) { _, newOffset in
-            if hasChapterDisplay, let chText = viewModel.currentChapterText, !chText.isEmpty {
-                // Chapter mode: progress within the current chapter.
-                // currentOffsetUTF16 is global after navigateToChapter() but local
-                // after bridge scroll callbacks. Normalize to local.
-                let chapterLen = chText.utf16.count
-                var localOffset = newOffset
-                if let chapters = viewModel.chapterIndex?.chapters,
-                   viewModel.currentChapterIdx < chapters.count {
-                    let globalStart = chapters[viewModel.currentChapterIdx].globalStartUTF16
-                    if globalStart > 0 && newOffset >= globalStart {
-                        localOffset = newOffset - globalStart
-                    }
-                }
-                let clamped = max(0, min(localOffset, chapterLen))
-                chapterScrollFraction = chapterLen > 0 ? Double(clamped) / Double(chapterLen) : 0
-            } else {
-                // Whole-book mode
-                uiState.readingProgress = viewModel.totalProgression ?? 0
+        // Wire scroll progress to the ReadingProgressBar scrubber.
+        // ViewModel now separates local (chapter) and global (book) offsets (bug #31).
+        .onChange(of: viewModel.currentChapterLocalUTF16) { _, _ in
+            chapterScrollFraction = viewModel.chapterScrollFraction
+            if !hasChapterDisplay {
+                uiState.readingProgress = viewModel.chapterScrollFraction
             }
         }
         .onChange(of: scenePhase) { _, newPhase in

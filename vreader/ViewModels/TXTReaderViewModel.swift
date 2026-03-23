@@ -38,8 +38,12 @@ final class TXTReaderViewModel {
     /// Total word count from metadata.
     private(set) var totalWordCount: Int = 0
 
-    /// Current scroll position as UTF-16 char offset.
+    /// Current scroll position as UTF-16 char offset (global/book-level, for persistence).
     private(set) var currentOffsetUTF16: Int = 0
+
+    /// Current scroll position within the displayed chapter (local, for progress bar).
+    /// In non-chapter mode, equals currentOffsetUTF16.
+    private(set) var currentChapterLocalUTF16: Int = 0
 
     /// Start of current selection in UTF-16 offsets (nil if no selection).
     private(set) var currentSelectionStart: Int?
@@ -128,6 +132,16 @@ final class TXTReaderViewModel {
 
     /// Whether there is a previous chapter (WI-6 overlay).
     var hasPreviousChapter: Bool { currentChapterIdx > 0 }
+
+    /// Scroll fraction within the current chapter (0.0-1.0). For progress bar binding.
+    /// In non-chapter mode, uses totalTextLengthUTF16 as denominator.
+    var chapterScrollFraction: Double {
+        let len = isChapterMode
+            ? (currentChapterText?.utf16.count ?? 0)
+            : totalTextLengthUTF16
+        guard len > 0 else { return 0 }
+        return Double(min(currentChapterLocalUTF16, len)) / Double(len)
+    }
 
     /// Book-level progress from chapter position + scroll fraction (WI-6 overlay).
     func chapterBasedProgression(scrollFraction: Double) -> Double {
@@ -291,8 +305,12 @@ final class TXTReaderViewModel {
 
         if chapterLoadResult.hadSavedPosition, !chapters.isEmpty {
             let ch = chapters[chapterLoadResult.initialChapterIndex]
+            currentChapterLocalUTF16 = chapterLoadResult.restoredLocalOffsetUTF16
             currentOffsetUTF16 = ch.globalStartUTF16 + chapterLoadResult.restoredLocalOffsetUTF16
-        } else { currentOffsetUTF16 = 0 }
+        } else {
+            currentChapterLocalUTF16 = 0
+            currentOffsetUTF16 = 0
+        }
 
         restoreSuppressUntil = chapterLoadResult.hadSavedPosition
             ? Date().addingTimeInterval(Self.restoreSuppressDuration) : nil
@@ -320,6 +338,7 @@ final class TXTReaderViewModel {
         do {
             let text = try await loader.loadChapter(chapter)
             currentChapterIdx = index; currentChapterText = text; textContent = text
+            currentChapterLocalUTF16 = 0 // Start at top of new chapter
             // Use globalStartUTF16 only if populated; otherwise estimate from byte ratio
             if chapter.globalStartUTF16 >= 0 {
                 currentOffsetUTF16 = chapter.globalStartUTF16
@@ -426,25 +445,31 @@ final class TXTReaderViewModel {
     // MARK: - Position Updates
 
     /// Called when the scroll position changes. Offset is in UTF-16 code units.
+    /// In chapter mode, the bridge reports chapter-local offsets (the UITextView only
+    /// contains chapter text). We store the local value and compute the global offset
+    /// for persistence. In non-chapter mode, local == global.
     func updateScrollPosition(charOffsetUTF16: Int) {
         guard textContent != nil, isOpenComplete else { return }
         let clamped = clampOffset(charOffsetUTF16)
 
-        // Suppress scroll position saves during the post-restore settling window.
-        // TextKit relayout storms after position restore can fire scrollViewDidScroll
-        // with wrong offsets (including near-zero). The bridge suppresses most of these,
-        // but this is defense in depth.
-        if let suppressUntil = restoreSuppressUntil {
-            if Date() < suppressUntil {
-                // Still track position for display, but don't persist.
-                // This allows real user scrolls during the window to update the UI.
-                currentOffsetUTF16 = clamped
-                return
-            }
-            restoreSuppressUntil = nil
+        // In chapter mode, the bridge offset is local to the chapter.
+        // Convert to global for persistence; store local for progress bar.
+        if isChapterMode, let chapters = chapterIndex?.chapters,
+           currentChapterIdx < chapters.count {
+            let chapter = chapters[currentChapterIdx]
+            currentChapterLocalUTF16 = clamped
+            let globalStart = chapter.globalStartUTF16 >= 0 ? chapter.globalStartUTF16 : 0
+            currentOffsetUTF16 = globalStart + clamped
+        } else {
+            currentChapterLocalUTF16 = clamped
+            currentOffsetUTF16 = clamped
         }
 
-        currentOffsetUTF16 = clamped
+        // Suppress scroll position saves during the post-restore settling window.
+        if let suppressUntil = restoreSuppressUntil {
+            if Date() < suppressUntil { return }
+            restoreSuppressUntil = nil
+        }
 
         lifecycle.recordProgressAndScheduleSave(locator: makeLocator())
     }

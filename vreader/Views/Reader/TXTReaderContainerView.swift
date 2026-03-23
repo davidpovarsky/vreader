@@ -33,6 +33,8 @@ struct TXTReaderContainerView: View {
     var settingsStore: ReaderSettingsStore?
     var modelContainer: ModelContainer?
     var ttsService: TTSService?
+    /// TOC entries from regex detection — used for chapter progress in legacy mode (bug #31).
+    var tocEntries: [TOCEntry] = []
 
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
@@ -171,20 +173,28 @@ struct TXTReaderContainerView: View {
                         )
                     } else {
                         ReadingProgressBar(
-                            progress: $uiState.readingProgress,
+                            progress: $chapterScrollFraction,
                             onSeek: { seekValue in
-                                let charOffset = ScrollProgressHelper.charOffsetFromProgress(
-                                    progress: seekValue,
-                                    totalLengthUTF16: viewModel.totalTextLengthUTF16
-                                )
-                                uiState.scrollToOffset = charOffset
+                                // If TOC entries exist, seek within current chapter
+                                if let cp = tocChapterProgress {
+                                    let chapterLen = tocChapterLength
+                                    let localTarget = Int(seekValue * Double(chapterLen))
+                                    let globalTarget = tocChapterStartOffset + localTarget
+                                    uiState.scrollToOffset = globalTarget
+                                } else {
+                                    let charOffset = ScrollProgressHelper.charOffsetFromProgress(
+                                        progress: seekValue,
+                                        totalLengthUTF16: viewModel.totalTextLengthUTF16
+                                    )
+                                    uiState.scrollToOffset = charOffset
+                                }
                             },
                             isVisible: viewModel.totalTextLengthUTF16 > 0,
-                            label: ScrollProgressHelper.percentageLabel(uiState.readingProgress),
+                            label: ScrollProgressHelper.percentageLabel(chapterScrollFraction),
                             settingsStore: settingsStore
                         )
                         ReaderBottomOverlay(
-                            progress: viewModel.totalProgression,
+                            progress: chapterScrollFraction,
                             sessionTime: viewModel.sessionTimeDisplay,
                             settingsStore: settingsStore,
                             accessibilityPrefix: "txt"
@@ -286,17 +296,12 @@ struct TXTReaderContainerView: View {
                 }
             }
         }
-        // Wire scroll progress to the ReadingProgressBar scrubber.
-        // ViewModel now separates local (chapter) and global (book) offsets (bug #31).
-        .onChange(of: viewModel.currentChapterLocalUTF16) { _, _ in
-            chapterScrollFraction = viewModel.chapterScrollFraction
-            if !hasChapterDisplay {
-                uiState.readingProgress = viewModel.chapterScrollFraction
-            }
+        // Wire scroll progress to the ReadingProgressBar scrubber (bug #31).
+        .onChange(of: viewModel.currentOffsetUTF16) { _, _ in
+            updateChapterScrollFraction()
         }
-        // Also reset on chapter switch (localUTF16 may stay 0 → onChange won't fire)
         .onChange(of: viewModel.currentChapterIdx) { _, _ in
-            chapterScrollFraction = viewModel.chapterScrollFraction
+            updateChapterScrollFraction()
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -491,6 +496,49 @@ struct TXTReaderContainerView: View {
 
     var isPagedMode: Bool {
         settingsStore?.epubLayout == .paged && !isLargeFile
+    }
+
+    // MARK: - Chapter Progress (Bug #31)
+
+    /// Current TOC-based chapter progress (nil if no TOC entries).
+    private var tocChapterProgress: TOCChapterProgressResult? {
+        TOCChapterProgress.progress(
+            currentOffsetUTF16: viewModel.currentOffsetUTF16,
+            tocEntries: tocEntries,
+            totalTextLengthUTF16: viewModel.totalTextLengthUTF16
+        )
+    }
+
+    /// Start offset of the current TOC chapter.
+    private var tocChapterStartOffset: Int {
+        guard let cp = tocChapterProgress, cp.chapterIndex < tocEntries.count else { return 0 }
+        return tocEntries[cp.chapterIndex].locator.charOffsetUTF16 ?? 0
+    }
+
+    /// Length of the current TOC chapter in UTF-16 units.
+    private var tocChapterLength: Int {
+        guard let cp = tocChapterProgress, cp.chapterIndex < tocEntries.count else {
+            return viewModel.totalTextLengthUTF16
+        }
+        let start = tocEntries[cp.chapterIndex].locator.charOffsetUTF16 ?? 0
+        let end = cp.chapterIndex + 1 < tocEntries.count
+            ? (tocEntries[cp.chapterIndex + 1].locator.charOffsetUTF16 ?? viewModel.totalTextLengthUTF16)
+            : viewModel.totalTextLengthUTF16
+        return max(end - start, 1)
+    }
+
+    /// Updates chapterScrollFraction from the appropriate source.
+    private func updateChapterScrollFraction() {
+        if hasChapterDisplay {
+            // Chapter-based mode: use ViewModel's local offset
+            chapterScrollFraction = viewModel.chapterScrollFraction
+        } else if let cp = tocChapterProgress {
+            // Legacy mode with TOC entries: use TOC-based chapter progress
+            chapterScrollFraction = cp.fraction
+        } else {
+            // No chapters at all: fall back to book progress
+            chapterScrollFraction = viewModel.totalProgression ?? 0
+        }
     }
 }
 #endif

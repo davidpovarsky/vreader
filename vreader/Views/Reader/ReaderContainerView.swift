@@ -174,8 +174,10 @@ struct ReaderContainerView: View {
                 )
                 settingsStore.applyResolvedSettings(resolved)
             }
-            // PERF: Do NOT prep search on open — it opens SQLite on @MainActor.
-            // Search will self-prep when the search panel opens (SearchView.onAppear).
+            // Build TOC eagerly for TXT — needed for chapter progress bar in legacy mode (bug #31)
+            if resolvedBookFormat == .txt {
+                ensureTOCReady()
+            }
             // Replacement rules (unified mode only)
             if settingsStore.readingMode == .unified {
                 await loadReplacementRules()
@@ -324,7 +326,8 @@ struct ReaderContainerView: View {
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
                 settingsStore: settingsStore,
-                ttsService: ttsService
+                ttsService: ttsService,
+                tocEntries: tocEntries
             )
         case "md":
             MDReaderHost(

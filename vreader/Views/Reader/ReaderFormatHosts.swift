@@ -17,13 +17,14 @@ struct TXTReaderHost: View {
     let modelContainer: ModelContainer
     let settingsStore: ReaderSettingsStore
     let ttsService: TTSService
+    var tocEntries: [TOCEntry] = []
 
     @State private var viewModel: TXTReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService)
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService, tocEntries: tocEntries)
             } else {
                 ProgressView()
             }

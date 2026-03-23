@@ -152,6 +152,17 @@ struct TXTReaderContainerView: View {
                 VStack(spacing: 0) {
                     Spacer()
                     if hasChapterDisplay {
+                        ReadingProgressBar(
+                            progress: $chapterScrollFraction,
+                            onSeek: { seekValue in
+                                let chLen = viewModel.currentChapterText?.utf16.count ?? 0
+                                let charOffset = Int(seekValue * Double(chLen))
+                                uiState.scrollToOffset = charOffset
+                            },
+                            isVisible: (viewModel.currentChapterText?.utf16.count ?? 0) > 0,
+                            label: ScrollProgressHelper.percentageLabel(chapterScrollFraction),
+                            settingsStore: settingsStore
+                        )
                         ChapterBottomOverlay(
                             viewModel: viewModel,
                             bookProgress: viewModel.chapterBasedProgression(
@@ -277,9 +288,15 @@ struct TXTReaderContainerView: View {
                 }
             }
         }
-        // Wire scroll progress to the ReadingProgressBar scrubber (bug #72 regression)
-        .onChange(of: viewModel.totalProgression) { _, newValue in
-            uiState.readingProgress = newValue ?? 0
+        // Wire scroll progress to the ReadingProgressBar scrubber
+        .onChange(of: viewModel.currentOffsetUTF16) { _, newOffset in
+            if hasChapterDisplay, let chText = viewModel.currentChapterText, !chText.isEmpty {
+                // Chapter mode: progress within the current chapter
+                chapterScrollFraction = Double(newOffset) / Double(chText.utf16.count)
+            } else {
+                // Whole-book mode
+                uiState.readingProgress = viewModel.totalProgression ?? 0
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -393,7 +410,7 @@ struct TXTReaderContainerView: View {
             attributedText: attributedText,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
             restoreOffset: nil, // Chapter starts at top; position within chapter not persisted yet
-            scrollToOffset: nil, // Search offset translation is WI-7
+            scrollToOffset: uiState.scrollToOffset, // Scrubber seek within chapter
             highlightRange: nil, // Highlight offset translation is WI-7
             highlightIsTemporary: true,
             persistedHighlights: [], // Highlight mapping is WI-7

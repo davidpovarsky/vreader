@@ -46,6 +46,26 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
+### Bug #103 — Cannot add highlight in native EPUB
+- **Repro**: Open EPUB in native reader, select text, tap Highlight
+- **Expected**: Highlight created and rendered in-page
+- **Actual**: JS silently dropped because `onInjectJS` is nil during race with `.task` setup
+- **Root cause**: `EPUBHighlightRenderer.onInjectJS` callback swap during `restoreHighlightsOnLoad` loses concurrent highlight JS
+- **RED tests**: `EPUBHighlightRendererBug77Tests.swift` (intentionally failing)
+
+### Bug #104 — EPUB 3 nav titles not extracted
+- **Repro**: Open EPUB with nav.xhtml containing real chapter titles
+- **Expected**: TOC shows "Chapter One: The Beginning"
+- **Actual**: Shows "Section 1" (fallback)
+- **Root cause**: Bug #74 fix (`withResolvedTitles`) incomplete — nav.xhtml parsing may not match spine hrefs
+- **RED test**: `EPUBParserTests.epub3NavTitlesExtracted`
+
+### Bug #105 — Highlighted snippet multi-word overlap
+- **Repro**: Search for a multi-word query where matches overlap in snippet text
+- **Expected**: Multiple bold runs for overlapping matches
+- **Actual**: Only 1 bold run
+- **RED test**: `HighlightedSnippetTests.multiWordQuery_overlappingMatches_handled`
+
 ### Bug #88 — Imported annotations not visually highlighted
 - **Repro**: Import annotations JSON, check if highlights are rendered in reader
 - **Expected**: Imported highlights visible in the reader
@@ -161,3 +181,6 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 101| Imported book sources not visible, search button grey                                                 | BookSrc/* | High     | FIXED    | Added BookSource + ContentReplacementRule to SchemaV3.models |
 
 | 102| EPUB fails to load chapter content                                                                    | EPUB/*    | High     | FIXED    | Selective extraction only pre-extracts first chapter; added ensureChapterExtracted() before setting contentURL |
+| 103| Cannot add highlight in native EPUB (JS dropped when onInjectJS is nil)                               | EPUB/*    | High     | TODO     | Race between .task callback setup and highlight creation; restoreHighlightsOnLoad swap loses concurrent JS. Bug #77 RED tests document this. |
+| 104| EPUB 3 nav titles not extracted (shows "Section N" instead of real titles)                             | EPUB/*    | Medium   | REOPENED | Bug #74 marked FIXED but EPUBParserTests.epub3NavTitlesExtracted still fails. withResolvedTitles() may not parse nav.xhtml correctly. |
+| 105| Highlighted snippet multi-word overlap not handled                                                     | Search/*  | Low      | TODO     | HighlightedSnippetTests.multiWordQuery_overlappingMatches_handled fails. Bold run count is 1, expected >=2 for overlapping matches. |

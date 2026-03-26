@@ -1,9 +1,25 @@
-// Purpose: SwiftUI container for the TXT reader. Composes TXTTextViewBridge
-// (small files) or TXTChunkedReaderBridge (large files) with paged/scroll modes.
+// Purpose: SwiftUI container for the TXT reader. Composes the TXTTextViewBridge
+// (small files) or TXTChunkedReaderBridge (large files) with loading/error overlays.
+// Supports chapter-based display when a TXTChapterIndex is available (WI-6).
+//
+// Key decisions:
+// - Owns TXTReaderViewModel lifecycle (open on appear, close on disappear).
+// - Delegates scroll/selection events from bridge to ViewModel.
+// - Shows loading spinner during file open.
+// - Shows error message on failure.
+// - Passes theme config to bridge (font size, line spacing).
+// - Builds NSAttributedString on a background thread to avoid blocking the main
+//   thread for large files. The bridge receives the pre-built attributed string.
+// - Files over `largeFileThreshold` UTF-16 code units use chunked rendering
+//   (UITableView) to avoid TextKit 1 glyph storage blowup.
+// - Chapter-based display: when currentChapterText is available, displays just
+//   the current chapter via TXTTextViewBridge (fast — chapter is ~5-50KB).
+//   Falls back to full-text path when no chapter index is available.
+// - Book-level progress shown in bottom overlay using ChapterProgressCalculator.
 //
 // @coordinates-with: TXTReaderViewModel.swift, TXTTextViewBridge.swift,
-//   TXTChunkedReaderBridge.swift, TXTReaderContainerView+Helpers.swift,
-//   TextReaderUIState.swift, HighlightCoordinator.swift
+//   TXTChunkedReaderBridge.swift, TXTTextChunker.swift, TXTAttributedStringBuilder.swift,
+//   ChapterProgressCalculator.swift, TXTChapterIndex.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -17,6 +33,8 @@ struct TXTReaderContainerView: View {
     var settingsStore: ReaderSettingsStore?
     var modelContainer: ModelContainer?
     var ttsService: TTSService?
+    /// TOC entries from regex detection — used for chapter progress in legacy mode (bug #31).
+    var tocEntries: [TOCEntry] = []
 
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
@@ -25,10 +43,8 @@ struct TXTReaderContainerView: View {
     /// Files with more UTF-16 code units than this use chunked rendering.
     static let largeFileThreshold = 500_000
 
-    // MARK: - TXT-Specific State
-
     /// Pre-built attributed string for small files, constructed off the main thread.
-    @State var preparedAttrString: NSAttributedString?
+    @State private var preparedAttrString: NSAttributedString?
     /// True while the attributed string is being built for the first time.
     /// Subsequent rebuilds (e.g., settings changes) keep old content visible.
     @State private var isBuildingInitialAttrString = false
@@ -39,119 +55,204 @@ struct TXTReaderContainerView: View {
     /// Captured scroll position for one-shot restore. Set once after file opens.
     /// Using @State breaks the observation cycle that caused bug #15/#17:
     /// reading viewModel.currentOffsetUTF16 in body created a feedback loop.
-    @State var initialRestoreOffset: Int?
+    @State private var initialRestoreOffset: Int?
+    /// Navigation target from search results. Updated via notification.
+    @State private var scrollToOffset: Int?
+    /// Match highlight range for search navigation (bug #43).
+    @State private var highlightRange: NSRange?
+    /// Whether the current highlight is temporary (search nav) or persistent (user-created).
+    /// Temporary highlights auto-clear after 3s; persistent ones survive cell reuse (bug #54).
+    @State private var highlightIsTemporary: Bool = true
+    /// Pending annotation info for the "Add Note" flow (bug #44).
+    @State private var pendingAnnotationInfo: TextSelectionInfo?
+    /// Text input for the annotation note.
+    @State private var annotationNoteText: String = ""
+    /// Persisted highlight ranges loaded from DB on file open (bug #55).
+    @State private var persistedHighlightRanges: [NSRange] = []
+
+    /// Pre-built attributed string for chapter-based display (WI-6).
+    @State private var chapterAttrString: NSAttributedString?
+    @State private var chapterScrollFraction: Double = 0
 
     // MARK: - Shared UI State (Phase R3) + Highlight Coordination (Phase R4)
-
     @State var uiState = TextReaderUIState()
     @State var highlightRenderer: TextHighlightRenderer?
     @State var highlightCoordinator: HighlightCoordinator?
-    /// TTS sentence highlighting + auto-scroll coordinator (features #40, #41).
     @State var ttsHighlightCoordinator: TTSHighlightCoordinator?
-
-    /// Whether paged mode is active (small file + paged layout preference).
-    var isPagedMode: Bool {
-        settingsStore?.epubLayout == .paged && !isLargeFile
-    }
 
     /// Whether the loaded text exceeds the large file threshold.
     private var isLargeFile: Bool {
         viewModel.totalTextLengthUTF16 > Self.largeFileThreshold
     }
 
+    /// Whether the ViewModel has chapter-based display data available.
+    private var hasChapterDisplay: Bool {
+        viewModel.chapterIndex != nil && viewModel.currentChapterText != nil
+    }
+
     /// Composite key that triggers attributed string rebuild when text or config changes.
     /// Uses totalTextLengthUTF16 + totalWordCount (O(1)) instead of text.hashValue (O(n)).
     /// Includes theme colors so theme changes trigger rebuild (bug #29).
+    /// Includes currentChapterIdx so chapter navigation triggers rebuild (WI-6).
     private var attrStringKey: String {
         let hasText = viewModel.textContent != nil
         let len = viewModel.totalTextLengthUTF16
         let words = viewModel.totalWordCount
+        let chIdx = viewModel.currentChapterIdx
+        let chCount = viewModel.totalChapterCount
         let cfg = settingsStore?.txtViewConfig ?? TXTViewConfig()
         let textColorHash = cfg.textColor.hash
         let bgColorHash = cfg.backgroundColor.hash
-        return "\(hasText)-\(len)-\(words)-\(cfg.fontSize)-\(cfg.fontName ?? "sys")-\(cfg.lineSpacing)-\(cfg.letterSpacing)-\(textColorHash)-\(bgColorHash)"
+        return "\(hasText)-\(len)-\(words)-ch\(chIdx)/\(chCount)-\(cfg.fontSize)-\(cfg.fontName ?? "sys")-\(cfg.lineSpacing)-\(cfg.letterSpacing)-\(textColorHash)-\(bgColorHash)"
     }
 
     var body: some View {
         ZStack {
             if viewModel.isLoading || isBuildingInitialAttrString {
                 loadingView
-            } else if let errorMessage = viewModel.errorMessage, viewModel.textContent == nil {
+            } else if let errorMessage = viewModel.errorMessage,
+                      viewModel.textContent == nil && viewModel.currentChapterText == nil {
                 errorView(message: errorMessage)
+            } else if let chapterText = viewModel.currentChapterText,
+                      let attrStr = chapterAttrString {
+                // Chapter-based display (WI-6) — fast path for files with detected chapters
+                chapterReaderContent(text: chapterText, attributedText: attrStr)
+            } else if viewModel.currentChapterText != nil {
+                // Chapter text available but attributed string still building
+                loadingView
             } else if viewModel.textContent != nil && isLargeFile {
-                // Large file → chunked renderer
+                // Legacy: large file → chunked renderer (fallback when no chapter index)
                 if let chunks = textChunks, let offsets = chunkStartOffsets {
                     chunkedReaderContent(chunks: chunks, offsets: offsets)
                 } else {
                     loadingView
                 }
             } else if let text = viewModel.textContent, let attrStr = preparedAttrString {
-                // Small file → paged or scroll
-                if isPagedMode, let nav = uiState.pageNavigator {
-                    pagedReaderContent(text: text, attributedText: attrStr, navigator: nav)
-                } else {
-                    readerContent(text: text, attributedText: attrStr)
-                }
+                // Legacy: small file → single UITextView (fallback when no chapter index)
+                readerContent(text: text, attributedText: attrStr)
             } else if viewModel.textContent != nil {
                 loadingView
             } else {
                 Color.clear
             }
 
+            // Top overlay: chapter title (WI-6)
+            if hasChapterDisplay && isChromeVisible,
+               let title = viewModel.currentChapterTitle, !title.isEmpty {
+                VStack {
+                    ChapterTitleOverlay(title: title, settingsStore: settingsStore)
+                    Spacer()
+                }
+            }
+
             // Bottom overlay for session time, progress, and scrubber (bug #33, WI-004b)
+            // Show when either full text or chapter text is loaded.
             // Hidden when TTS is active to avoid overlap (bug #97)
-            if viewModel.textContent != nil && !viewModel.isLoading && isChromeVisible
+            if (viewModel.textContent != nil || viewModel.currentChapterText != nil)
+                && !viewModel.isLoading && isChromeVisible
                 && (ttsService?.state ?? .idle) == .idle {
                 VStack(spacing: 0) {
                     Spacer()
-                    ReadingProgressBar(
-                        progress: $uiState.readingProgress,
-                        onSeek: { seekValue in
-                            let charOffset = ScrollProgressHelper.charOffsetFromProgress(
-                                progress: seekValue,
-                                totalLengthUTF16: viewModel.totalTextLengthUTF16
-                            )
-                            uiState.scrollToOffset = charOffset
-                        },
-                        isVisible: viewModel.totalTextLengthUTF16 > 0,
-                        label: ScrollProgressHelper.percentageLabel(uiState.readingProgress),
-                        settingsStore: settingsStore
-                    )
-                    ReaderBottomOverlay(
-                        progress: viewModel.totalProgression,
-                        sessionTime: viewModel.sessionTimeDisplay,
-                        settingsStore: settingsStore,
-                        accessibilityPrefix: "txt"
-                    )
+                    if hasChapterDisplay {
+                        ReadingProgressBar(
+                            progress: $chapterScrollFraction,
+                            onSeek: { seekValue in
+                                let chLen = viewModel.currentChapterText?.utf16.count ?? 0
+                                let charOffset = Int(seekValue * Double(chLen))
+                                uiState.scrollToOffset = charOffset
+                            },
+                            isVisible: (viewModel.currentChapterText?.utf16.count ?? 0) > 0,
+                            label: ScrollProgressHelper.percentageLabel(chapterScrollFraction),
+                            settingsStore: settingsStore
+                        )
+                        ChapterBottomOverlay(
+                            viewModel: viewModel,
+                            bookProgress: chapterScrollFraction,
+                            settingsStore: settingsStore,
+                            onNavigate: { chapterAttrString = nil }
+                        )
+                    } else {
+                        ReadingProgressBar(
+                            progress: $chapterScrollFraction,
+                            onSeek: { seekValue in
+                                // If TOC entries exist, seek within current chapter
+                                if let cp = tocChapterProgress {
+                                    let chapterLen = tocChapterLength
+                                    let localTarget = Int(seekValue * Double(chapterLen))
+                                    let globalTarget = tocChapterStartOffset + localTarget
+                                    uiState.scrollToOffset = globalTarget
+                                } else {
+                                    let charOffset = ScrollProgressHelper.charOffsetFromProgress(
+                                        progress: seekValue,
+                                        totalLengthUTF16: viewModel.totalTextLengthUTF16
+                                    )
+                                    uiState.scrollToOffset = charOffset
+                                }
+                            },
+                            isVisible: viewModel.totalTextLengthUTF16 > 0,
+                            label: ScrollProgressHelper.percentageLabel(chapterScrollFraction),
+                            settingsStore: settingsStore
+                        )
+                        ReaderBottomOverlay(
+                            progress: chapterScrollFraction,
+                            sessionTime: viewModel.sessionTimeDisplay,
+                            settingsStore: settingsStore,
+                            accessibilityPrefix: "txt"
+                        )
+                    }
                 }
             }
         }
         .task {
-            await viewModel.open(url: fileURL)
-            initialRestoreOffset = viewModel.currentOffsetUTF16
-            // PERF: Create renderer/coordinator immediately, but defer DB restore
-            let renderer = TextHighlightRenderer(uiState: uiState)
-            highlightRenderer = renderer
-            if let tts = ttsService {
-                ttsHighlightCoordinator = TTSHighlightCoordinator(ttsService: tts, uiState: uiState)
+            // PERF: open already called by TXTReaderHost — skip if content loaded
+            if viewModel.textContent == nil && viewModel.currentChapterText == nil {
+                await viewModel.openChapterBased(url: fileURL)
             }
-            // Defer highlight restore — don't block content display
-            Task {
-                if let container = modelContainer {
-                    let persistence = PersistenceActor(modelContainer: container)
-                    let coordinator = HighlightCoordinator(
-                        renderer: renderer,
-                        persistence: persistence,
-                        bookFingerprintKey: viewModel.bookFingerprintKey
-                    )
-                    highlightCoordinator = coordinator
-                    await coordinator.restoreAll()
+            initialRestoreOffset = viewModel.currentOffsetUTF16
+            // Load persisted highlights from DB for visual rendering (bug #55)
+            if let container = modelContainer {
+                let persistence = PersistenceActor(modelContainer: container)
+                if let records = try? await persistence.fetchHighlights(
+                    forBookWithKey: viewModel.bookFingerprintKey
+                ) {
+                    persistedHighlightRanges = records.compactMap { record in
+                        guard let start = record.locator.charRangeStartUTF16,
+                              let end = record.locator.charRangeEndUTF16,
+                              end > start else { return nil }
+                        return NSRange(location: start, length: end - start)
+                    }
                 }
             }
         }
         .task(id: attrStringKey) {
-            guard let text = viewModel.textContent else { return }
             let config = settingsStore?.txtViewConfig ?? TXTViewConfig()
+
+            // Chapter-based path (WI-6): build attributed string for current chapter only.
+            // Much smaller text → typically <50ms, often synchronous for small chapters.
+            if let chapterText = viewModel.currentChapterText {
+                let isInitial = chapterAttrString == nil
+                if isInitial { isBuildingInitialAttrString = true }
+                defer { if isInitial { isBuildingInitialAttrString = false } }
+
+                if chapterText.utf16.count < 10_000 {
+                    // Small chapter (<10KB UTF-16): build synchronously
+                    chapterAttrString = TXTAttributedStringBuilder.build(
+                        text: chapterText, config: config
+                    )
+                } else {
+                    let wrapped = await Task.detached(priority: .userInitiated) {
+                        TXTAttributedStringBuilder.buildSendable(
+                            text: chapterText, config: config
+                        )
+                    }.value
+                    guard !Task.isCancelled else { return }
+                    chapterAttrString = wrapped.value
+                }
+                return
+            }
+
+            // Legacy full-text path (no chapter index)
+            guard let text = viewModel.textContent else { return }
 
             if text.utf16.count > Self.largeFileThreshold {
                 // Large file: split into chunks (fast, no attributed string needed here)
@@ -184,10 +285,6 @@ struct TXTReaderContainerView: View {
                 }.value
                 guard !Task.isCancelled else { return }
                 preparedAttrString = wrapped.value
-                // Trigger pagination if paged mode is active (B08)
-                if isPagedMode {
-                    updatePaginationIfNeeded()
-                }
             }
         }
         .onDisappear {
@@ -198,6 +295,13 @@ struct TXTReaderContainerView: View {
                     UIApplication.shared.endBackgroundTask(bgTaskID)
                 }
             }
+        }
+        // Wire scroll progress to the ReadingProgressBar scrubber (bug #31).
+        .onChange(of: viewModel.currentOffsetUTF16) { _, _ in
+            updateChapterScrollFraction()
+        }
+        .onChange(of: viewModel.currentChapterIdx) { _, _ in
+            updateChapterScrollFraction()
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -215,58 +319,41 @@ struct TXTReaderContainerView: View {
                 break
             }
         }
-        .onChange(of: viewModel.totalProgression) { _, newValue in
-            uiState.readingProgress = newValue ?? 0
-            // Notify ReaderContainerView of the live position for AI panel.
-            let locator = viewModel.makeLocator()
-            NotificationCenter.default.post(
-                name: .readerPositionDidChange, object: locator
-            )
-        }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
             isChromeVisible.toggle()
-            // Pause auto page turner on user interaction (B10)
-            uiState.autoPageTurner?.pause()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
-            guard isPagedMode else { return }
-            uiState.pageNavigator?.nextPage()
-            if let offset = uiState.syncPagedState() {
-                viewModel.updateScrollPosition(charOffsetUTF16: offset)
-            }
-            // Pause auto page turner on user interaction (B10)
-            uiState.autoPageTurner?.pause()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
-            guard isPagedMode else { return }
-            uiState.pageNavigator?.previousPage()
-            if let offset = uiState.syncPagedState() {
-                viewModel.updateScrollPosition(charOffsetUTF16: offset)
-            }
-            // Pause auto page turner on user interaction (B10)
-            uiState.autoPageTurner?.pause()
-        }
-        .onChange(of: settingsStore?.epubLayout) { _, _ in
-            updatePaginationIfNeeded()
-        }
-        .onChange(of: settingsStore?.typography.fontSize) { _, _ in
-            updatePaginationIfNeeded()
-        }
-        .onChange(of: settingsStore?.autoPageTurn) { _, newValue in
-            uiState.updateAutoPageTurner(
-                enabled: newValue ?? false,
-                isPagedMode: isPagedMode,
-                interval: settingsStore?.autoPageTurnInterval ?? 5.0
-            )
         }
         .readerNotificationHandlers(
             deps: makeNotificationDeps(),
             uiState: uiState,
             highlightCoordinator: highlightCoordinator ?? makeNoOpCoordinator()
         )
-        // highlightRemoved now handled by ReaderNotificationModifier (Phase R2)
         .accessibilityIdentifier("txtReaderContainer")
         .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
+    }
+
+    // MARK: - Notification Dependencies
+
+    private func makeNotificationDeps() -> ReaderNotificationDeps {
+        let container = modelContainer
+        return ReaderNotificationDeps(
+            bookFingerprintKey: viewModel.bookFingerprintKey,
+            bookFingerprint: viewModel.bookFingerprint,
+            bookmarkPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpBookmarkStore(),
+            highlightPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpHighlightStore(),
+            annotationPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpAnnotationStore(),
+            locatorFactory: { fp, start, end, text in
+                LocatorFactory.txtRange(fingerprint: fp, charRangeStartUTF16: start, charRangeEndUTF16: end, sourceText: text)
+            },
+            sourceText: { [viewModel] in viewModel.textContent },
+            makeCurrentLocator: { [viewModel] in viewModel.makeLocator() },
+            onNavigate: { [viewModel] offset in
+                if viewModel.chapterIndex != nil {
+                    Task { await viewModel.navigateToGlobalOffset(offset) }
+                } else {
+                    viewModel.updateScrollPosition(charOffsetUTF16: offset)
+                }
+            }
+        )
     }
 
     // MARK: - Subviews
@@ -298,50 +385,160 @@ struct TXTReaderContainerView: View {
     }
 
     @ViewBuilder
-    private func pagedReaderContent(
-        text: String,
-        attributedText: NSAttributedString,
-        navigator: NativeTextPageNavigator
-    ) -> some View {
-        VStack(spacing: 0) {
-            NativeTextPagedView(
-                navigator: navigator,
-                fullText: text,
-                fullAttributedText: attributedText,
-                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-                currentPage: uiState.pagedCurrentPage,
-                pageTurnAnimation: settingsStore?.pageTurnAnimation ?? .none
-            )
-
-            // Page indicator
-            if navigator.totalPages > 0 {
-                Text("Page \(uiState.pagedCurrentPage + 1) of \(navigator.totalPages)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 4)
-                    .accessibilityIdentifier("txtPageIndicator")
-            }
-        }
-        .ignoresSafeArea(edges: .bottom)
-        .accessibilityIdentifier("txtReaderPagedContent")
-    }
-
-    @ViewBuilder
     private func readerContent(text: String, attributedText: NSAttributedString) -> some View {
         TXTTextViewBridge(
             text: text,
             attributedText: attributedText,
             config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
             restoreOffset: initialRestoreOffset,
-            scrollToOffset: uiState.scrollToOffset,
-            highlightRange: uiState.highlightRange,
-            highlightIsTemporary: uiState.highlightIsTemporary,
-            persistedHighlights: uiState.persistedHighlightRanges,
+            scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
+            highlightRange: highlightRange,
+            highlightIsTemporary: highlightIsTemporary,
+            persistedHighlights: persistedHighlightRanges,
             delegate: viewModel
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("txtReaderContent")
     }
 
+    // MARK: - Chapter-Based Content (WI-6)
+
+    /// Renders the current chapter text via TXTTextViewBridge.
+    /// Same bridge as full-text mode — just receives chapter text instead of full file.
+    @ViewBuilder
+    private func chapterReaderContent(
+        text: String,
+        attributedText: NSAttributedString
+    ) -> some View {
+        TXTTextViewBridge(
+            text: text,
+            attributedText: attributedText,
+            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+            restoreOffset: nil, // Chapter starts at top; position within chapter not persisted yet
+            scrollToOffset: uiState.scrollToOffset, // Scrubber seek within chapter
+            highlightRange: nil, // Highlight offset translation is WI-7
+            highlightIsTemporary: true,
+            persistedHighlights: [], // Highlight mapping is WI-7
+            delegate: viewModel
+        )
+        .ignoresSafeArea(edges: .bottom)
+        .accessibilityIdentifier("txtReaderChapterContent")
+    }
+
+    // MARK: - Legacy Subviews
+
+    @ViewBuilder
+    private func chunkedReaderContent(chunks: [String], offsets: [Int]) -> some View {
+        let chunkIdx = Self.chunkIndex(for: initialRestoreOffset ?? 0, in: offsets)
+        let intraFraction: CGFloat? = {
+            guard let idx = chunkIdx, let offset = initialRestoreOffset else { return nil }
+            let chunkStart = offsets[idx]
+            let nextStart = idx + 1 < offsets.count ? offsets[idx + 1] : viewModel.totalTextLengthUTF16
+            let chunkLen = nextStart - chunkStart
+            guard chunkLen > 0 else { return nil }
+            return CGFloat(offset - chunkStart) / CGFloat(chunkLen)
+        }()
+
+        TXTChunkedReaderBridge(
+            chunks: chunks,
+            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+            restoreChunkIndex: chunkIdx,
+            restoreIntraChunkOffset: intraFraction,
+            delegate: viewModel,
+            chunkStartOffsets: offsets,
+            scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
+            highlightRange: highlightRange,
+            highlightIsTemporary: highlightIsTemporary,
+            persistedHighlights: persistedHighlightRanges
+        )
+        .ignoresSafeArea(edges: .bottom)
+        .accessibilityIdentifier("txtReaderChunkedContent")
+    }
+
+    /// Finds the chunk index containing the given character offset.
+    static func chunkIndex(for charOffset: Int, in offsets: [Int]) -> Int? {
+        guard charOffset > 0, !offsets.isEmpty else { return nil }
+        var lo = 0, hi = offsets.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if offsets[mid] <= charOffset {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
+        }
+        return lo
+    }
+
+    // MARK: - Helpers
+
+    func makeNoOpCoordinator() -> HighlightCoordinator {
+        let renderer = highlightRenderer ?? TextHighlightRenderer(uiState: uiState)
+        return HighlightCoordinator(
+            renderer: renderer,
+            persistence: NoOpHighlightStore(),
+            bookFingerprintKey: viewModel.bookFingerprintKey
+        )
+    }
+
+    func updatePaginationIfNeeded() {
+        uiState.updatePagination(
+            isPagedMode: isPagedMode,
+            attributedText: preparedAttrString,
+            initialRestoreOffset: initialRestoreOffset,
+            autoPageTurnEnabled: settingsStore?.autoPageTurn ?? false,
+            autoPageTurnInterval: settingsStore?.autoPageTurnInterval ?? 5.0
+        )
+        if let offset = uiState.syncPagedState() {
+            viewModel.updateScrollPosition(charOffsetUTF16: offset)
+        }
+    }
+
+    var isPagedMode: Bool {
+        settingsStore?.epubLayout == .paged && !isLargeFile
+    }
+
+    // MARK: - Chapter Progress (Bug #31)
+
+    /// Current TOC-based chapter progress (nil if no TOC entries).
+    private var tocChapterProgress: TOCChapterProgressResult? {
+        TOCChapterProgress.progress(
+            currentOffsetUTF16: viewModel.currentOffsetUTF16,
+            tocEntries: tocEntries,
+            totalTextLengthUTF16: viewModel.totalTextLengthUTF16
+        )
+    }
+
+    /// Start offset of the current TOC chapter.
+    private var tocChapterStartOffset: Int {
+        guard let cp = tocChapterProgress, cp.chapterIndex < tocEntries.count else { return 0 }
+        return tocEntries[cp.chapterIndex].locator.charOffsetUTF16 ?? 0
+    }
+
+    /// Length of the current TOC chapter in UTF-16 units.
+    private var tocChapterLength: Int {
+        guard let cp = tocChapterProgress, cp.chapterIndex < tocEntries.count else {
+            return viewModel.totalTextLengthUTF16
+        }
+        let start = tocEntries[cp.chapterIndex].locator.charOffsetUTF16 ?? 0
+        let end = cp.chapterIndex + 1 < tocEntries.count
+            ? (tocEntries[cp.chapterIndex + 1].locator.charOffsetUTF16 ?? viewModel.totalTextLengthUTF16)
+            : viewModel.totalTextLengthUTF16
+        return max(end - start, 1)
+    }
+
+    /// Updates chapterScrollFraction from the appropriate source.
+    private func updateChapterScrollFraction() {
+        if hasChapterDisplay {
+            // Chapter-based mode: use ViewModel's local offset
+            chapterScrollFraction = viewModel.chapterScrollFraction
+        } else if let cp = tocChapterProgress {
+            // Legacy mode with TOC entries: use TOC-based chapter progress
+            chapterScrollFraction = cp.fraction
+        } else {
+            // No chapters at all: fall back to book progress
+            chapterScrollFraction = viewModel.totalProgression ?? 0
+        }
+    }
 }
 #endif

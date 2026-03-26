@@ -7,8 +7,11 @@
 // - Falls back to manual encoding attempts in safe order.
 // - Catch-all encodings (ISO-8859-1, CP1252) tried last — they match any byte sequence.
 // - Word count uses whitespace splitting (locale-independent).
+// - Chapter-based open (WI-5) builds index from streaming blocks without full decode.
 //
-// @coordinates-with: TXTServiceProtocol.swift, TXTReaderViewModel.swift
+// @coordinates-with: TXTServiceProtocol.swift, TXTReaderViewModel.swift,
+//   TXTChapterIndex.swift, TXTChapterIndexBuilder.swift, TXTChapterContentLoader.swift,
+//   TXTChapterIndexStore.swift, TXTOffsetTranslator.swift, TXTTocRuleEngine.swift
 
 import Foundation
 
@@ -72,6 +75,133 @@ actor TXTService: TXTServiceProtocol {
 
     func close() async {
         _isOpen = false
+    }
+
+    // MARK: - Chapter-Based Open (WI-5)
+
+    func openChapterBased(url: URL) async throws -> TXTChapterOpenResult {
+        guard !_isOpen, !_isOpening else { throw TXTServiceError.alreadyOpen }
+        _isOpening = true
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            _isOpening = false
+            throw TXTServiceError.fileNotFound(url.lastPathComponent)
+        }
+
+        let result: TXTChapterOpenResult
+        do {
+            result = try await Task.detached {
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                let fileByteCount = Int64(data.count)
+
+                guard !data.isEmpty else {
+                    let emptyIndex = TXTChapterIndex(
+                        chapters: [], totalBytes: 0, detectedEncoding: "UTF-8"
+                    )
+                    let loader = TXTChapterContentLoader(fileData: data, encoding: .utf8)
+                    return TXTChapterOpenResult(
+                        chapterIndex: emptyIndex, contentLoader: loader,
+                        fileByteCount: 0, detectedEncoding: "UTF-8"
+                    )
+                }
+
+                let encodingName = Self.detectEncodingFromSample(data)
+                let encoding = Self.encodingFromName(encodingName) ?? .utf8
+                let cacheDir = Self.cacheDirectory(for: url)
+                let fileModDate = Self.fileModificationDate(url: url) ?? Date()
+
+                if var cachedIndex = TXTChapterIndexStore.load(
+                    cacheDir: cacheDir, fileByteCount: fileByteCount, fileModDate: fileModDate
+                ) {
+                    let loader = TXTChapterContentLoader(fileData: data, encoding: encoding)
+                    // Populate UTF-16 offsets if not already done (GH #30)
+                    if cachedIndex.totalTextLengthUTF16 == 0, !cachedIndex.chapters.isEmpty {
+                        var chs = cachedIndex.chapters
+                        try TXTOffsetTranslator.populateUTF16Offsets(chapters: &chs) { ch in
+                            let s = Int(ch.startByte), e = min(Int(ch.endByte), data.count)
+                            guard s < e else { return "" }
+                            guard let decoded = String(data: data[s..<e], encoding: encoding) else {
+                                return ""
+                            }
+                            return decoded
+                        }
+                        cachedIndex = TXTChapterIndex(
+                            chapters: chs,
+                            totalBytes: cachedIndex.totalBytes,
+                            detectedEncoding: cachedIndex.detectedEncoding,
+                            totalTextLengthUTF16: chs.last.map { $0.globalStartUTF16 + $0.textLengthUTF16 } ?? 0
+                        )
+                    }
+                    return TXTChapterOpenResult(
+                        chapterIndex: cachedIndex, contentLoader: loader,
+                        fileByteCount: fileByteCount, detectedEncoding: encodingName
+                    )
+                }
+
+                // Build index from streaming blocks
+                let sampleSize = min(data.count, 512_000)
+                let sampleText = String(data: Data(data.prefix(sampleSize)), encoding: encoding) ?? ""
+                let rule = TXTTocRuleEngine.detectBestRule(
+                    text: sampleText, rules: TXTTocRuleEngine.defaultRules
+                )
+                var index = TXTChapterIndexBuilder.build(
+                    data: data, encoding: encoding, encodingName: encodingName, rule: rule
+                )
+
+                // Populate UTF-16 offsets eagerly — needed for TOC navigation,
+                // position restore, and progress display. (GH #30)
+                var chapters = index.chapters
+                try TXTOffsetTranslator.populateUTF16Offsets(chapters: &chapters) { ch in
+                    let s = Int(ch.startByte), e = min(Int(ch.endByte), data.count)
+                    guard s < e else { return "" }
+                    return String(data: data[s..<e], encoding: encoding) ?? ""
+                }
+                index = TXTChapterIndex(
+                    chapters: chapters,
+                    totalBytes: index.totalBytes,
+                    detectedEncoding: index.detectedEncoding,
+                    totalTextLengthUTF16: chapters.last.map { $0.globalStartUTF16 + $0.textLengthUTF16 } ?? 0
+                )
+
+                try? FileManager.default.createDirectory(
+                    at: cacheDir, withIntermediateDirectories: true
+                )
+                try? TXTChapterIndexStore.save(
+                    index, cacheDir: cacheDir,
+                    fileByteCount: fileByteCount, fileModDate: fileModDate
+                )
+
+                let loader = TXTChapterContentLoader(fileData: data, encoding: encoding)
+                return TXTChapterOpenResult(
+                    chapterIndex: index, contentLoader: loader,
+                    fileByteCount: fileByteCount, detectedEncoding: encodingName
+                )
+            }.value
+        } catch {
+            _isOpening = false
+            throw error
+        }
+
+        _isOpen = true
+        _isOpening = false
+        return result
+    }
+
+    // MARK: - File Helpers
+
+    /// Returns a cache directory for chapter index persistence.
+    /// Uses a stable key derived from filename + file size (audit fix: hashValue is randomized per process).
+    private static func cacheDirectory(for url: URL) -> URL {
+        let cacheBase = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let stableKey = "\(url.lastPathComponent)-\(size)"
+            .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "unknown"
+        return cacheBase.appendingPathComponent("chapter-index/\(stableKey)")
+    }
+
+    /// Returns the modification date of a file.
+    private static func fileModificationDate(url: URL) -> Date? {
+        try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
     }
 
     // MARK: - Encoding Detection

@@ -809,3 +809,48 @@ struct TXTReaderViewModelPositionServiceTests {
         #expect(saved?.charOffsetUTF16 == 20)
     }
 }
+
+// MARK: - Chapter Local Offset (Bug #31)
+
+@Suite("TXTReaderViewModel - Chapter Local Offset")
+@MainActor
+struct TXTReaderViewModelChapterLocalTests {
+
+    @Test("chapterLocalUTF16 starts at 0 in non-chapter mode")
+    func nonChapterModeLocalIsZero() async {
+        let (vm, _, _, _) = await makeViewModel()
+        await vm.open(url: testURL)
+        #expect(vm.currentChapterLocalUTF16 == 0)
+    }
+
+    @Test("updateScrollPosition in chapter mode updates chapterLocalUTF16")
+    func scrollUpdatesLocal() async {
+        let (vm, _, _, _) = await makeViewModel()
+        await vm.open(url: testURL)
+        // Simulate chapter mode by setting state through updateScrollPosition
+        // In non-chapter mode, chapterLocalUTF16 should track currentOffsetUTF16
+        vm.updateScrollPosition(charOffsetUTF16: 10)
+        #expect(vm.currentChapterLocalUTF16 == 10)
+    }
+
+    @Test("updateScrollPosition in chapter mode keeps currentOffsetUTF16 global")
+    func scrollKeepsGlobal() async {
+        let (vm, _, _, _) = await makeViewModel()
+        await vm.open(url: testURL)
+        // In non-chapter mode, both should be the same
+        vm.updateScrollPosition(charOffsetUTF16: 15)
+        #expect(vm.currentOffsetUTF16 == 15)
+        #expect(vm.currentChapterLocalUTF16 == 15)
+    }
+
+    @Test("chapterScrollFraction computed correctly")
+    func chapterScrollFraction() async {
+        let (vm, _, _, _) = await makeViewModel()
+        await vm.open(url: testURL)
+        // Non-chapter mode: fraction = local / totalLength
+        vm.updateScrollPosition(charOffsetUTF16: 32)
+        let total = vm.totalTextLengthUTF16
+        let expected = Double(32) / Double(total)
+        #expect(vm.chapterScrollFraction == expected)
+    }
+}

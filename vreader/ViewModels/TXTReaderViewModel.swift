@@ -11,11 +11,14 @@
 // - Staged error handling: service failure aborts, position/timestamp failures non-fatal.
 // - Position uses canonical UTF-16 offsets matching TXTOffsetMapper conventions.
 // - wordsRead estimated via Section 9.6 normative formula.
+// - Chapter-based lazy loading (WI-5): stores chapter index and loads one chapter at a time.
+//   Falls back to full-text open if chapter-based fails.
 //
 // @coordinates-with: TXTFileLoader.swift, ReaderLifecycleHelper.swift,
 //   ReaderPositionService.swift, TXTServiceProtocol.swift,
 //   ReadingPositionPersisting.swift, ReadingSessionTracker.swift,
-//   LocatorFactory.swift, TXTTextViewBridge.swift
+//   LocatorFactory.swift, TXTTextViewBridge.swift,
+//   TXTChapterIndex.swift, TXTChapterContentLoader.swift, TXTOffsetTranslator.swift
 
 import Foundation
 
@@ -35,8 +38,12 @@ final class TXTReaderViewModel {
     /// Total word count from metadata.
     private(set) var totalWordCount: Int = 0
 
-    /// Current scroll position as UTF-16 char offset.
+    /// Current scroll position as UTF-16 char offset (global/book-level, for persistence).
     private(set) var currentOffsetUTF16: Int = 0
+
+    /// Current scroll position within the displayed chapter (local, for progress bar).
+    /// In non-chapter mode, equals currentOffsetUTF16.
+    private(set) var currentChapterLocalUTF16: Int = 0
 
     /// Start of current selection in UTF-16 offsets (nil if no selection).
     private(set) var currentSelectionStart: Int?
@@ -97,6 +104,54 @@ final class TXTReaderViewModel {
     /// Duration to suppress scroll saves after position restore (seconds).
     /// Must be longer than the bridge's Phase 2 restore delay (0.8s) + margin.
     private static let restoreSuppressDuration: TimeInterval = 1.5
+
+    // MARK: - Chapter-Based State (WI-5)
+
+    /// Chapter index for the current book (nil if using legacy full-text mode).
+    private(set) var chapterIndex: TXTChapterIndex?
+    /// Current chapter index being displayed.
+    private(set) var currentChapterIdx: Int = 0
+    /// Text content of the current chapter (replaces full textContent for display).
+    private(set) var currentChapterText: String?
+    /// Content loader for on-demand chapter access.
+    private var chapterContentLoader: TXTChapterContentLoader?
+    /// Whether the VM is in chapter-based mode (vs legacy full-text mode).
+    var isChapterMode: Bool { chapterIndex != nil }
+
+    /// Current chapter title (WI-6 overlay).
+    var currentChapterTitle: String? {
+        guard let idx = chapterIndex, currentChapterIdx < idx.count else { return nil }
+        return idx.chapters[currentChapterIdx].title
+    }
+
+    /// Total chapter count (WI-6 overlay).
+    var totalChapterCount: Int { chapterIndex?.count ?? 0 }
+
+    /// Whether there is a next chapter (WI-6 overlay).
+    var hasNextChapter: Bool { chapterIndex.map { currentChapterIdx < $0.count - 1 } ?? false }
+
+    /// Whether there is a previous chapter (WI-6 overlay).
+    var hasPreviousChapter: Bool { currentChapterIdx > 0 }
+
+    /// Scroll fraction within the current chapter (0.0-1.0). For progress bar binding.
+    /// In non-chapter mode, uses totalTextLengthUTF16 as denominator.
+    var chapterScrollFraction: Double {
+        let len = isChapterMode
+            ? (currentChapterText?.utf16.count ?? 0)
+            : totalTextLengthUTF16
+        guard len > 0 else { return 0 }
+        return Double(min(currentChapterLocalUTF16, len)) / Double(len)
+    }
+
+    /// Book-level progress from chapter position + scroll fraction (WI-6 overlay).
+    func chapterBasedProgression(scrollFraction: Double) -> Double {
+        guard let idx = chapterIndex, idx.count > 0 else { return 0 }
+        return (Double(currentChapterIdx) + scrollFraction) / Double(idx.count)
+    }
+
+    /// Aliases for WI-6 overlay compatibility.
+    func goToNextChapter() { Task { await nextChapter() } }
+    func goToPreviousChapter() { Task { await previousChapter() } }
 
     // MARK: - Init
 
@@ -198,6 +253,168 @@ final class TXTReaderViewModel {
         Task { await lifecycle.updateLastOpened() }
     }
 
+    /// Opens the TXT file using chapter-based lazy loading (WI-5).
+    /// Falls back to full-text open if chapter-based loading fails.
+    func openChapterBased(url: URL) async {
+        guard !isLoading else { return }
+
+        if textContent != nil || chapterIndex != nil { await close() }
+
+        openGeneration += 1
+        let myGeneration = openGeneration
+        isOpenComplete = false
+        isLoading = true
+        errorMessage = nil
+
+        let chapterLoadResult: TXTChapterLoadResult
+        do {
+            chapterLoadResult = try await TXTFileLoader.loadChapterBased(
+                url: url, service: txtService,
+                positionStore: positionStore, bookFingerprintKey: bookFingerprintKey
+            )
+        } catch is CancellationError {
+            resetState(); isLoading = false; return
+        } catch {
+            await txtService.close(); isLoading = false; await open(url: url); return
+        }
+
+        guard myGeneration == openGeneration else {
+            await txtService.close(); isLoading = false; return
+        }
+
+        let openResult = chapterLoadResult.chapterOpenResult
+        chapterIndex = openResult.chapterIndex
+        chapterContentLoader = openResult.contentLoader
+        currentChapterIdx = chapterLoadResult.initialChapterIndex
+
+        let chapters = openResult.chapterIndex.chapters
+        if !chapters.isEmpty {
+            let target = chapters[chapterLoadResult.initialChapterIndex]
+            do {
+                let text = try await openResult.contentLoader.loadChapter(target)
+                currentChapterText = text; textContent = text
+            } catch {
+                resetChapterState(); await txtService.close(); isLoading = false; await open(url: url); return
+            }
+        } else {
+            currentChapterText = ""; textContent = ""
+        }
+
+        totalTextLengthUTF16 = openResult.chapterIndex.totalTextLengthUTF16
+        totalWordCount = 0
+
+        if chapterLoadResult.hadSavedPosition, !chapters.isEmpty {
+            let ch = chapters[chapterLoadResult.initialChapterIndex]
+            currentChapterLocalUTF16 = chapterLoadResult.restoredLocalOffsetUTF16
+            currentOffsetUTF16 = ch.globalStartUTF16 + chapterLoadResult.restoredLocalOffsetUTF16
+        } else {
+            currentChapterLocalUTF16 = 0
+            currentOffsetUTF16 = 0
+        }
+
+        restoreSuppressUntil = chapterLoadResult.hadSavedPosition
+            ? Date().addingTimeInterval(Self.restoreSuppressDuration) : nil
+
+        isOpenComplete = true; isLoading = false
+        do { try lifecycle.beginSession() } catch { /* non-fatal */ }
+        Task { await lifecycle.updateLastOpened() }
+
+        if !chapters.isEmpty {
+            let loader = openResult.contentLoader
+            let idx = chapterLoadResult.initialChapterIndex
+            Task.detached { [chapters] in
+                await loader.preloadAdjacent(currentIndex: idx, chapters: chapters)
+            }
+        }
+    }
+
+    // MARK: - Chapter Navigation (WI-5)
+
+    /// Navigates to a specific chapter by index. No-op if out of bounds or not in chapter mode.
+    func navigateToChapter(_ index: Int) async {
+        guard let chIdx = chapterIndex, let loader = chapterContentLoader,
+              index >= 0, index < chIdx.chapters.count else { return }
+        let chapter = chIdx.chapters[index]
+        do {
+            let text = try await loader.loadChapter(chapter)
+            currentChapterIdx = index; currentChapterText = text; textContent = text
+            currentChapterLocalUTF16 = 0 // Start at top of new chapter
+            // Use globalStartUTF16 only if populated; otherwise estimate from byte ratio
+            if chapter.globalStartUTF16 >= 0 {
+                currentOffsetUTF16 = chapter.globalStartUTF16
+            } else {
+                // Estimate: byte position × average chars/byte ratio
+                let totalBytes = chIdx.totalBytes
+                let totalUTF16 = totalTextLengthUTF16
+                if totalBytes > 0, totalUTF16 > 0 {
+                    currentOffsetUTF16 = Int(Double(chapter.startByte) / Double(totalBytes) * Double(totalUTF16))
+                } else {
+                    currentOffsetUTF16 = 0
+                }
+            }
+        } catch { errorMessage = "Failed to load chapter \(index + 1)." }
+        let chapters = chIdx.chapters
+        Task.detached { [index] in
+            await loader.preloadAdjacent(currentIndex: index, chapters: chapters)
+        }
+    }
+
+    /// Navigates to the chapter matching a TOC entry title.
+    /// Used by TOC navigation — matches by title because UTF-16 offsets from
+    /// TOC (full-text regex) and chapters (byte-range decode) can drift. (GH #30)
+    func navigateToChapterByTitle(_ title: String) async {
+        guard let chIdx = chapterIndex else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let idx = chIdx.chapters.firstIndex(where: {
+            $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+        }) {
+            await navigateToChapter(idx)
+        }
+    }
+
+    /// Navigates to the chapter containing the given global UTF-16 offset.
+    /// If globalStartUTF16 is populated, uses exact match.
+    /// Otherwise estimates chapter from byte-position ratio. (GH #30)
+    func navigateToGlobalOffset(_ globalUTF16: Int) async {
+        guard let chIdx = chapterIndex, !chIdx.chapters.isEmpty else { return }
+
+        // Check if offsets are populated
+        let hasOffsets = chIdx.chapters.first(where: { $0.globalStartUTF16 >= 0 }) != nil
+
+        if hasOffsets {
+            var targetIndex = 0
+            for (i, ch) in chIdx.chapters.enumerated() {
+                guard ch.globalStartUTF16 >= 0 else { continue }
+                if ch.globalStartUTF16 <= globalUTF16 {
+                    targetIndex = i
+                } else {
+                    break
+                }
+            }
+            await navigateToChapter(targetIndex)
+        } else {
+            // Estimate: map UTF-16 offset to byte position, find containing chapter
+            let totalUTF16 = max(totalTextLengthUTF16, 1)
+            let fraction = Double(globalUTF16) / Double(totalUTF16)
+            let estimatedByte = Int64(fraction * Double(chIdx.totalBytes))
+            var targetIndex = 0
+            for (i, ch) in chIdx.chapters.enumerated() {
+                if ch.startByte <= estimatedByte {
+                    targetIndex = i
+                } else {
+                    break
+                }
+            }
+            await navigateToChapter(targetIndex)
+        }
+    }
+
+    /// Advances to the next chapter. No-op if already at the last chapter.
+    func nextChapter() async { await navigateToChapter(currentChapterIdx + 1) }
+
+    /// Goes back to the previous chapter. No-op if already at the first chapter.
+    func previousChapter() async { await navigateToChapter(currentChapterIdx - 1) }
+
     /// Closes the reader, ending the session and flushing state.
     /// Order is load-bearing (bugs #34, #45): saveNow → recordProgress → end → stats → notify.
     func close() async {
@@ -228,25 +445,31 @@ final class TXTReaderViewModel {
     // MARK: - Position Updates
 
     /// Called when the scroll position changes. Offset is in UTF-16 code units.
+    /// In chapter mode, the bridge reports chapter-local offsets (the UITextView only
+    /// contains chapter text). We store the local value and compute the global offset
+    /// for persistence. In non-chapter mode, local == global.
     func updateScrollPosition(charOffsetUTF16: Int) {
         guard textContent != nil, isOpenComplete else { return }
         let clamped = clampOffset(charOffsetUTF16)
 
-        // Suppress scroll position saves during the post-restore settling window.
-        // TextKit relayout storms after position restore can fire scrollViewDidScroll
-        // with wrong offsets (including near-zero). The bridge suppresses most of these,
-        // but this is defense in depth.
-        if let suppressUntil = restoreSuppressUntil {
-            if Date() < suppressUntil {
-                // Still track position for display, but don't persist.
-                // This allows real user scrolls during the window to update the UI.
-                currentOffsetUTF16 = clamped
-                return
-            }
-            restoreSuppressUntil = nil
+        // In chapter mode, the bridge offset is local to the chapter.
+        // Convert to global for persistence; store local for progress bar.
+        if isChapterMode, let chapters = chapterIndex?.chapters,
+           currentChapterIdx < chapters.count {
+            let chapter = chapters[currentChapterIdx]
+            currentChapterLocalUTF16 = clamped
+            let globalStart = chapter.globalStartUTF16 >= 0 ? chapter.globalStartUTF16 : 0
+            currentOffsetUTF16 = globalStart + clamped
+        } else {
+            currentChapterLocalUTF16 = clamped
+            currentOffsetUTF16 = clamped
         }
 
-        currentOffsetUTF16 = clamped
+        // Suppress scroll position saves during the post-restore settling window.
+        if let suppressUntil = restoreSuppressUntil {
+            if Date() < suppressUntil { return }
+            restoreSuppressUntil = nil
+        }
 
         lifecycle.recordProgressAndScheduleSave(locator: makeLocator())
     }
@@ -306,6 +529,14 @@ final class TXTReaderViewModel {
         currentSelectionEnd = nil
         isOpenComplete = false
         restoreSuppressUntil = nil
+        resetChapterState()
+    }
+
+    private func resetChapterState() {
+        chapterIndex = nil
+        currentChapterIdx = 0
+        currentChapterText = nil
+        chapterContentLoader = nil
     }
 
     // MARK: - Private: Offset Clamping

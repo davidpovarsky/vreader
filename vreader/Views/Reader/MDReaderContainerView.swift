@@ -97,7 +97,10 @@ struct MDReaderContainerView: View {
             }
         }
         .task {
-            await viewModel.open(url: fileURL)
+            // PERF: open already called by MDReaderHost
+            if viewModel.renderedText == nil {
+                await viewModel.open(url: fileURL)
+            }
             initialRestoreOffset = viewModel.currentOffsetUTF16
             if isPagedMode {
                 updatePaginationIfNeeded()

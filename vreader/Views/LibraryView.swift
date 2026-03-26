@@ -46,6 +46,10 @@ struct LibraryView: View {
     @State private var isShowingCoverPicker = false
     /// Incremented when a custom cover is set or removed, to force card/row views to reload.
     @State private var coverVersion: Int = 0
+    /// Tracks NavigationStack path so the library toolbar can hide during push transitions.
+    @State private var navigationPath = NavigationPath()
+    /// Set before appending to navigationPath so the toolbar hides before the push animation starts (bug #72).
+    @State private var isPushingReader = false
     let syncMonitor: SyncStatusMonitor?
 
     init(viewModel: LibraryViewModel, syncMonitor: SyncStatusMonitor? = nil) {
@@ -54,7 +58,7 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if viewModel.isInitialLoad {
                     ProgressView()
@@ -70,8 +74,9 @@ struct LibraryView: View {
             .navigationDestination(for: LibraryBookItem.self) { book in
                 ReaderContainerView(book: book)
             }
+            .toolbar(isPushingReader ? .hidden : .visible, for: .navigationBar)
             .toolbar {
-                toolbarContent
+                if !isPushingReader { toolbarContent }
             }
             .refreshable {
                 await viewModel.refresh()
@@ -92,6 +97,10 @@ struct LibraryView: View {
                 } else {
                     Task { await viewModel.refresh(force: true) }
                 }
+            }
+            // Reset toolbar visibility when returning from reader (bug #72)
+            .onChange(of: navigationPath) { _, newPath in
+                if newPath.isEmpty { isPushingReader = false }
             }
             .alert("Error", isPresented: hasError) {
                 Button("OK") { viewModel.clearError() }
@@ -226,6 +235,13 @@ struct LibraryView: View {
         if let md = UTType("net.daringfireball.markdown") {
             types.append(md)
         }
+        // AZW3/MOBI — no system UTType, use generic binary data
+        // Users can import .azw3/.mobi files via "All Files" or share sheet
+        if let mobi = UTType("com.amazon.mobi8-ebook") {
+            types.append(mobi)
+        }
+        // Accept generic data so .azw3/.mobi/.azw aren't filtered out
+        types.append(.data)
         return types
     }()
 
@@ -248,7 +264,9 @@ struct LibraryView: View {
                 spacing: 16
             ) {
                 ForEach(viewModel.books) { book in
-                    NavigationLink(value: book) {
+                    Button {
+                        openBook(book)
+                    } label: {
                         BookCardView(book: book, coverVersion: coverVersion)
                     }
                     .buttonStyle(.plain)
@@ -272,7 +290,9 @@ struct LibraryView: View {
     private var listView: some View {
         List {
             ForEach(viewModel.books) { book in
-                NavigationLink(value: book) {
+                Button {
+                    openBook(book)
+                } label: {
                     BookRowView(book: book, coverVersion: coverVersion)
                 }
                 .contextMenu {
@@ -528,6 +548,15 @@ struct LibraryView: View {
         // For now, this is a no-op infrastructure hook for pull-to-refresh.
         // When book-to-source linking is implemented, iterate over source-linked
         // books and call UpdateChecker.checkForUpdates() for each.
+    }
+
+    // MARK: - Navigation (bug #72)
+
+    /// Hides the library toolbar before pushing to the reader,
+    /// eliminating the toolbar flash during the push animation.
+    private func openBook(_ book: LibraryBookItem) {
+        isPushingReader = true
+        navigationPath.append(book)
     }
 
     // MARK: - Helpers

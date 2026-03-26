@@ -38,6 +38,8 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-03-22 | bug #102 | EPUB fails to load chapter content — chapter navigation or content rendering broken
+
 2026-03-21 | bug #101 | Imported 2000+ book sources but list empty and search button grey — BookSource records may not persist or UI not refreshing after import
 
 2026-03-21 | bug #92 | AI only reads book title, not selected section — AIContextExtractor may not receive current locator or loaded text

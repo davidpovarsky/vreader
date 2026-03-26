@@ -57,6 +57,8 @@ struct ReaderContainerView: View {
     @State var ttsService = TTSService()
     /// Reading progress for the unified renderer (WI-B04).
     @State var unifiedReadingProgress: Double = 0
+    /// Current reading position for TOC scroll-to-current.
+    @State var currentLocator: Locator?
 
     // MARK: - Coordinators
 
@@ -151,13 +153,17 @@ struct ReaderContainerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
             guard let locator = notification.object as? Locator else { return }
+            currentLocator = locator
             resolvedAICoordinator.currentLocator = locator
             if resolvedAICoordinator.loadedTextContent != nil {
                 resolvedAICoordinator.chatViewModel?.bookContext = resolvedAICoordinator.currentTextContent
             }
         }
-        // Apply per-book settings on open (bug #84)
+        // PERF: Single deferred .task for all non-critical setup.
+        // Per-book settings, search prep, and replacement rules all deferred
+        // to avoid contending with the format host's file-open .task.
         .task {
+            // Per-book settings (bug #84) — fast file read, do first
             let perBook = PerBookSettingsStore.settings(
                 for: book.fingerprintKey,
                 baseURL: Self.perBookSettingsBaseURL
@@ -168,20 +174,14 @@ struct ReaderContainerView: View {
                 )
                 settingsStore.applyResolvedSettings(resolved)
             }
-        }
-        // PERF: Search prep runs in background Task — yields to file open first (audit fix: no hardcoded delay).
-        .task {
-            // Yield to let higher-priority .task blocks (file open) start first
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            if let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey) {
-                await searchCoordinator.prepareService(fingerprint: fp)
+            // Build TOC eagerly for TXT — needed for chapter progress bar in legacy mode (bug #31)
+            if resolvedBookFormat == .txt {
+                ensureTOCReady()
             }
-        }
-        // Replacement rules only needed for unified mode (bug #64)
-        .task {
-            guard settingsStore.readingMode == .unified else { return }
-            await loadReplacementRules()
+            // Replacement rules (unified mode only)
+            if settingsStore.readingMode == .unified {
+                await loadReplacementRules()
+            }
         }
         .onChange(of: settingsStore.chineseConversion) { _, newDirection in
             var transforms = unifiedCoordinator.activeTransforms.filter { !($0 is SimpTradTransform) }
@@ -205,6 +205,7 @@ struct ReaderContainerView: View {
                 bookFingerprintKey: book.fingerprintKey,
                 modelContainer: modelContext.container,
                 tocEntries: tocEntries,
+                currentLocator: currentLocator,
                 onNavigate: { locator in
                     NotificationCenter.default.post(
                         name: .readerNavigateToLocator,
@@ -325,10 +326,19 @@ struct ReaderContainerView: View {
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
                 settingsStore: settingsStore,
-                ttsService: ttsService
+                ttsService: ttsService,
+                tocEntries: tocEntries
             )
         case "md":
             MDReaderHost(
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint,
+                modelContainer: modelContext.container,
+                settingsStore: settingsStore,
+                ttsService: ttsService
+            )
+        case "azw3":
+            FoliateReaderHost(
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,

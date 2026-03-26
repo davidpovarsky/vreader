@@ -284,6 +284,14 @@ struct ModeSwitchPersistenceTests {
                 page: 10,
                 totalProgression: 0.1
             )!
+        case .azw3:
+            totalLengthUTF16 = nil
+            locator = LocatorFactory.epub(
+                fingerprint: Self.epubFP,
+                href: "section1.xhtml",
+                progression: 0.5,
+                totalProgression: 0.25
+            )!
         }
 
         // Native → Canonical

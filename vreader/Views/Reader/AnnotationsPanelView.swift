@@ -43,6 +43,7 @@ struct AnnotationsPanelView: View {
     let bookFingerprintKey: String
     let modelContainer: ModelContainer
     let tocEntries: [TOCEntry]
+    let currentLocator: Locator?
     let onNavigate: (Locator) -> Void
     let onDismiss: () -> Void
 
@@ -80,7 +81,7 @@ struct AnnotationsPanelView: View {
                             ProgressView()
                         }
                     case .toc:
-                        TOCListView(entries: tocEntries, onNavigate: handleNavigate)
+                        TOCListView(entries: tocEntries, currentLocator: currentLocator, onNavigate: handleNavigate)
                     case .highlights:
                         if let vm = highlightVM {
                             HighlightListView(viewModel: vm, onNavigate: handleNavigate)

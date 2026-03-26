@@ -1,6 +1,7 @@
 // Purpose: Mock TXT service for unit testing TXTReaderViewModel.
 //
-// @coordinates-with: TXTServiceProtocol.swift, TXTReaderViewModelTests.swift
+// @coordinates-with: TXTServiceProtocol.swift, TXTReaderViewModelTests.swift,
+//   TXTChapterIntegrationTests.swift
 
 import Foundation
 @testable import vreader
@@ -10,14 +11,23 @@ actor MockTXTService: TXTServiceProtocol {
     /// Metadata to return on open. Nil triggers an error.
     var metadataToReturn: TXTFileMetadata?
 
+    /// Chapter-based result to return on openChapterBased. Nil triggers an error.
+    var chapterOpenResultToReturn: TXTChapterOpenResult?
+
     /// Error to throw on open.
     var openError: TXTServiceError?
+
+    /// Error to throw on openChapterBased.
+    var chapterOpenError: TXTServiceError?
 
     /// Whether a file is currently open.
     private(set) var _isOpen = false
 
     /// Count of open calls (for verifying lifecycle).
     private(set) var openCallCount = 0
+
+    /// Count of openChapterBased calls.
+    private(set) var chapterOpenCallCount = 0
 
     /// Count of close calls.
     private(set) var closeCallCount = 0
@@ -34,6 +44,16 @@ actor MockTXTService: TXTServiceProtocol {
         return metadata
     }
 
+    func openChapterBased(url: URL) async throws -> TXTChapterOpenResult {
+        chapterOpenCallCount += 1
+        if let error = chapterOpenError { throw error }
+        guard let result = chapterOpenResultToReturn else {
+            throw TXTServiceError.decodingFailed("No chapter result configured in mock")
+        }
+        _isOpen = true
+        return result
+    }
+
     func close() async {
         closeCallCount += 1
         _isOpen = false
@@ -45,7 +65,15 @@ actor MockTXTService: TXTServiceProtocol {
         metadataToReturn = metadata
     }
 
+    func setChapterOpenResult(_ result: TXTChapterOpenResult?) {
+        chapterOpenResultToReturn = result
+    }
+
     func setOpenError(_ error: TXTServiceError?) {
         openError = error
+    }
+
+    func setChapterOpenError(_ error: TXTServiceError?) {
+        chapterOpenError = error
     }
 }

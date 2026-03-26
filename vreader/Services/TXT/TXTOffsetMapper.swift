@@ -119,6 +119,11 @@ enum TXTOffsetMapper {
     ) -> CGFloat {
         let textLength = layoutManager.textStorage?.length ?? 0
         let clampedOffset = min(max(charOffset, 0), textLength)
+        // Ensure layout is computed up to the target offset.
+        // With allowsNonContiguousLayout, the layout manager may not have
+        // laid out text this far — lineFragmentRect returns wrong results
+        // for chapters deep in the file (e.g., chapter 1000). (bug #102 follow-up)
+        layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: clampedOffset + 1))
         let glyphRange = layoutManager.glyphRange(
             forCharacterRange: NSRange(location: clampedOffset, length: 0),
             actualCharacterRange: nil

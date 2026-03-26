@@ -55,6 +55,10 @@ Each host owns its ViewModel lifecycle via `@State`:
 - `EPUBReaderHost` → `EPUBReaderContainerView` → `EPUBWebViewBridge` (WKWebView + JS injection)
 - `PDFReaderHost` → `PDFReaderContainerView` → `PDFViewBridge` (PDFKit)
 - `MDReaderHost` → `MDReaderContainerView` → reuses `TXTTextViewBridge` with NSAttributedString
+- `FoliateReaderHost` → `FoliateReaderContainerView` → `FoliateViewBridge` (WKWebView + Foliate-js, for AZW3/MOBI)
+
+#### Foliate-js Bridge (`vreader/Views/Reader/`, `vreader/Services/Foliate/`)
+`FoliateViewBridge` (UIViewRepresentable) creates a WKWebView with `FoliateURLSchemeHandler` for content serving. `FoliateViewCoordinator` (WKScriptMessageHandler + WKNavigationDelegate) receives JS messages, parses via `FoliateMessageParser`, and routes to typed callbacks. `FoliateHighlightRenderer` generates JS strings for SVG overlay annotations. `FoliateJSEscaper` provides shared sanitization for all JS/CSS string interpolation across the bridge. `FoliateReaderViewModel` maps bridge events to `Locator` for position persistence.
 
 #### Unified Engine
 `ReaderUnifiedCoordinator` loads text + applies transforms (replacement rules, simp/trad). `UnifiedTextRenderer` displays with TextKit 2 pagination or scroll.
@@ -79,6 +83,9 @@ Each host owns its ViewModel lifecycle via `@State`:
 | `PreferenceStore` | UserDefaults | Sort order, view mode persistence |
 | `CustomCoverStore` | JPEG files | Custom book cover images |
 | `WebDAVClient` | HTTP | Backup/restore to WebDAV server |
+| `FoliateURLSchemeHandler` | WKURLSchemeHandler | Serves Foliate-js bundle + book files to WKWebView |
+| `FoliateMessageParser` | Pure functions | Parses raw JS message bodies into typed Swift events |
+| `FoliateJSEscaper` | Pure functions | Escapes/sanitizes strings for safe JS/CSS interpolation in Foliate bridge |
 
 ### 6. Data Layer (`vreader/Models/`)
 
@@ -197,6 +204,7 @@ vreader/
 │   ├── Locator/            # LocatorFactory, position resolution
 │   ├── OPDS/               # OPDSClient, OPDSParser
 │   ├── Sync/               # SyncService, SyncStatusMonitor
+│   ├── Foliate/            # FoliateURLSchemeHandler, FoliateMessageParser, FoliateTypes, JS/
 │   ├── Unified/            # PaginationCache, TextKit2 helpers
 │   └── TextMapping/        # Transforms, offset mapping
 └── (no Plugins/ directory — BookSource views are in Views/BookSource/)

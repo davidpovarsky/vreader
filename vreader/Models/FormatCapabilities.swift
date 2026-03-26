@@ -68,6 +68,15 @@ struct FormatCapabilities: OptionSet, Sendable, Hashable {
             caps.formUnion(universal)
             // PDF never gets TTS or unifiedReflow.
             return caps
+
+        case .azw3:
+            // Same as simple EPUB: Foliate-js provides full feature parity.
+            var caps: FormatCapabilities = [
+                .textSelection, .highlights, .tts,
+                .nativePagination, .toc, .annotations, .unifiedReflow,
+            ]
+            caps.formUnion(universal)
+            return caps
         }
     }
 }

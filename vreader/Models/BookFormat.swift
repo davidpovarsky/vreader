@@ -9,10 +9,11 @@ enum BookFormat: String, Codable, Hashable, Sendable, CaseIterable {
     case pdf
     case txt
     case md
+    case azw3
 
     /// Formats that can be imported.
     static var importableFormats: [BookFormat] {
-        [.epub, .pdf, .txt, .md]
+        [.epub, .pdf, .txt, .md, .azw3]
     }
 
     /// Whether this format is importable.
@@ -27,6 +28,7 @@ enum BookFormat: String, Codable, Hashable, Sendable, CaseIterable {
         case .pdf: return ["pdf"]
         case .txt: return ["txt", "text"]
         case .md: return ["md", "markdown"]
+        case .azw3: return ["azw3", "azw", "mobi", "prc"]
         }
     }
 

@@ -55,8 +55,8 @@ struct BookFormatTests {
 
     // MARK: - CaseIterable
 
-    @Test func allCasesContainsFourFormats() {
-        #expect(BookFormat.allCases.count == 4)
+    @Test func allCasesContainsFiveFormats() {
+        #expect(BookFormat.allCases.count == 5)
     }
 
     // MARK: - Codable Round-Trip

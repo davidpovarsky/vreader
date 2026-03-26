@@ -117,6 +117,8 @@ struct EPUBReaderContainerView: View {
                     if firstItem.progression > 0 {
                         seekScrollFraction = firstItem.progression
                     }
+                    // Ensure chapter file exists before WKWebView loads it (bug #102)
+                    await ensureChapterExtracted(href: firstItem.href)
                     contentURL = base.appendingPathComponent(firstItem.href)
                 } catch {
                     if !Task.isCancelled {
@@ -198,6 +200,8 @@ struct EPUBReaderContainerView: View {
                 } else {
                     seekScrollFraction = nil
                 }
+                // Ensure chapter extracted before WKWebView loads it (bug #102)
+                Task { await ensureChapterExtracted(href: href) }
                 contentURL = base.appendingPathComponent(href)
                 // Inject search highlight JS after page loads (bug #43)
                 // Issue 4: Pass progression so JS scrolls before find()
@@ -285,6 +289,12 @@ struct EPUBReaderContainerView: View {
                 .padding(.horizontal, 32)
         }
         .accessibilityIdentifier("epubReaderError")
+    }
+
+    /// Ensures the chapter file is extracted from the ZIP before WKWebView tries to load it.
+    /// The selective extraction parser only pre-extracts the first chapter + CSS/fonts. (bug #102)
+    func ensureChapterExtracted(href: String) async {
+        _ = try? await parser.contentForSpineItem(href: href)
     }
 
     @ViewBuilder

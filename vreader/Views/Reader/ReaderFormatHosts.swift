@@ -4,7 +4,7 @@
 //
 // @coordinates-with ReaderContainerView.swift, TXTReaderContainerView.swift,
 //   PDFReaderContainerView.swift, MDReaderContainerView.swift,
-//   EPUBReaderContainerView.swift
+//   EPUBReaderContainerView.swift, FoliateReaderContainerView.swift
 
 #if canImport(UIKit)
 import SwiftUI
@@ -17,13 +17,14 @@ struct TXTReaderHost: View {
     let modelContainer: ModelContainer
     let settingsStore: ReaderSettingsStore
     let ttsService: TTSService
+    var tocEntries: [TOCEntry] = []
 
     @State private var viewModel: TXTReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService)
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService, tocEntries: tocEntries)
             } else {
                 ProgressView()
             }
@@ -158,6 +159,60 @@ struct EPUBReaderHost: View {
             viewModel = EPUBReaderViewModel(
                 bookFingerprint: fingerprint,
                 parser: epubParser,
+                positionStore: persistence,
+                sessionTracker: tracker,
+                deviceId: ReaderContainerView.deviceId
+            )
+        }
+    }
+}
+
+/// Owns FoliateReaderViewModel lifecycle for AZW3/MOBI books.
+/// Creates persistence dependencies and loads saved position before presenting the container.
+struct FoliateReaderHost: View {
+    let fileURL: URL
+    let fingerprint: DocumentFingerprint
+    let modelContainer: ModelContainer
+    let settingsStore: ReaderSettingsStore
+    let ttsService: TTSService
+
+    @State private var viewModel: FoliateReaderViewModel?
+    /// Saved CFI from the last reading session, loaded from persistence.
+    @State private var lastLocationCFI: String?
+
+    var body: some View {
+        Group {
+            if let viewModel {
+                FoliateReaderContainerView(
+                    fileURL: fileURL,
+                    viewModel: viewModel,
+                    settingsStore: settingsStore,
+                    modelContainer: modelContainer,
+                    ttsService: ttsService,
+                    lastLocationCFI: lastLocationCFI
+                )
+            } else {
+                ProgressView("Opening book...")
+            }
+        }
+        .task {
+            guard viewModel == nil else { return }
+            let persistence = PersistenceActor(modelContainer: modelContainer)
+            let tracker = ReadingSessionTracker(
+                clock: SystemClock(),
+                store: SwiftDataSessionStore(modelContainer: modelContainer),
+                deviceId: ReaderContainerView.deviceId
+            )
+
+            // Load saved position before creating ViewModel.
+            if let savedPosition = try? await persistence.loadPosition(
+                bookFingerprintKey: fingerprint.canonicalKey
+            ) {
+                lastLocationCFI = savedPosition.cfi
+            }
+
+            viewModel = FoliateReaderViewModel(
+                bookFingerprint: fingerprint,
                 positionStore: persistence,
                 sessionTracker: tracker,
                 deviceId: ReaderContainerView.deviceId

@@ -41,10 +41,15 @@ enum ReaderTOCFactory {
             }.value
 
         case "txt":
-            do {
-                let text = try String(contentsOf: fileURL, encoding: .utf8)
+            // Use TXTService encoding detection — not UTF-8 only (bug #83 / #92 pattern)
+            guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else { return [] }
+            let hintName = TXTService.detectEncodingFromSample(data)
+            if let enc = TXTService.encodingFromName(hintName),
+               let text = String(data: data, encoding: enc) {
                 return TOCBuilder.forTXT(text: text, fingerprint: fingerprint)
-            } catch {
+            } else if let text = String(data: data, encoding: .utf8) {
+                return TOCBuilder.forTXT(text: text, fingerprint: fingerprint)
+            } else {
                 return []
             }
 

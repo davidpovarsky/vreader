@@ -46,6 +46,26 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 <!-- For each TODO/IN PROGRESS/REOPENED bug, add a short entry here.
      Max 6 lines per bug. Remove on FIXED (move to archive). -->
 
+### Bug #103 — Cannot add highlight in native EPUB
+- **Repro**: Open EPUB in native reader, select text, tap Highlight
+- **Expected**: Highlight created and rendered in-page
+- **Actual**: JS silently dropped because `onInjectJS` is nil during race with `.task` setup
+- **Root cause**: `EPUBHighlightRenderer.onInjectJS` callback swap during `restoreHighlightsOnLoad` loses concurrent highlight JS
+- **RED tests**: `EPUBHighlightRendererBug77Tests.swift` (intentionally failing)
+
+### Bug #104 — EPUB 3 nav titles not extracted
+- **Repro**: Open EPUB with nav.xhtml containing real chapter titles
+- **Expected**: TOC shows "Chapter One: The Beginning"
+- **Actual**: Shows "Section 1" (fallback)
+- **Root cause**: Bug #74 fix (`withResolvedTitles`) incomplete — nav.xhtml parsing may not match spine hrefs
+- **RED test**: `EPUBParserTests.epub3NavTitlesExtracted`
+
+### Bug #105 — Highlighted snippet multi-word overlap
+- **Repro**: Search for a multi-word query where matches overlap in snippet text
+- **Expected**: Multiple bold runs for overlapping matches
+- **Actual**: Only 1 bold run
+- **RED test**: `HighlightedSnippetTests.multiWordQuery_overlappingMatches_handled`
+
 ### Bug #88 — Imported annotations not visually highlighted
 - **Repro**: Import annotations JSON, check if highlights are rendered in reader
 - **Expected**: Imported highlights visible in the reader
@@ -129,7 +149,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 69 | PDF reader placeholder not appearing in UI test                                                       | PDF/*     | Medium   | FIXED    | PDF reader fully implemented; tests now verify pdfReaderContainer instead of stale placeholder                                                                                                     |
 | 70 | Cannot scroll content in native mode — all formats                                                    | Reader/*  | High     | FIXED    | Removed `.tapZoneOverlay()` from native path — bridges already handle taps via UITapGestureRecognizer                                                                                              |
 | 71 | Reader top bar looks ugly — buttons small, inconsistent with bottom bar                               | Reader/*  | Medium   | FIXED    | 44pt height, 20pt icons, 44x44 touch targets, theme backgroundColor at 0.92 opacity — matches bottom bar |
-| 72 | Library navigation bar visible during reader loading transition                                       | Reader/*  | Low      | FIXED    | Changed `.navigationBarHidden(true)` to `.toolbar(.hidden, for: .navigationBar)` — applies earlier in transition |
+| 72 | Library navigation bar visible during reader loading transition                                       | Reader/*  | Low      | FIXED    | v3: Replace NavigationLink with Button + isPushingReader flag — hides toolbar before push animation starts. GH: #29 |
 | 73 | Reader top bar hidden behind Dynamic Island                                                           | Reader/*  | High     | FIXED    | Replaced GeometryReader insets with UIWindowScene safe area lookup — immune to parent ignoresSafeArea |
 | 74 | EPUB TOC shows "Section XXX" instead of real chapter titles                                           | EPUB/*    | Medium   | FIXED    | Parse EPUB 3 nav.xhtml + EPUB 2 toc.ncx for real titles; `withResolvedTitles()` applies to spine items |
 | 75 | Sort preference not remembered across restarts                                                        | Library/* | Medium   | FIXED    | Wired `PreferenceStore` into LibraryViewModel init; persist sortOrder/viewMode on change, restore on creation |
@@ -146,7 +166,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 86 | Tags never shown in collection sidebar                                                                | Library/* | Medium   | FIXED    | Added fetchAllTags()/fetchAllSeriesNames(); LibraryView now loads and passes real data |
 | 87 | PDF highlights still visible after deletion                                                           | PDF/*     | Medium   | FIXED    | PDFReaderContainerView now delegates highlightRemoved to HighlightCoordinator (R4b audit fix) |
 | 88 | Imported annotations not visually highlighted                                                         | Reader/*  | Medium   | FIXED    | Added .readerHighlightsDidImport notification; all containers call coordinator.restoreAll() |
-| 89 | Books still slow to open                                                                              | Reader/*  | High     | FIXED    | prepareService now async — SQLite open doesn't block main thread |
+| 89 | Books still slow to open                                                                              | Reader/*  | Critical | FIXED    | GH: #16. Root cause: SearchCoordinator SQLite open on @MainActor (500ms-2s). Also: chapter-based TXT, EPUB cache, deferred highlights/session |
 | 90 | AI buttons visible when consent is off                                                                | AI/*      | Medium   | TODO     | AIReaderAvailability only checks feature flag + API key, not consent |
 | 91 | Blank panel when tapping Translate without AI configured                                              | AI/*      | Medium   | TODO     | No guard for missing API key/consent before presenting AI panel |
 | 92 | AI only reads book title, not selected section                                                        | AI/*      | High     | FIXED    | BookContentCache now uses TXTService encoding detection instead of UTF-8 only |
@@ -160,3 +180,7 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 100| Book source cannot be saved                                                                           | BookSrc/* | High     | FIXED    | Added explicit modelContext.save() after insert in BookSourceListView |
 | 101| Imported book sources not visible, search button grey                                                 | BookSrc/* | High     | FIXED    | Added BookSource + ContentReplacementRule to SchemaV3.models |
 
+| 102| EPUB fails to load chapter content                                                                    | EPUB/*    | High     | FIXED    | Selective extraction only pre-extracts first chapter; added ensureChapterExtracted() before setting contentURL |
+| 103| Cannot add highlight in native EPUB (JS dropped when onInjectJS is nil)                               | EPUB/*    | High     | TODO     | Race between .task callback setup and highlight creation; restoreHighlightsOnLoad swap loses concurrent JS. Bug #77 RED tests document this. |
+| 104| EPUB 3 nav titles not extracted (shows "Section N" instead of real titles)                             | EPUB/*    | Medium   | REOPENED | Bug #74 marked FIXED but EPUBParserTests.epub3NavTitlesExtracted still fails. withResolvedTitles() may not parse nav.xhtml correctly. |
+| 105| Highlighted snippet multi-word overlap not handled                                                     | Search/*  | Low      | TODO     | HighlightedSnippetTests.multiWordQuery_overlappingMatches_handled fails. Bold run count is 1, expected >=2 for overlapping matches. |

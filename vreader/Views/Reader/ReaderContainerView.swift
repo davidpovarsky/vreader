@@ -337,6 +337,14 @@ struct ReaderContainerView: View {
                 settingsStore: settingsStore,
                 ttsService: ttsService
             )
+        case "azw3":
+            FoliateReaderHost(
+                fileURL: resolvedFileURL,
+                fingerprint: fingerprint,
+                modelContainer: modelContext.container,
+                settingsStore: settingsStore,
+                ttsService: ttsService
+            )
         default:
             unsupportedFormatView(format: book.format.uppercased())
         }

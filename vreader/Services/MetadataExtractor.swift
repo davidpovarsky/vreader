@@ -71,3 +71,11 @@ struct PDFMetadataExtractor: MetadataExtractor {
         .fromFilename(fileURL)
     }
 }
+
+/// Stub extractor for AZW3/MOBI files. Title from filename for now.
+/// TODO(WI-1): Read PDB/MOBI header bytes for embedded title and EXTH metadata.
+struct AZW3MetadataExtractor: MetadataExtractor {
+    func extractMetadata(from fileURL: URL) async throws -> BookMetadata {
+        .fromFilename(fileURL)
+    }
+}

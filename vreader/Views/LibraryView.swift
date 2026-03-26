@@ -235,6 +235,13 @@ struct LibraryView: View {
         if let md = UTType("net.daringfireball.markdown") {
             types.append(md)
         }
+        // AZW3/MOBI — no system UTType, use generic binary data
+        // Users can import .azw3/.mobi files via "All Files" or share sheet
+        if let mobi = UTType("com.amazon.mobi8-ebook") {
+            types.append(mobi)
+        }
+        // Accept generic data so .azw3/.mobi/.azw aren't filtered out
+        types.append(.data)
         return types
     }()
 

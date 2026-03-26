@@ -70,6 +70,7 @@ struct LibraryBookItem: Sendable, Identifiable, Equatable, Hashable {
         case "pdf": return "doc.fill"
         case "txt": return "doc.text.fill"
         case "md": return "doc.richtext.fill"
+        case "azw3": return "book.fill"
         default: return "doc.fill"
         }
     }

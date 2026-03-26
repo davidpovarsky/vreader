@@ -43,7 +43,7 @@ struct AIContextExtractor: Sendable {
             return extractByCharOffset(locator: locator, text: textContent)
         case .pdf:
             return extractByPage(text: textContent)
-        case .epub:
+        case .epub, .azw3:
             return extractByProgression(locator: locator, text: textContent)
         }
     }

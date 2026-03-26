@@ -2,16 +2,18 @@
 
 **Built entirely by AI — coded, tested, and debugged by AI agents. Human-directed.**
 
-An iOS reader for EPUB, PDF, TXT, and Markdown — built entirely by AI coding agents, with Swift 6, SwiftUI, and SwiftData.
+An iOS reader for EPUB, AZW3/MOBI (Kindle), PDF, TXT, and Markdown — built entirely by AI coding agents, with Swift 6, SwiftUI, and SwiftData.
 
 ## About
 
-VReader is a modern reading app designed for iPhone and iPad, built entirely by AI coding agents (Claude Code + Codex CLI) with human direction on requirements and testing. It provides a dual-mode reading experience (native UIKit + unified TextKit 2 reflow) across multiple document formats with annotations, full-text search, AI assistant, TTS, book source scraping, and WebDAV backup.
+VReader is a modern reading app designed for iPhone and iPad, built entirely by AI coding agents (Claude Code + Codex CLI) with human direction on requirements and testing. It supports EPUB, AZW3/MOBI (Kindle), PDF, TXT, and Markdown with annotations, full-text search, AI assistant, TTS, book source scraping, and WebDAV backup.
 
 ## Features
 
 ### Reading
-- **Multi-format** — EPUB, PDF, TXT, Markdown in a single app
+
+- **Multi-format** — EPUB, AZW3/MOBI (Kindle), PDF, TXT, Markdown in a single app
+- **AZW3/MOBI** — Kindle books via [Foliate-js](https://github.com/johnfactotum/foliate-js) engine (DRM-free only)
 - **Dual-mode engine** — Native (UIKit bridges) + Unified (TextKit 2 reflow) rendering
 - **Reading position** — Auto-saves scroll position, survives app kills and relaunches
 - **CJK encoding** — Auto-detect GBK, Big5, Shift-JIS, EUC-KR (8KB sample-based)
@@ -22,25 +24,30 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 - **Configurable tap zones** — Left/center/right zones mapped to customizable actions
 
 ### Annotations
-- **Bookmarks, highlights, notes** — Full CRUD for all formats (TXT/MD/PDF/EPUB)
+
+- **Bookmarks, highlights, notes** — Full CRUD for TXT/MD/PDF/EPUB; AZW3 highlights in progress
 - **EPUB highlights** — CSS Highlight API with JS bridge + buffered delivery
+- **AZW3 highlights** — SVG overlay via Foliate-js overlayer + CFI anchoring
 - **PDF highlights** — PDFAnnotation-based with selection detection
 - **TXT/MD highlights** — NSAttributedString with persistent rendering
 - **Export/import** — Markdown + JSON export, VReader JSON round-trip import
 
 ### Search & Navigation
+
 - **Full-text search** — SQLite FTS5 with CJK tokenization, persistent index
 - **Reading progress bar** — Draggable scrubber (continuous, page-based, chapter-based)
 - **Table of contents** — EPUB nav/NCX, PDF outline, TXT auto-detection (25 Legado rules), MD headings
 - **Dictionary** — System dictionary lookup + AI translation on text selection
 
 ### AI
+
 - **Summarization** — Section and chapter summaries via OpenAI-compatible API
 - **Chat** — Multi-turn conversation with book context
 - **Translation** — Bilingual view (9 languages)
 - **General chat** — AI chat without book context
 
 ### Library
+
 - **Grid/list view** — Persistent sort order and view mode
 - **Collections** — Tags, series, custom groups
 - **Custom covers** — Set from photo library
@@ -49,6 +56,7 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 - **Book sources** — Legado-compatible rule engine for web novel scraping
 
 ### Text Processing
+
 - **TTS** — System (AVSpeechSynthesizer) + cloud HTTP TTS with playback controls
 - **TTS sentence highlight** — NLTokenizer-based sentence detection synced to speech position
 - **TTS auto-scroll** — Text view follows speech position in real-time
@@ -57,6 +65,7 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 - **Reading time tracking** — Per-book session stats and speed calculations
 
 ### Sync & Backup
+
 - **iCloud Sync** (foundation) — CloudKit sync engine, record mapper (8 types), device identity, change tokens, durable tombstones, settings bridge (NSUbiquitousKeyValueStore)
 - **WebDAV backup** — Archive to any WebDAV server (Nutstore compatible)
 - **Per-book settings** — Font, theme, spacing overrides per book (JSON-persisted)
@@ -64,20 +73,21 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 
 ## Tech Stack
 
-| Component   | Technology                                         |
-| ----------- | -------------------------------------------------- |
-| UI          | SwiftUI                                            |
-| Persistence | SwiftData (SchemaV4)                               |
-| EPUB        | WKWebView bridge with CSS theme injection + JS highlight API |
-| PDF         | PDFKit + PDFAnnotation for highlights              |
-| TXT         | TextKit 1 (UITextView) + chunked UITableView       |
-| Markdown    | NSAttributedString rendering via MDParser           |
-| Search      | SQLite FTS5 with CJK tokenization                  |
-| AI          | OpenAI-compatible API (summarize, chat, translate) |
-| TTS         | AVSpeechSynthesizer + HTTP cloud TTS               |
-| Backup      | WebDAV client + iCloud Sync foundation (CloudKit)  |
-| Encoding    | ICU + heuristic detection (UTF-8/GBK/Big5/Shift-JIS) |
-| Concurrency | Swift 6 strict concurrency                         |
+| Component   | Technology                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| UI          | SwiftUI                                                                                         |
+| Persistence | SwiftData (SchemaV4)                                                                            |
+| EPUB        | WKWebView bridge with CSS theme injection + JS highlight API                                    |
+| AZW3/MOBI   | [Foliate-js](https://github.com/johnfactotum/foliate-js) in WKWebView (IIFE bundle via esbuild) |
+| PDF         | PDFKit + PDFAnnotation for highlights                                                           |
+| TXT         | TextKit 1 (UITextView) + chunked UITableView                                                    |
+| Markdown    | NSAttributedString rendering via MDParser                                                       |
+| Search      | SQLite FTS5 with CJK tokenization                                                               |
+| AI          | OpenAI-compatible API (summarize, chat, translate)                                              |
+| TTS         | AVSpeechSynthesizer + HTTP cloud TTS                                                            |
+| Backup      | WebDAV client + iCloud Sync foundation (CloudKit)                                               |
+| Encoding    | ICU + heuristic detection (UTF-8/GBK/Big5/Shift-JIS)                                            |
+| Concurrency | Swift 6 strict concurrency                                                                      |
 
 ## Requirements
 
@@ -99,7 +109,7 @@ Then select a simulator or device and run.
 
 ## Architecture
 
-See [`docs/architecture.md`](docs/architecture.md) for the full architecture document.
+See `` for the full architecture document.
 
 ```
 vreader/
@@ -112,7 +122,8 @@ vreader/
 │   ├── Annotations/     # HighlightListView, AnnotationListView
 │   └── Settings/        # ReaderSettingsPanel, AI/TTS/WebDAV settings
 ├── Services/
-│   ├── TXT/, EPUB/      # Format-specific parsing and loading
+│   ├── TXT/, EPUB/, MD/ # Format-specific parsing and loading
+│   ├── Foliate/         # AZW3/MOBI via Foliate-js (scheme handler, adapters, JS bundle)
 │   ├── Search/          # FTS5 indexing, text extraction
 │   ├── AI/, TTS/        # AI service, TTS providers
 │   ├── Backup/          # WebDAV client, BackupProvider
@@ -125,8 +136,11 @@ vreaderUITests/          # UI tests (XCUITest)
 
 ### Key Design Decisions
 
+- **Foliate-js for AZW3/MOBI** — Kindle books are parsed and rendered by [Foliate-js](https://github.com/johnfactotum/foliate-js) running in WKWebView. The entire library is bundled into a single 278KB IIFE via esbuild (WKWebView blocks ES modules on custom schemes). A `WKURLSchemeHandler` serves the JS bundle and book files from a single origin to avoid CORS issues.
+- **Three-renderer architecture** — Each format uses the best tool: Foliate-js in WKWebView (AZW3/MOBI), custom WKWebView bridge (EPUB), PDFKit (PDF), UITextView (TXT/MD). Shared services (Locator, Highlight, Search, TTS, Position) work across all renderers.
+- **CFI-based positions for EPUB/AZW3** — Foliate-js generates EPUB CFI strings for both EPUB and MOBI (fake CFIs for MOBI). These are stored in `Locator.cfi` as the authoritative position, enabling unified persistence and highlight anchoring.
 - **TextKit 1 for TXT rendering** — UITextView with `NSLayoutManager` for reliable offset-to-scroll mapping. TextKit 2 has better performance but lacks the `charOffset ↔ scrollOffset` APIs needed for position persistence.
-- **Chunked rendering for large files** — Files over 500K UTF-16 code units use a UITableView where each cell renders one ~16K chunk. Only visible cells build attributed strings (LRU cache of 20 chunks).
+- **Chunked rendering for large files** — Files over 500K UTF-16 code units use a UITableView where each cell renders one \~16K chunk. Only visible cells build attributed strings (LRU cache of 20 chunks).
 - **Two-phase scroll restore** — Position restore uses a Phase 1 (t+0.15s) + Phase 2 (t+0.8s) pattern to handle TextKit 1 compatibility mode relayout storms that reset `contentOffset`.
 - **`@State` for one-shot values** — Rapidly-mutating `@Observable` properties are never read in SwiftUI body to avoid observation feedback loops. Position restore uses `@State` captured once after `open()`.
 - **Background task protection** — `UIApplication.beginBackgroundTask` wraps all critical saves (`close()`, `onBackground()`) to prevent data loss when iOS suspends the process.
@@ -137,10 +151,10 @@ All code, tests, bug fixes, and documentation are produced by AI coding agents. 
 
 ### Tools
 
-| Tool | Role |
-|------|------|
-| [Claude Code](https://claude.com/claude-code) | Primary coding agent — implementation, editing, code review, fixes |
-| [Codex CLI](https://github.com/openai/codex) | Architecture review, auditing, autonomous implementation in sandbox |
+| Tool                                          | Role                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------- |
+| [Claude Code](https://claude.com/claude-code) | Primary coding agent — implementation, editing, code review, fixes  |
+| [Codex CLI](https://github.com/openai/codex)  | Architecture review, auditing, autonomous implementation in sandbox |
 
 ### Workflow
 
@@ -155,12 +169,12 @@ The development process follows a gated, multi-agent pipeline:
 
 ### Agent Rules
 
-Shared rules for all AI agents live in [`AGENTS.md`](AGENTS.md):
+Shared rules for all AI agents live in ``:
 
 - **Test-first is mandatory** — Write a failing test before implementing any new behavior
 - **Research before building** — Search for established patterns and proven solutions before inventing
 - **Edge cases are not optional** — Brainstorm and test: empty input, null values, Unicode/CJK, concurrent access, network failures
-- **Keep files under ~300 lines** — Split proactively to maintain readability
+- **Keep files under \~300 lines** — Split proactively to maintain readability
 - **Keep diffs focused** — No drive-by refactors; only change what's needed
 
 ### Configuration
@@ -172,7 +186,7 @@ Shared rules for all AI agents live in [`AGENTS.md`](AGENTS.md):
 
 ## Status
 
-Active development. See [features](docs/features.md) (38 done) and [bugs](docs/bugs.md) (87 fixed) for current state.
+Active development. See [features](docs/features.md) (38 done) and [bugs](docs/bugs.md) (102 fixed) for current state.
 
 ## License
 

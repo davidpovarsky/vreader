@@ -7,6 +7,38 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FB01000000000001 /* FoliateJSEscaper.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000001 /* FoliateJSEscaper.swift */; };
+		FB01000000000002 /* FoliateMessageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000002 /* FoliateMessageParser.swift */; };
+		FB01000000000003 /* FoliateSearchAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000003 /* FoliateSearchAdapter.swift */; };
+		FB01000000000004 /* FoliateStyleMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000004 /* FoliateStyleMapper.swift */; };
+		FB01000000000005 /* FoliateTOCConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000005 /* FoliateTOCConverter.swift */; };
+		FB01000000000006 /* FoliateTTSAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000006 /* FoliateTTSAdapter.swift */; };
+		FB01000000000007 /* FoliateTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000007 /* FoliateTypes.swift */; };
+		FB01000000000008 /* FoliateURLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000008 /* FoliateURLSchemeHandler.swift */; };
+		FB0100000000000B /* FoliateHighlightRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000000B /* FoliateHighlightRenderer.swift */; };
+		FB0100000000000C /* FoliateReaderContainerView+Highlights.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000000C /* FoliateReaderContainerView+Highlights.swift */; };
+		FB0100000000000D /* FoliateReaderContainerView+Navigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000000D /* FoliateReaderContainerView+Navigation.swift */; };
+		FB0100000000000E /* FoliateReaderContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000000E /* FoliateReaderContainerView.swift */; };
+		FB0100000000000F /* FoliateSpikeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000000F /* FoliateSpikeView.swift */; };
+		FB01000000000010 /* FoliateViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000010 /* FoliateViewBridge.swift */; };
+		FB01000000000011 /* FoliateViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000011 /* FoliateViewCoordinator.swift */; };
+		FB01000000000012 /* FoliateReaderViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000012 /* FoliateReaderViewModel.swift */; };
+		FB01000000000013 /* TOCChapterProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000013 /* TOCChapterProgress.swift */; };
+		FB01000000000009 /* foliate-bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = FA01000000000009 /* foliate-bundle.js */; };
+		FB0100000000000A /* foliate-reader.html in Resources */ = {isa = PBXBuildFile; fileRef = FA0100000000000A /* foliate-reader.html */; };
+		FB01000000000021 /* FoliateJSEscaperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000021 /* FoliateJSEscaperTests.swift */; };
+		FB01000000000022 /* FoliateMessageParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000022 /* FoliateMessageParserTests.swift */; };
+		FB01000000000023 /* FoliateSearchAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000023 /* FoliateSearchAdapterTests.swift */; };
+		FB01000000000024 /* FoliateStyleMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000024 /* FoliateStyleMapperTests.swift */; };
+		FB01000000000025 /* FoliateTOCConverterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000025 /* FoliateTOCConverterTests.swift */; };
+		FB01000000000026 /* FoliateTTSAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000026 /* FoliateTTSAdapterTests.swift */; };
+		FB01000000000027 /* FoliateURLSchemeHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000027 /* FoliateURLSchemeHandlerTests.swift */; };
+		FB01000000000028 /* FoliateReaderViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000028 /* FoliateReaderViewModelTests.swift */; };
+		FB01000000000029 /* FoliateHighlightRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA01000000000029 /* FoliateHighlightRendererTests.swift */; };
+		FB0100000000002A /* FoliateReaderContainerViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000002A /* FoliateReaderContainerViewTests.swift */; };
+		FB0100000000002B /* FoliateViewCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000002B /* FoliateViewCoordinatorTests.swift */; };
+		FB0100000000002C /* BookFormatAZW3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000002C /* BookFormatAZW3Tests.swift */; };
+		FB0100000000002D /* BookImporterAZW3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0100000000002D /* BookImporterAZW3Tests.swift */; };
 		7A01B2C3D4E5F6A7B8C90001 /* TXTViewConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01B2C3D4E5F6A7B8C90011 /* TXTViewConfig.swift */; };
 		7A01B2C3D4E5F6A7B8C90002 /* TXTTextViewBridgeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01B2C3D4E5F6A7B8C90012 /* TXTTextViewBridgeCoordinator.swift */; };
 		7A01B2C3D4E5F6A7B8C90003 /* EPUBWebViewBridgeJS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01B2C3D4E5F6A7B8C90013 /* EPUBWebViewBridgeJS.swift */; };
@@ -633,6 +665,38 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		FA01000000000001 /* FoliateJSEscaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateJSEscaper.swift; sourceTree = "<group>"; };
+		FA01000000000002 /* FoliateMessageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateMessageParser.swift; sourceTree = "<group>"; };
+		FA01000000000003 /* FoliateSearchAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateSearchAdapter.swift; sourceTree = "<group>"; };
+		FA01000000000004 /* FoliateStyleMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateStyleMapper.swift; sourceTree = "<group>"; };
+		FA01000000000005 /* FoliateTOCConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateTOCConverter.swift; sourceTree = "<group>"; };
+		FA01000000000006 /* FoliateTTSAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateTTSAdapter.swift; sourceTree = "<group>"; };
+		FA01000000000007 /* FoliateTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateTypes.swift; sourceTree = "<group>"; };
+		FA01000000000008 /* FoliateURLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateURLSchemeHandler.swift; sourceTree = "<group>"; };
+		FA0100000000000B /* FoliateHighlightRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateHighlightRenderer.swift; sourceTree = "<group>"; };
+		FA0100000000000C /* FoliateReaderContainerView+Highlights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FoliateReaderContainerView+Highlights.swift"; sourceTree = "<group>"; };
+		FA0100000000000D /* FoliateReaderContainerView+Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FoliateReaderContainerView+Navigation.swift"; sourceTree = "<group>"; };
+		FA0100000000000E /* FoliateReaderContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateReaderContainerView.swift; sourceTree = "<group>"; };
+		FA0100000000000F /* FoliateSpikeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateSpikeView.swift; sourceTree = "<group>"; };
+		FA01000000000010 /* FoliateViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateViewBridge.swift; sourceTree = "<group>"; };
+		FA01000000000011 /* FoliateViewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateViewCoordinator.swift; sourceTree = "<group>"; };
+		FA01000000000012 /* FoliateReaderViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateReaderViewModel.swift; sourceTree = "<group>"; };
+		FA01000000000013 /* TOCChapterProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOCChapterProgress.swift; sourceTree = "<group>"; };
+		FA01000000000021 /* FoliateJSEscaperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateJSEscaperTests.swift; sourceTree = "<group>"; };
+		FA01000000000022 /* FoliateMessageParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateMessageParserTests.swift; sourceTree = "<group>"; };
+		FA01000000000023 /* FoliateSearchAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateSearchAdapterTests.swift; sourceTree = "<group>"; };
+		FA01000000000024 /* FoliateStyleMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateStyleMapperTests.swift; sourceTree = "<group>"; };
+		FA01000000000025 /* FoliateTOCConverterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateTOCConverterTests.swift; sourceTree = "<group>"; };
+		FA01000000000026 /* FoliateTTSAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateTTSAdapterTests.swift; sourceTree = "<group>"; };
+		FA01000000000027 /* FoliateURLSchemeHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateURLSchemeHandlerTests.swift; sourceTree = "<group>"; };
+		FA01000000000028 /* FoliateReaderViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateReaderViewModelTests.swift; sourceTree = "<group>"; };
+		FA01000000000029 /* FoliateHighlightRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateHighlightRendererTests.swift; sourceTree = "<group>"; };
+		FA0100000000002A /* FoliateReaderContainerViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateReaderContainerViewTests.swift; sourceTree = "<group>"; };
+		FA0100000000002B /* FoliateViewCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateViewCoordinatorTests.swift; sourceTree = "<group>"; };
+		FA0100000000002C /* BookFormatAZW3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookFormatAZW3Tests.swift; sourceTree = "<group>"; };
+		FA0100000000002D /* BookImporterAZW3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookImporterAZW3Tests.swift; sourceTree = "<group>"; };
+		FA01000000000009 /* foliate-bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = foliate-bundle.js; sourceTree = "<group>"; };
+		FA0100000000000A /* foliate-reader.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = foliate-reader.html; sourceTree = "<group>"; };
 		0069CA3A00998B13DE06E424 /* LocatorIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocatorIntegrationTests.swift; sourceTree = "<group>"; };
 		00814B9C69A0E1190146095E /* PersistenceActor+Collections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PersistenceActor+Collections.swift"; sourceTree = "<group>"; };
 		00B189F7F32FF82BCF254923 /* TXTTextChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTTextChunker.swift; sourceTree = "<group>"; };
@@ -1302,6 +1366,7 @@
 				61D944728B17A940A3716EA9 /* TokenSpanTests.swift */,
 				8E6E8611E23F1BE57E84E732 /* TXTTextViewBridgeTests.swift */,
 				EEF87AF7EE6B0FB8E4CC9332 /* TypographySettingsTests.swift */,
+				FA0100000000002C /* BookFormatAZW3Tests.swift */,
 				AD90252EC7BC13BB04C75119 /* Migration */,
 			);
 			path = Models;
@@ -1450,6 +1515,7 @@
 				5D7F4F4B985D58E03A78680D /* PDFReaderViewModelTests.swift */,
 				576F111E93E863C656BDEC70 /* SearchViewModelTests.swift */,
 				B3CB57338FD24289DAC8ABE4 /* WI9TestHelpers.swift */,
+				FA01000000000028 /* FoliateReaderViewModelTests.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -1571,6 +1637,9 @@
 				E1EF16A1A352B2C6BAE84556 /* UnifiedMDTests.swift */,
 				9F7F45FFFEE431C41E618EF2 /* UnifiedTextRendererTests.swift */,
 				D696HR9SIOM4CX0BL1GL91WK /* BookContentCacheTests.swift */,
+				FA01000000000029 /* FoliateHighlightRendererTests.swift */,
+				FA0100000000002A /* FoliateReaderContainerViewTests.swift */,
+				FA0100000000002B /* FoliateViewCoordinatorTests.swift */,
 			);
 			path = Reader;
 			sourceTree = "<group>";
@@ -1845,6 +1914,13 @@
 				34E23954103D83A7E25CC4A4 /* UnifiedPlaceholderView.swift */,
 				A0753D8C40DFE06B0323EE5B /* UnifiedScrollView.swift */,
 				13A1A428419630E618721E37 /* UnifiedTextRenderer.swift */,
+				FA0100000000000B /* FoliateHighlightRenderer.swift */,
+				FA0100000000000C /* FoliateReaderContainerView+Highlights.swift */,
+				FA0100000000000D /* FoliateReaderContainerView+Navigation.swift */,
+				FA0100000000000E /* FoliateReaderContainerView.swift */,
+				FA0100000000000F /* FoliateSpikeView.swift */,
+				FA01000000000010 /* FoliateViewBridge.swift */,
+				FA01000000000011 /* FoliateViewCoordinator.swift */,
 			);
 			path = Reader;
 			sourceTree = "<group>";
@@ -1916,6 +1992,7 @@
 				864A1B050775A46ADBE3304F /* SearchViewModel.swift */,
 				E19A1FE14FDE4829AF0F5913 /* TXTReaderViewModel.swift */,
 				7056486BA460E0BE06235F54 /* UnifiedTextRendererViewModel.swift */,
+				FA01000000000012 /* FoliateReaderViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -2167,6 +2244,8 @@
 				C1590617A7AA8A9252EAE3CA /* BookSource */,
 				6C040A57F55B7CB815C0F614 /* TextMapping */,
 				AABB001122334455AABB0011 /* TTS */,
+				FC01000000000003 /* Foliate */,
+				FA0100000000002D /* BookImporterAZW3Tests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -2357,6 +2436,7 @@
 				E07FB35EC9805F51CAD10444 /* ThemeBackgroundStore.swift */,
 				818F6161D2855C49A12AF5A6 /* TOCBuilder.swift */,
 				5C65E5FD23C2800C87ADD82A /* TOCProvider.swift */,
+				FA01000000000013 /* TOCChapterProgress.swift */,
 				F1A2DC49F84E40DE8F921733 /* AI */,
 				232456552E53357A5363638A /* Backup */,
 				FDAD081C3FE054319EF94E4A /* EPUB */,
@@ -2373,6 +2453,7 @@
 				947C994C5F48818BEAA51792 /* Unified */,
 				38A5EAA412AB13E9A5DB6C10 /* BookSource */,
 				0998F86FF3DCADF316D3BBE0 /* TextMapping */,
+				FC01000000000001 /* Foliate */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -2507,6 +2588,45 @@
 			path = Import;
 			sourceTree = "<group>";
 		};
+		FC01000000000001 /* Foliate */ = {
+			isa = PBXGroup;
+			children = (
+				FA01000000000001 /* FoliateJSEscaper.swift */,
+				FA01000000000002 /* FoliateMessageParser.swift */,
+				FA01000000000003 /* FoliateSearchAdapter.swift */,
+				FA01000000000004 /* FoliateStyleMapper.swift */,
+				FA01000000000005 /* FoliateTOCConverter.swift */,
+				FA01000000000006 /* FoliateTTSAdapter.swift */,
+				FA01000000000007 /* FoliateTypes.swift */,
+				FA01000000000008 /* FoliateURLSchemeHandler.swift */,
+				FC01000000000002 /* JS */,
+			);
+			path = Foliate;
+			sourceTree = "<group>";
+		};
+		FC01000000000002 /* JS */ = {
+			isa = PBXGroup;
+			children = (
+				FA01000000000009 /* foliate-bundle.js */,
+				FA0100000000000A /* foliate-reader.html */,
+			);
+			path = JS;
+			sourceTree = "<group>";
+		};
+		FC01000000000003 /* Foliate */ = {
+			isa = PBXGroup;
+			children = (
+				FA01000000000021 /* FoliateJSEscaperTests.swift */,
+				FA01000000000022 /* FoliateMessageParserTests.swift */,
+				FA01000000000023 /* FoliateSearchAdapterTests.swift */,
+				FA01000000000024 /* FoliateStyleMapperTests.swift */,
+				FA01000000000025 /* FoliateTOCConverterTests.swift */,
+				FA01000000000026 /* FoliateTTSAdapterTests.swift */,
+				FA01000000000027 /* FoliateURLSchemeHandlerTests.swift */,
+			);
+			path = Foliate;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -2607,6 +2727,8 @@
 			files = (
 				10835FE4B33B176F7668ADF7 /* Assets.xcassets in Resources */,
 				95D2D252390D26AFDBBAF43C /* SPIKE_RESULTS.md in Resources */,
+				FB01000000000009 /* foliate-bundle.js in Resources */,
+				FB0100000000000A /* foliate-reader.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2869,6 +2991,19 @@
 				C08E9C36FF3ED5C05E74F52B /* WI11TestHelpers.swift in Sources */,
 				E44BC8CE480C18F6469C62DD /* WI9TestHelpers.swift in Sources */,
 				E153024C836519993C468665 /* ZIPReaderTests.swift in Sources */,
+				FB01000000000021 /* FoliateJSEscaperTests.swift in Sources */,
+				FB01000000000022 /* FoliateMessageParserTests.swift in Sources */,
+				FB01000000000023 /* FoliateSearchAdapterTests.swift in Sources */,
+				FB01000000000024 /* FoliateStyleMapperTests.swift in Sources */,
+				FB01000000000025 /* FoliateTOCConverterTests.swift in Sources */,
+				FB01000000000026 /* FoliateTTSAdapterTests.swift in Sources */,
+				FB01000000000027 /* FoliateURLSchemeHandlerTests.swift in Sources */,
+				FB01000000000028 /* FoliateReaderViewModelTests.swift in Sources */,
+				FB01000000000029 /* FoliateHighlightRendererTests.swift in Sources */,
+				FB0100000000002A /* FoliateReaderContainerViewTests.swift in Sources */,
+				FB0100000000002B /* FoliateViewCoordinatorTests.swift in Sources */,
+				FB0100000000002C /* BookFormatAZW3Tests.swift in Sources */,
+				FB0100000000002D /* BookImporterAZW3Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3199,6 +3334,23 @@
 				1CB7C39AC6FE3B715D4B4305 /* V1toV2Migration.swift in Sources */,
 				F10FCB9E3EC6862A640BD406 /* VReaderApp.swift in Sources */,
 				AEFC819574E845429DFC9D78 /* ZIPReader.swift in Sources */,
+				FB01000000000001 /* FoliateJSEscaper.swift in Sources */,
+				FB01000000000002 /* FoliateMessageParser.swift in Sources */,
+				FB01000000000003 /* FoliateSearchAdapter.swift in Sources */,
+				FB01000000000004 /* FoliateStyleMapper.swift in Sources */,
+				FB01000000000005 /* FoliateTOCConverter.swift in Sources */,
+				FB01000000000006 /* FoliateTTSAdapter.swift in Sources */,
+				FB01000000000007 /* FoliateTypes.swift in Sources */,
+				FB01000000000008 /* FoliateURLSchemeHandler.swift in Sources */,
+				FB0100000000000B /* FoliateHighlightRenderer.swift in Sources */,
+				FB0100000000000C /* FoliateReaderContainerView+Highlights.swift in Sources */,
+				FB0100000000000D /* FoliateReaderContainerView+Navigation.swift in Sources */,
+				FB0100000000000E /* FoliateReaderContainerView.swift in Sources */,
+				FB0100000000000F /* FoliateSpikeView.swift in Sources */,
+				FB01000000000010 /* FoliateViewBridge.swift in Sources */,
+				FB01000000000011 /* FoliateViewCoordinator.swift in Sources */,
+				FB01000000000012 /* FoliateReaderViewModel.swift in Sources */,
+				FB01000000000013 /* TOCChapterProgress.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

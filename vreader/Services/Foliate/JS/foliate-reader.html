@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+foliate-view {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+</style>
+</head>
+<body>
+<script>
+    function post(name, detail) {
+        try { window.webkit?.messageHandlers?.[name]?.postMessage(detail || {}); }
+        catch(e) { console.error('post failed:', e); }
+    }
+    window.onerror = function(msg, src, line, col, err) {
+        post('error', { message: 'JS: ' + msg + ' at line ' + line, type: 'window.onerror' });
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+        post('error', { message: 'Promise: ' + (e.reason?.message || e.reason || 'unknown'), type: 'unhandledrejection' });
+    });
+</script>
+<script src="./foliate-bundle.js"></script>
+<foliate-view id="view"></foliate-view>
+<script>
+    // Initialize the bridge after the custom element is defined
+    if (window.readerAPI) {
+        post('bridge-ready', {});
+    } else {
+        post('error', { message: 'readerAPI not found after bundle load', type: 'init' });
+    }
+</script>
+</body>
+</html>

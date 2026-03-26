@@ -1,0 +1,175 @@
+// Purpose: UIViewRepresentable wrapping WKWebView for the Foliate-js reader.
+// Loads the reader HTML via WKURLSchemeHandler and routes JS messages through
+// FoliateViewCoordinator.
+//
+// Key decisions:
+// - Single WKWebView created once in makeUIView (no recreation on SwiftUI updates).
+// - WeakScriptMessageHandler pattern breaks WKUserContentController retain cycle.
+// - Scheme handler serves reader HTML, JS bundle, and book file from custom URL scheme.
+// - updateUIView detects themeCSS and layoutFlow changes, pushes via evaluateJavaScript.
+// - All interpolated values are sanitized via FoliateJSEscaper.
+//
+// @coordinates-with: FoliateViewCoordinator.swift, FoliateURLSchemeHandler.swift,
+//   FoliateTypes.swift, FoliateMessageParser.swift, FoliateJSEscaper.swift
+
+#if canImport(UIKit)
+import SwiftUI
+import WebKit
+
+/// UIViewRepresentable bridge for Foliate-js book rendering via WKWebView.
+struct FoliateViewBridge: UIViewRepresentable {
+
+    // MARK: - Properties
+
+    /// URL of the book file on disk (e.g., .azw3 in the app's Documents).
+    let bookURL: URL
+
+    /// Book file format extension (e.g., "azw3", "epub", "mobi").
+    let bookFormat: String
+
+    /// Optional saved CFI to restore reading position after book-ready.
+    var lastLocationCFI: String?
+
+    /// Optional CSS string to inject for theme customization.
+    var themeCSS: String?
+
+    /// Layout flow: "paginated" or "scrolled".
+    var layoutFlow: String = "paginated"
+
+    // MARK: - Callbacks
+
+    /// Called when Foliate-js reports a position change.
+    let onRelocate: @MainActor (FoliateRelocateEvent) -> Void
+
+    /// Called when the user selects text.
+    let onSelection: @MainActor (FoliateSelectionEvent) -> Void
+
+    /// Called when the book is parsed and ready.
+    let onBookReady: @MainActor (FoliateBookInfo) -> Void
+
+    /// Called when a section's SVG overlay is created (ready for highlight restoration).
+    let onCreateOverlay: @MainActor (Int) -> Void
+
+    /// Called when an error occurs in the reader.
+    let onError: @MainActor (String) -> Void
+
+    /// Called when the user taps content (for toolbar toggle).
+    let onTap: @MainActor () -> Void
+
+    /// Called when a highlight annotation is tapped.
+    let onAnnotationShow: @MainActor (String) -> Void
+
+    /// Called when an external link is tapped.
+    let onExternalLink: @MainActor (String) -> Void
+
+    // MARK: - UIViewRepresentable
+
+    func makeCoordinator() -> FoliateViewCoordinator {
+        FoliateViewCoordinator(
+            bookFormat: bookFormat,
+            onBookReady: onBookReady,
+            onRelocate: onRelocate,
+            onSelection: onSelection,
+            onTap: onTap,
+            onCreateOverlay: onCreateOverlay,
+            onAnnotationShow: onAnnotationShow,
+            onExternalLink: onExternalLink,
+            onError: onError
+        )
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let schemeHandler = FoliateURLSchemeHandler(bookFileURL: bookURL)
+
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(schemeHandler, forURLScheme: FoliateURLSchemeHandler.scheme)
+
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = prefs
+
+        let coordinator = context.coordinator
+        coordinator.lastLocationCFI = lastLocationCFI
+
+        // Register message handlers using weak proxy to avoid retain cycle
+        let weakHandler = WeakScriptMessageHandler(coordinator)
+        for name in FoliateViewCoordinator.messageNames {
+            config.userContentController.add(weakHandler, name: name)
+        }
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        #if DEBUG
+        webView.isInspectable = true
+        #endif
+        webView.navigationDelegate = coordinator
+        webView.scrollView.isScrollEnabled = false
+        webView.accessibilityIdentifier = "foliateWebView"
+
+        // Provide JS evaluator to coordinator
+        coordinator.jsEvaluator = { [weak webView] js in
+            webView?.evaluateJavaScript(js) { _, error in
+                if let error {
+                    print("[FoliateViewBridge] JS eval error: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        // Load the reader HTML from the custom scheme
+        let readerURL = URL(string: "\(FoliateURLSchemeHandler.scheme)://localhost/index.html")!
+        webView.load(URLRequest(url: readerURL))
+
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        let coordinator = context.coordinator
+        guard coordinator.isReaderReady else { return }
+
+        // Detect theme CSS changes
+        if coordinator.currentThemeCSS != themeCSS {
+            coordinator.currentThemeCSS = themeCSS
+            if let css = themeCSS {
+                let escaped = FoliateJSEscaper.escapeForJSString(css)
+                let js = "readerAPI.setStyles('\(escaped)')"
+                webView.evaluateJavaScript(js) { _, error in
+                    if let error {
+                        print("[FoliateViewBridge] setStyles error: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+
+        // Detect layout flow changes
+        let safeFlow = FoliateJSEscaper.sanitizeFlow(layoutFlow)
+        if coordinator.currentLayoutFlow != safeFlow {
+            coordinator.currentLayoutFlow = safeFlow
+            let js = "readerAPI.setLayout({flow: '\(safeFlow)'})"
+            webView.evaluateJavaScript(js) { _, error in
+                if let error {
+                    print("[FoliateViewBridge] setLayout error: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - WeakScriptMessageHandler
+
+/// Weak proxy to break the retain cycle between WKUserContentController and Coordinator.
+/// WKUserContentController.add(_:name:) retains the handler strongly; this proxy
+/// holds the real handler weakly so the Coordinator can be deallocated.
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var delegate: WKScriptMessageHandler?
+
+    init(_ delegate: WKScriptMessageHandler) {
+        self.delegate = delegate
+    }
+
+    func userContentController(
+        _ controller: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        delegate?.userContentController(controller, didReceive: message)
+    }
+}
+#endif

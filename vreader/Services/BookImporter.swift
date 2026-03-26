@@ -49,6 +49,7 @@ final class BookImporter: BookImporting, Sendable {
             .epub: EPUBMetadataExtractor(),
             .pdf: PDFMetadataExtractor(),
             .md: MDMetadataExtractor(),
+            .azw3: AZW3MetadataExtractor(),
         ]
     }
 

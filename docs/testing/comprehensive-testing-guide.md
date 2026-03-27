@@ -1,1041 +1,527 @@
-# Comprehensive Manual Testing Guide: Feature #42 -- Foliate-js Unified Reader Engine (Stage 1: AZW3/MOBI)
+# Manual Testing Guide: AZW3/MOBI (Kindle) Support
 
 **Last updated:** 2026-03-26
-**Scope:** Stage 1 only -- AZW3/MOBI format support via Foliate-js. EPUB, PDF, and TXT readers are unchanged.
-**Test device:** Real iPhone required (WKWebView + WKURLSchemeHandler behavior differs on simulator).
-**Simulator alternative:** iPhone 17 Pro (Dynamic Island -- catches safe area issues).
+**Scope:** AZW3/MOBI format support. EPUB, PDF, and TXT readers are unchanged.
+**Test device:** Real iPhone recommended. Simulator: iPhone 17 Pro.
 
 ---
 
-## Prerequisites
+## Quick Checklist
 
-### Environment
+Priority: **P0** = must pass before merge, **P1** = should pass, **P2** = nice to have
 
-- Xcode installed, project builds cleanly.
-- Test device running iOS 17+.
-- VReader app installed on device via Xcode (Debug build, so `webView.isInspectable = true`).
+### P0 — Critical Path
 
-### Test Files
+- [ ] **1.1** Import .azw3 file → appears in library with AZW3 badge
+- [ ] **2.1** Open AZW3 book → book renders with text visible
+- [ ] **3.1** Page turns work (swipe left/right or tap edges)
+- [ ] **3.2** Paginated layout renders correctly (text in columns)
+- [ ] **4.1** Close book → reopen → position restored
+- [ ] **9.1** Corrupt file → clear error message, no crash
+- [ ] **9.2** DRM file → clear error message, no crash
+- [ ] **11.1** EPUB reader still works (regression)
+- [ ] **11.2** PDF reader still works (regression)
+- [ ] **11.3** TXT reader still works (regression)
 
-Prepare these files in the Files app or a cloud drive accessible from the device:
+### P1 — Important Features
 
-| File | Purpose | Source |
-|------|---------|--------|
-| `test-book.azw3` | DRM-free AZW3, medium size (~2-10MB) | Calibre conversion or Project Gutenberg |
-| `test-book.mobi` | DRM-free MOBI file | Calibre or free MOBI download |
-| `test-book.azw` | DRM-free AZW file (Kindle format 8) | Rename a `.azw3` to `.azw` |
-| `test-book.prc` | DRM-free PRC file (Kindle PDB variant) | Rename a `.mobi` to `.prc` |
-| `drm-book.azw3` | DRM-protected AZW3 from Kindle purchase | Amazon purchase (do NOT strip DRM) |
-| `large-book.azw3` | Large AZW3 (>50MB, ideally ~80-100MB) | Calibre with many images |
-| `corrupt.azw3` | Truncated/corrupted AZW3 | Take a valid `.azw3`, truncate to 1KB |
-| `cjk-book.azw3` | AZW3 with Chinese/Japanese text | Calibre conversion of CJK source |
-| `image-heavy.azw3` | AZW3 with many inline images | Calibre conversion of illustrated book |
-| `test-epub.epub` | Known-working EPUB (regression) | Any previously tested EPUB |
-| `test.pdf` | Known-working PDF (regression) | Any previously tested PDF |
-| `test.txt` | Known-working TXT (regression) | Any previously tested TXT |
+- [ ] **1.2** Import .mobi file → appears as AZW3 format in library
+- [ ] **1.3** Import .azw file → appears as AZW3 format in library
+- [ ] **1.5** DRM-protected book → error message when opening
+- [ ] **1.6** Large book (>50MB) → loads without crash
+- [ ] **3.4** Text renders legibly with correct fonts
+- [ ] **3.5** Images in book display correctly
+- [ ] **3.6** Table of contents populates and tapping entries navigates
+- [ ] **3.7** Progress bar shows correct reading position
+- [ ] **4.2** Switch to another app → return → position preserved
+- [ ] **4.3** Force quit app → reopen book → position restored
+- [ ] **5.1** Long press text → selection handles appear → Highlight button shown
+- [ ] **5.2** Tap Highlight → highlight created and visible
+- [ ] **6.1** Search for text → results appear with excerpts
+- [ ] **6.2** Tap search result → reader navigates to that position
+- [ ] **8.1** Change font size in settings → reader updates
+- [ ] **8.2** Switch light/dark theme → reader updates
+- [ ] **9.9** Airplane mode → book still opens and reads (all local)
+- [ ] **10.1** Tap center of page → toolbar toggles on/off
+- [ ] **10.4** Tap back button → returns to library
 
-### Workspace Reset
+### P2 — Edge Cases & Polish
 
-Before starting a fresh test pass:
-
-1. Delete VReader from device (removes all data).
-2. Reinstall from Xcode.
-3. Verify library is empty.
-
----
-
-## 1. Import Testing
-
-### 1.1 Import AZW3 from Files App
-
-**Steps:**
-1. Open VReader.
-2. Tap the import button ("+") in the library.
-3. Select `test-book.azw3` from the Files app picker.
-4. Wait for import to complete.
-
-**Expected:**
-- Import succeeds without error.
-- Book appears in library with title (extracted from metadata or filename).
-- Library item shows format badge "AZW3" (or the format icon for AZW3).
-- `book.format` in the model is `"azw3"` (the `BookFormat.azw3.rawValue`).
-- The fingerprint key starts with `azw3:` (e.g., `azw3:<sha256>:<byteCount>`).
-- File is copied to `Application Support/ImportedBooks/<fingerprintKey>.azw3`.
-
-### 1.2 Import MOBI File (Normalized to AZW3)
-
-**Steps:**
-1. Tap import, select `test-book.mobi`.
-2. Wait for import.
-
-**Expected:**
-- Import succeeds.
-- `BookFormat.azw3.fileExtensions` includes "mobi", so `resolveFormat()` returns `.azw3`.
-- Book format stored as `"azw3"` in the database.
-- The fingerprint key prefix is `azw3:`.
-- Book appears in library.
-- The sandbox file is saved with `.azw3` extension (since `BookFormat.azw3.fileExtensions.first` is `"azw3"`).
-
-**Note:** The actual file content is MOBI -- Foliate-js handles both MOBI and AZW3 natively.
-
-### 1.3 Import AZW File (Normalized to AZW3)
-
-**Steps:**
-1. Tap import, select `test-book.azw`.
-
-**Expected:**
-- Same as 1.2 -- format resolves to `.azw3`.
-- Fingerprint key prefix `azw3:`.
-
-### 1.4 Import PRC File (Normalized to AZW3)
-
-**Steps:**
-1. Rename a valid `.mobi` file to `test-book.prc`.
-2. Tap import, select `test-book.prc`.
-
-**Expected:**
-- `BookFormat.azw3.fileExtensions` includes "prc", so `resolveFormat()` returns `.azw3`.
-- Book format stored as `"azw3"` in the database.
-- Fingerprint key prefix `azw3:`.
-- Book opens successfully via `FoliateReaderHost`.
-
-### 1.5 Import DRM-Protected AZW3
-
-**Steps:**
-1. Tap import, select `drm-book.azw3`.
-
-**Expected:**
-- Import itself may succeed (the importer does not check DRM at import time).
-- When opening the book (see section 2), Foliate-js will fail to parse it.
-- An error message should appear. Acceptable messages:
-  - "This file is DRM-protected. VReader can only open DRM-free files."
-  - "Could not open this file. It may be corrupted."
-  - Any clear message from the `error` message handler.
-- The app does NOT crash.
-
-### 1.6 Import Very Large Book (>50MB)
-
-**Steps:**
-1. Tap import, select `large-book.azw3` (~80-100MB).
-2. Wait for import to complete.
-
-**Expected:**
-- Import completes (may take several seconds for hash computation).
-- Book appears in library.
-- Opening the book (see section 2) shows a loading indicator.
-- Book eventually renders (may take 2-5 seconds for Foliate-js ZIP parsing).
-- No memory crash -- the scheme handler uses `Data(contentsOf:options:.mappedIfSafe)`.
-
-### 1.7 Library Format Display
-
-**Steps:**
-1. After importing an AZW3 book, examine the library grid/list view.
-
-**Expected:**
-- The book entry shows the correct format indicator for AZW3.
-- Book cover displays if metadata contains cover art; otherwise default placeholder.
-- Long-press context menu works (Info, Share, Delete).
-- Info sheet shows format as "AZW3".
-
-### 1.8 Duplicate Detection
-
-**Steps:**
-1. Import `test-book.azw3` again (same file, already imported).
-
-**Expected:**
-- `ImportResult.isDuplicate` is `true`.
-- App handles gracefully -- either shows a "book already exists" message or focuses the existing library entry.
-- No duplicate entry in library.
+- [ ] **1.4** Import .prc file → appears as AZW3 format
+- [ ] **1.7** Library shows correct book icon for AZW3
+- [ ] **1.8** Import same book twice → duplicate detected
+- [ ] **2.3** Loading spinner shown while book is parsing
+- [ ] **2.4** Book title and chapter count shown after loading
+- [ ] **3.3** Scrolled layout works (if toggle available in settings)
+- [ ] **4.4** Closing reader triggers position save (no data loss)
+- [ ] **5.3** Long press text → Copy works
+- [ ] **5.4** Created highlight visible in Annotations panel
+- [ ] **5.5** Close and reopen book → highlights restored in-page
+- [ ] **6.3** Search for nonexistent text → "no results" handled gracefully
+- [ ] **7.1** Start TTS → text reads aloud
+- [ ] **7.2** During TTS → current word highlighted
+- [ ] **7.3** TTS controls (pause/resume/stop) work
+- [ ] **8.3** Change line spacing → reader updates
+- [ ] **9.3** Unsupported file format → clear error message
+- [ ] **9.4** Delete book file from Files while reading → error message
+- [ ] **9.9** No network → app works normally (no online dependency)
+- [ ] **10.2** Bottom bar shows reading time for current session
+- [ ] **10.3** Bookmark button works
+- [ ] **11.4** Library with mixed formats (EPUB + AZW3 + PDF + TXT) displays correctly
+- [ ] **12.1** Book with very long chapter names → TOC doesn't break
+- [ ] **12.2** Book with Chinese/Japanese/Korean text → renders correctly
+- [ ] **12.3** Book with Arabic/Hebrew (RTL) text → reads right-to-left
+- [ ] **12.4** Book with many images → no crash, images load
+- [ ] **12.5** Book with 0 readable sections → error message, not blank screen
+- [ ] **12.6** Book file with special characters in name (spaces, CJK, etc.) → imports fine
+- [ ] **12.7** Tap link in book content → opens Safari for http/https links
+- [ ] **12.8** Rapidly turn pages 20+ times → no crash or freeze
+- [ ] **12.9** Rotate device → reader adapts to new orientation
+- [ ] **12.10** Book with special characters in title/author → displays correctly, no garbled text
+- [ ] **12.11** Open and close the same book 10 times → no slowdown or memory warning
+- [ ] **12.12** Open AZW3, go back, open PDF, go back, open TXT → all work independently
+- [ ] **13.1** Swipe to dismiss reader accidentally → position was already saved
+- [ ] **13.2** Switch apps during reading → position saved before backgrounding
+- [ ] **13.3** Error opening a book → other books unaffected
 
 ---
 
-## 2. Reader Opening
+## Test Files to Prepare
 
-### 2.1 Open AZW3 Book -- Happy Path
+| File | Purpose | How to Get |
+|------|---------|-----------|
+| `test-book.azw3` | DRM-free AZW3, 2-10MB | Calibre conversion or Project Gutenberg |
+| `test-book.mobi` | DRM-free MOBI | Project Gutenberg MOBI download |
+| `test-book.azw` | DRM-free AZW | Rename a .azw3 to .azw |
+| `test-book.prc` | DRM-free PRC | Rename a .mobi to .prc |
+| `drm-book.azw3` | DRM-protected Kindle book | Amazon Kindle purchase (don't strip DRM) |
+| `large-book.azw3` | Large book >50MB | Calibre conversion with many images |
+| `corrupt.azw3` | Corrupt file | Truncate a valid .azw3 to 1KB |
+| `cjk-book.azw3` | Chinese/Japanese text | Calibre conversion of CJK source |
+| `test.epub` | Known-working EPUB | Any previously tested EPUB |
+| `test.pdf` | Known-working PDF | Any PDF |
+| `test.txt` | Known-working TXT | Any text file |
 
-**Steps:**
-1. Tap an imported AZW3 book in the library.
-
-**Expected:**
-- `ReaderContainerView.nativeReaderView` dispatches to `FoliateReaderHost` (case `"azw3"`).
-- `FoliateReaderHost` shows "Opening book..." `ProgressView` while loading.
-- `FoliateReaderViewModel` is created with the correct `DocumentFingerprint`.
-- `FoliateViewBridge.makeUIView` creates a `WKWebView` with `FoliateURLSchemeHandler`.
-- The WebView loads `vreader-resource://localhost/index.html`.
-- `FoliateURLSchemeHandler` serves `foliate-reader.html` from the app bundle.
-- The HTML loads `./foliate-bundle.js` via `vreader-resource://localhost/foliate-bundle.js`.
-- JS posts `bridge-ready` message.
-- JS fetches book file via `vreader-resource://localhost/book/file`.
-- Book parses successfully; JS posts `book-ready` with title and section count.
-- Loading indicator disappears.
-- Book content renders in the `<foliate-view>` web component.
-
-**Verification (Debug build with Safari Web Inspector):**
-1. Connect device to Mac.
-2. Safari > Develop > [Device] > [WebView].
-3. Console should show no errors.
-4. `readerAPI` should be defined in the JS console.
-
-### 2.2 Scheme Handler Serves Resources Correctly
-
-**Steps:**
-1. Open an AZW3 book.
-2. In Safari Web Inspector, check Network tab.
-
-**Expected:**
-- `vreader-resource://localhost/index.html` -- 200, `text/html`.
-- `vreader-resource://localhost/foliate-bundle.js` -- 200, `application/javascript`.
-- `vreader-resource://localhost/book/file` -- 200, `application/octet-stream`.
-- All responses have `Access-Control-Allow-Origin: *` header.
-- No 404 errors in the console.
-
-### 2.3 Loading Indicator
-
-**Steps:**
-1. Open an AZW3 book.
-2. Observe the screen immediately after tapping.
-
-**Expected:**
-- `FoliateReaderHost` shows `ProgressView("Opening book...")` initially.
-- Once `FoliateReaderViewModel` is created, `FoliateReaderContainerView` shows its own `loadingView` (centered spinner with "Opening book..." text).
-- After `book-ready`, the loading view disappears and content appears.
-- The loading view has `accessibilityIdentifier("foliateReaderLoading")`.
-- Content view has `accessibilityIdentifier("foliateReaderContent")`.
-
-### 2.4 Metadata After Load
-
-**Steps:**
-1. Open an AZW3 book and wait for it to load.
-
-**Expected:**
-- `viewModel.isLoading` becomes `false`.
-- `viewModel.errorMessage` is `nil`.
-- Bottom overlay shows TOC label (if the book has TOC entries).
-- Progress starts at a position near the beginning (0% or the restored position).
+Save these in the Files app or a cloud drive accessible from the test device.
 
 ---
 
-## 3. Reading Experience
+## Detailed Test Steps
 
-### 3.1 Page Turns (Paginated Mode)
+### 1. Import Testing
 
-**Steps:**
-1. Open an AZW3 book (default layout is `"paginated"`).
-2. Tap the right edge of the screen.
-3. Tap the left edge of the screen.
-4. Swipe left (forward).
-5. Swipe right (backward).
+#### 1.1 Import AZW3 from Files App
 
-**Expected:**
-- Tapping right edge or swiping left advances to the next page.
-- Tapping left edge or swiping right goes to the previous page.
-- On each page turn, a `relocate` message is posted by Foliate-js.
-- `viewModel.currentProgress` updates.
-- `viewModel.currentCFI` updates.
-- `viewModel.currentTOCLabel` updates when crossing section boundaries.
-- Tapping the center of the screen toggles the chrome overlay (not a page turn).
+1. Open VReader
+2. Tap "+" (import) in the library
+3. Select `test-book.azw3` from Files
+4. Wait for import
 
-### 3.2 Paginated Layout Rendering
+**Pass if:** Book appears in library with title and AZW3 format badge. No error.
 
-**Steps:**
-1. Open an AZW3 book in paginated mode.
+#### 1.2 Import MOBI (Normalized to AZW3)
 
-**Expected:**
-- Content is divided into pages that fit the screen.
-- No horizontal scrollbar visible.
-- Text does not overflow the viewport.
-- `webView.scrollView.isScrollEnabled` is `false` (set in `FoliateViewBridge`).
-- Page breaks occur at natural word boundaries (no mid-word breaks).
+1. Tap import, select `test-book.mobi`
 
-### 3.3 Scrolled Layout (If Toggle Exists)
+**Pass if:** Book appears in library as AZW3 format (not MOBI). Import succeeds.
 
-**Steps:**
-1. Open an AZW3 book.
-2. Open reader settings.
-3. Toggle to scrolled/continuous layout (if the setting exists).
+#### 1.3 Import AZW (Normalized to AZW3)
 
-**Expected:**
-- Content reflows to a continuous scroll.
-- `FoliateViewBridge.updateUIView` detects the `layoutFlow` change.
-- JS `readerAPI.setLayout({flow: 'scrolled'})` is called.
-- Vertical scrolling works normally.
-- Position updates continue to fire via `relocate`.
+1. Tap import, select `test-book.azw`
 
-### 3.4 Text Rendering Quality
+**Pass if:** Same as 1.2 — appears as AZW3.
 
-**Steps:**
-1. Open an AZW3 book and read several pages.
+#### 1.4 Import PRC (Normalized to AZW3)
 
-**Expected:**
-- Text is legible at the current font size.
-- Paragraphs have proper spacing.
-- Indentation (if present in the source) is preserved.
-- No garbled characters or encoding issues.
-- Links within the book are visually distinct (underlined or colored).
+1. Tap import, select `test-book.prc`
 
-### 3.5 Image Display
+**Pass if:** Same as 1.2 — appears as AZW3.
 
-**Steps:**
-1. Open `image-heavy.azw3`.
-2. Navigate to pages with inline images.
+#### 1.5 Import DRM-Protected AZW3
 
-**Expected:**
-- Images render within the page.
-- Images scale to fit the viewport width (no horizontal overflow).
-- Images are legible (not excessively compressed).
-- Pages with images still paginate correctly (no overlapping content).
+1. Tap import, select `drm-book.azw3`
+2. Tap to open the book
 
-### 3.6 TOC Population
+**Pass if:** Error message appears (e.g., "This file is DRM-protected" or "Could not open"). App does NOT crash.
 
-**Steps:**
-1. Open an AZW3 book.
-2. Tap the chrome bar to show controls.
-3. Open the Annotations/Contents panel (the TOC tab).
+#### 1.6 Import Large Book (>50MB)
 
-**Expected:**
-- TOC entries populate from Foliate-js `book.toc` data.
-- Entries show chapter titles (not generic "Section N").
-- Hierarchical TOC items show proper indentation.
-- Tapping a TOC entry navigates to that chapter (via `FoliateSearchAdapter.goToResultJS`).
-- After navigation, the progress bar and TOC label update.
+1. Import `large-book.azw3`
+2. Open it
 
-### 3.7 Progress Bar
+**Pass if:** Loading indicator shown. Book eventually renders. No crash or memory warning.
 
-**Steps:**
-1. Open an AZW3 book.
-2. Tap center to show chrome.
-3. Navigate forward through several pages.
-4. Observe the progress indicator.
+#### 1.7 Library Format Display
 
-**Expected:**
-- Bottom overlay shows progress (driven by `viewModel.currentProgress`).
-- Progress increases as you read forward.
-- TOC label in the bottom overlay matches the current section.
-- Session time display shows elapsed reading time (e.g., "5m").
+1. Import one of each: .azw3, .epub, .pdf, .txt
+
+**Pass if:** Each book shows the correct format badge/icon in the library grid.
+
+#### 1.8 Duplicate Detection
+
+1. Import `test-book.azw3` twice
+
+**Pass if:** Second import is rejected or warns about duplicate.
 
 ---
 
-## 4. Position Persistence
+### 2. Reader Opening
 
-### 4.1 Close and Reopen -- Position Restored via CFI
+#### 2.1 Open AZW3 — Happy Path
 
-**Steps:**
-1. Open an AZW3 book.
-2. Navigate to approximately 30% through the book.
-3. Note the current TOC label and progress percentage.
-4. Go back to the library (dismiss the reader).
-5. Reopen the same book.
+1. Tap an imported AZW3 book in the library
 
-**Expected:**
-- `FoliateReaderHost.task` loads saved position via `persistence.loadPosition(bookFingerprintKey:)`.
-- `lastLocationCFI` is set to the saved CFI string.
-- `FoliateViewBridge` passes `lastLocationCFI` to the coordinator.
-- After `bridge-ready`, the coordinator calls `readerAPI.init({cfi})` to restore position.
-- The book opens at approximately the same position (same page/section).
-- Progress percentage matches (within ~1% tolerance due to layout differences).
-- TOC label matches the section you were reading.
+**Pass if:** Loading indicator appears briefly, then book text is visible and readable.
 
-### 4.2 Background and Return -- Position Preserved
+#### 2.3 Loading Indicator
 
-**Steps:**
-1. Open an AZW3 book and navigate to a specific position.
-2. Press Home or switch to another app (background the app).
-3. Wait 5-10 seconds.
-4. Return to VReader.
+1. Open a medium-sized AZW3 book
 
-**Expected:**
-- On background (`scenePhase == .background`), `viewModel.onBackground()` is called.
-- Position is saved immediately (flush debounce).
-- A background task (`UIApplication.shared.beginBackgroundTask`) ensures save completes.
-- On return (`scenePhase == .active`), `viewModel.onForeground()` is called.
-- If the WebView was terminated by iOS, it reloads and restores position.
-- Content is at the same position as before backgrounding.
+**Pass if:** A spinner or "Loading..." text appears while the book is being parsed.
 
-### 4.3 Force Quit and Reopen
+#### 2.4 Metadata After Load
 
-**Steps:**
-1. Open an AZW3 book and navigate to a specific position.
-2. Wait at least 2 seconds (debounce interval for position save).
-3. Force quit VReader (swipe up from app switcher).
-4. Relaunch VReader.
-5. Open the same book.
+1. Open an AZW3 book
+2. Check if the title is shown in the toolbar/header
 
-**Expected:**
-- Position was saved by the debounce timer before force quit (if you waited >2s).
-- Book reopens at the last debounced save position.
-- If force quit happened within 2s of the last navigation, position may be slightly behind.
-
-### 4.4 Close Triggers Final Save
-
-**Steps:**
-1. Open an AZW3 book.
-2. Navigate to a new position.
-3. Immediately go back to library (within <2s, before debounce fires).
-4. Reopen the book.
-
-**Expected:**
-- `FoliateReaderContainerView.onDisappear` calls `viewModel.close()`.
-- Close flushes the pending save via `lifecycle.close(locator:)`.
-- A background task ensures the save completes even if the view is deallocated.
-- Position is restored on next open.
+**Pass if:** Book title is displayed (either from file metadata or filename).
 
 ---
 
-## 5. Highlights
+### 3. Reading Experience
 
-### 5.1 Text Selection and Highlight Action Sheet
+#### 3.1 Page Turns
 
-**Steps:**
-1. Open an AZW3 book.
-2. Long-press on a word to start text selection.
-3. Adjust selection handles if needed.
+1. Open a book
+2. Swipe left to go to next page
+3. Swipe right to go to previous page
+4. Tap the right edge of the screen
+5. Tap the left edge
 
-**Expected:**
-- Foliate-js detects the selection and posts a `selection` message.
-- `FoliateViewCoordinator` parses the `FoliateSelectionEvent` (CFI, text, rect, section index).
-- `handleSelection()` in the container sets `pendingSelectionEvent` and shows the `confirmationDialog`.
-- Dialog shows three buttons: "Highlight", "Copy", "Cancel".
+**Pass if:** Each action advances or goes back one page.
 
-### 5.2 Create Highlight
+#### 3.2 Paginated Layout
 
-**Steps:**
-1. Select text (as above).
-2. Tap "Highlight" in the action sheet.
+1. Open a book in paginated mode
 
-**Expected:**
-- `FoliateHighlightRenderer.addAnnotationJS(cfi:color:)` generates JS.
-- The JS calls `readerAPI.addAnnotation({value: '<CFI>', color: 'yellow'})`.
-- The highlight appears visually in the reader (SVG overlay from Foliate-js).
-- The `pendingSelectionEvent` is cleared.
+**Pass if:** Text is laid out in page-sized columns. No horizontal scrollbar. Text doesn't overflow.
 
-**Note:** Full persistence to SwiftData is marked as TODO in the current code (`FoliateReaderContainerView.swift` line 129). Verify the current state of this implementation.
+#### 3.3 Scrolled Layout
 
-### 5.3 Copy Text
+1. If a layout toggle exists, switch to scrolled mode
 
-**Steps:**
-1. Select text.
-2. Tap "Copy" in the action sheet.
+**Pass if:** Book content scrolls vertically in a continuous flow.
 
-**Expected:**
-- Selected text is copied to `UIPasteboard.general`.
-- Can paste the text in another app (e.g., Notes).
-- `pendingSelectionEvent` is cleared.
+#### 3.4 Text Rendering
 
-### 5.4 Highlight Visibility in Annotations List
+1. Open a book with varied formatting (bold, italic, headings)
 
-**Steps:**
-1. Create a highlight (if persistence is implemented).
-2. Open the Annotations panel.
-3. Check the Highlights tab.
+**Pass if:** Text is legible. Bold/italic/headings render distinctly. Font size is comfortable.
 
-**Expected:**
-- Highlight appears in the list with the selected text excerpt.
-- Highlight has a CFI-based anchor (not XPath).
-- Tapping the highlight entry navigates back to that position in the book.
+#### 3.5 Image Display
 
-### 5.5 Highlight Restoration on Reopen
+1. Open a book with inline images
 
-**Steps:**
-1. Create highlights in an AZW3 book.
-2. Close the book.
-3. Reopen it.
+**Pass if:** Images display at appropriate size. Not stretched or cropped. Text wraps around them.
 
-**Expected:**
-- On each `create-overlay` event (section loaded), `handleCreateOverlay(sectionIndex:)` is called.
-- Currently a no-op placeholder (WI-7 implementation pending).
-- Once implemented: saved highlights should be queried and restored via `FoliateHighlightRenderer.restoreAllJS`.
+#### 3.6 TOC (Table of Contents)
+
+1. Open a book
+2. Open the TOC panel (if available)
+
+**Pass if:** Chapter list populates with chapter names. Tapping a chapter navigates to it.
+
+#### 3.7 Progress Bar
+
+1. Read to roughly the middle of a book
+
+**Pass if:** Progress bar or percentage shows approximately 50%. Updates as you read.
 
 ---
 
-## 6. Search
+### 4. Position Persistence
 
-### 6.1 Search in AZW3 Book
+#### 4.1 Close and Reopen
 
-**Steps:**
-1. Open an AZW3 book.
-2. Open the search panel (from chrome bar).
-3. Type a search query.
+1. Read to a specific position (note the page/chapter)
+2. Go back to library
+3. Reopen the same book
 
-**Expected:**
-- AZW3 uses Foliate-js built-in search (not FTS5 index).
-- `FoliateSearchAdapter.searchJS(query:)` generates JS: `readerAPI.search({query: '...'})`.
-- Search results stream via `search-result` message handler.
-- Results appear in the search results list with excerpts.
-- `search-progress` messages update a progress indicator (if implemented).
-- `search-done` message indicates search completion.
+**Pass if:** Book opens at the same position you left off.
 
-### 6.2 Navigate to Search Result
+#### 4.2 Background and Return
 
-**Steps:**
-1. Perform a search (as above).
-2. Tap a search result.
+1. Read to a position
+2. Switch to another app (Home button or app switcher)
+3. Return to VReader
 
-**Expected:**
-- `navigateToSearchResult(cfi:)` is called.
-- `FoliateSearchAdapter.goToResultJS(cfi:)` generates JS: `readerAPI.goTo('<CFI>')`.
-- JS is posted via `.foliateEvaluateJS` notification.
-- The reader navigates to the result position.
-- The matched text is visible on screen.
+**Pass if:** Still at the same position. No re-loading.
 
-### 6.3 Search with No Results
+#### 4.3 Force Quit
 
-**Steps:**
-1. Search for a string that does not exist in the book (e.g., "xyznonexistent12345").
+1. Read to a position
+2. Force quit VReader (swipe up from app switcher)
+3. Relaunch VReader and open the book
 
-**Expected:**
-- No `search-result` messages arrive.
-- `search-done` fires.
-- UI shows "No results" or equivalent empty state.
-- No crash or error.
+**Pass if:** Position is approximately restored (may be off by a page).
+
+#### 4.4 Close Triggers Save
+
+1. Read for at least 30 seconds
+2. Go back to library
+
+**Pass if:** Next open restores position (confirms save happened on close).
 
 ---
 
-## 7. TTS (Text-to-Speech)
+### 5. Highlights
 
-### 7.1 Start TTS
+#### 5.1 Text Selection
 
-**Steps:**
-1. Open an AZW3 book.
-2. Tap the speaker/TTS icon (from chrome bar).
+1. Long press on a word in the book
+2. Drag selection handles to select a phrase
 
-**Expected:**
-- `readerAPI.initTTS('word')` is called.
-- Foliate-js TTS walker segments text and posts `tts-text` messages.
-- `AVSpeechSynthesizer` speaks the text aloud.
-- TTS control bar appears at the bottom.
+**Pass if:** Selection handles appear. Action menu shows "Highlight" and "Copy" options.
 
-### 7.2 Word Highlighting During TTS
+#### 5.2 Create Highlight
 
-**Steps:**
-1. Start TTS.
-2. Observe the reader while speech plays.
+1. Select text
+2. Tap "Highlight"
 
-**Expected:**
-- As each word is spoken, `AVSpeechSynthesizerDelegate.speechSynthesizer(_:willSpeakRangeOfSpeechString:)` fires.
-- Character range is mapped to a mark.
-- `readerAPI.tts.setMark(mark)` is called.
-- The current word is visually highlighted in the reader.
+**Pass if:** Selected text is highlighted with a colored overlay.
 
-### 7.3 TTS Controls
+#### 5.3 Copy Text
 
-**Steps:**
-1. Start TTS.
-2. Tap pause.
-3. Tap play.
-4. Tap stop.
+1. Select text
+2. Tap "Copy"
 
-**Expected:**
-- Pause halts speech immediately.
-- Play resumes from where it paused.
-- Stop ends speech, `ttsService.state` returns to `.idle`, control bar disappears.
+**Pass if:** Text copied to clipboard. Paste it elsewhere to verify.
 
----
+#### 5.4 Annotations List
 
-## 8. Theme and Layout
+1. Create a highlight
+2. Open the Annotations panel
 
-### 8.1 Font Size Change
+**Pass if:** The highlight appears in the list with the highlighted text.
 
-**Steps:**
-1. Open an AZW3 book.
-2. Open reader settings.
-3. Increase font size.
-4. Decrease font size.
+#### 5.5 Highlight Restoration
 
-**Expected:**
-- `FoliateViewBridge.updateUIView` detects `themeCSS` change.
-- `readerAPI.setStyles(css)` is called with updated font size.
-- Text re-renders at the new size.
-- Pagination recalculates (different number of words per page).
-- Position is approximately maintained (same content visible).
+1. Create a highlight
+2. Close the book
+3. Reopen
 
-### 8.2 Theme (Light/Dark) Change
-
-**Steps:**
-1. Open an AZW3 book in light mode.
-2. Change to dark mode (system or reader settings).
-
-**Expected:**
-- `FoliateStyleMapper.themeCSS` generates CSS with `textColor` and `backgroundColor`.
-- `readerAPI.setStyles(css)` is called.
-- Background and text colors update in the reader.
-- Text remains legible with sufficient contrast.
-
-### 8.3 Line Spacing Change
-
-**Steps:**
-1. Open reader settings.
-2. Adjust line spacing.
-
-**Expected:**
-- Theme CSS includes updated `line-height` value.
-- Text re-renders with new spacing.
-- Pagination recalculates.
+**Pass if:** The highlight is still visible at the same position.
 
 ---
 
-## 9. Error Handling
+### 6. Search
 
-### 9.1 Corrupt/Truncated File
+#### 6.1 Search in AZW3
 
-**Steps:**
-1. Import `corrupt.azw3` (a valid AZW3 file truncated to ~1KB).
-2. Open it from the library.
+1. Open the search function
+2. Type a word you know is in the book
 
-**Expected:**
-- `FoliateReaderContainerView` shows loading, then switches to error view.
-- Foliate-js posts an `error` message when it fails to parse the file.
-- `viewModel.handleError(message)` sets `errorMessage` and `isLoading = false`.
-- Error view shows an exclamation triangle icon and the error message.
-- Error view has `accessibilityIdentifier("foliateReaderError")`.
-- App does NOT crash.
+**Pass if:** Results appear with text excerpts showing the word in context.
 
-### 9.2 DRM-Protected Book (Error on Open)
+#### 6.2 Navigate to Result
 
-**Steps:**
-1. Import a DRM-protected AZW3 (from Amazon Kindle).
-2. Open it.
+1. Search for a word
+2. Tap a result
 
-**Expected:**
-- Foliate-js cannot parse DRM content.
-- An `error` message is posted.
-- Clear error message is displayed (ideally mentioning DRM).
-- App does NOT crash.
+**Pass if:** Reader navigates to the page containing that text.
 
-### 9.3 Unsupported MOBI Variant
+#### 6.3 No Results
 
-**Steps:**
-1. Obtain a MOBI file using an older or unusual MOBI format variant (e.g., KF6-only or PalmDOC).
-2. Import and open it.
+1. Search for a nonsense string like "xyzzy12345"
 
-**Expected:**
-- Foliate-js attempts to parse the file.
-- If the variant is unsupported, Foliate-js posts an `error` event.
-- `FoliateViewCoordinator.handleMessage` routes to `onError`.
-- Error view displays: "This file format is not supported." or a Foliate-js parse error message.
-- App does NOT crash.
-
-### 9.4 Missing Book File
-
-**Steps:**
-1. Import an AZW3 book.
-2. Manually delete the file from the app sandbox (via Xcode device manager or a file browser).
-3. Try to open the book from the library.
-
-**Expected:**
-- `FoliateURLSchemeHandler.serveBookFile` checks `FileManager.default.fileExists`.
-- Returns 404 with message "Book file not found".
-- JS `fetch()` fails, triggers `error` event.
-- Error view displays with a clear message.
-
-### 9.5 JS Bundle Missing from App Bundle
-
-**Steps:**
-- This is a build configuration issue. Verify by checking that `foliate-bundle.js` and `foliate-reader.html` are included in the Xcode "Copy Bundle Resources" build phase.
-
-**Expected:**
-- If missing, `FoliateURLSchemeHandler` returns 404 for `/foliate-bundle.js`.
-- Reader HTML loads but the `<script>` tag fails.
-- `window.onerror` catches the error and posts it via `error` message handler.
-- OR: `readerAPI` is undefined, and the inline script posts `"readerAPI not found after bundle load"`.
-
-### 9.6 WebView Process Crash
-
-**Steps:**
-1. Open an AZW3 book.
-2. Open many other apps to pressure memory.
-3. Return to VReader.
-
-**Expected:**
-- If the WebView process was terminated by iOS, `webContentProcessDidTerminate` fires.
-- The coordinator or container should detect this and reload.
-- Position is restored from the last saved locator.
-
-### 9.7 Book File Deleted While Reading
-
-**Steps:**
-1. Open an AZW3 book and start reading.
-2. While the reader is open, use Xcode's device file browser (or another tool) to delete the book file from the app sandbox (`Application Support/ImportedBooks/<key>.azw3`).
-3. Navigate to a new section in the reader (to trigger a re-fetch of the book data, if applicable).
-
-**Expected:**
-- If the book data is already loaded in Foliate-js memory, reading continues normally for the current session.
-- If Foliate-js needs to re-read the file (e.g., for a new section), the scheme handler returns 404.
-- An error event fires and the error view displays "Book file is no longer available." or similar.
-- The reader does NOT crash.
-- Closing and reopening the library entry should also show an error.
-
-### 9.8 Navigation Policy Blocks External URLs
-
-**Steps:**
-1. Open an AZW3 book.
-2. In Safari Web Inspector, evaluate: `window.location.href = "https://example.com"`.
-
-**Expected:**
-- `FoliateViewCoordinator.shouldAllowNavigation(to:)` rejects the URL.
-- Only `vreader-resource://`, `blob://`, and `about:blank` are allowed.
-- The WebView stays on the reader page.
-- No external navigation occurs.
-
-### 9.9 Network Offline
-
-**Steps:**
-1. Enable Airplane Mode.
-2. Open an imported AZW3 book.
-
-**Expected:**
-- Everything works normally -- all resources are local.
-- Scheme handler serves from the app bundle and sandbox.
-- No network requests are needed.
-- External links tapped in the book content will fail to open (expected).
+**Pass if:** "No results" message (or empty list). No crash.
 
 ---
 
-## 10. Chrome and Navigation UI
+### 7. TTS (Text-to-Speech)
 
-### 10.1 Chrome Toggle
+#### 7.1 Start TTS
 
-**Steps:**
-1. Open an AZW3 book.
-2. Tap the center of the screen.
-3. Tap center again.
+1. Start text-to-speech playback
 
-**Expected:**
-- First tap: chrome overlay appears (top bar + bottom overlay).
-- Second tap: chrome overlay hides.
-- Content does NOT shift or resize during toggle.
-- Chrome toggle is animated (0.2s ease-in-out).
+**Pass if:** The app reads the text aloud using the device voice.
 
-### 10.2 Bottom Overlay Content
+#### 7.2 Word Highlighting
 
-**Steps:**
-1. Open an AZW3 book, show chrome.
+1. During TTS playback, watch the screen
 
-**Expected:**
-- Bottom overlay shows:
-  - TOC label for current section (from `viewModel.currentTOCLabel`).
-  - Progress bar/percentage (from `viewModel.currentProgress`).
-  - Session time (from `viewModel.sessionTimeDisplay`).
-- Overlay has `accessibilityIdentifier("foliateBottomOverlay")`.
+**Pass if:** The currently spoken word is highlighted or underlined.
 
-### 10.3 Bookmark
+#### 7.3 TTS Controls
 
-**Steps:**
-1. Open an AZW3 book.
-2. Show chrome.
-3. Tap the bookmark button.
+1. Pause, resume, and stop TTS
 
-**Expected:**
-- `.readerBookmarkRequested` notification is posted.
-- `FoliateReaderContainerView` handles it:
-  - Gets current locator from `viewModel.currentLocator()`.
-  - Persists bookmark via `PersistenceActor.addBookmark`.
-- Haptic feedback plays.
-- Bookmark appears in the Annotations panel (Bookmarks tab).
-
-### 10.4 Back to Library
-
-**Steps:**
-1. Open an AZW3 book.
-2. Show chrome.
-3. Tap back/close button.
-
-**Expected:**
-- `onDisappear` fires, calling `viewModel.close()`.
-- Position is saved.
-- Session tracker records the session.
-- Reader view is dismissed.
-- Library view appears.
+**Pass if:** Each control works as expected.
 
 ---
 
-## 11. Regression Testing
+### 8. Theme and Layout
 
-### 11.1 EPUB Reader (Unchanged)
+#### 8.1 Font Size
 
-**Steps:**
-1. Import and open `test-epub.epub`.
+1. Open reader settings
+2. Change font size (larger or smaller)
 
-**Expected:**
-- Dispatches to `EPUBReaderHost` (case `"epub"`).
-- Uses existing `EPUBReaderContainerView` (NOT Foliate-js).
-- All EPUB features work: pagination, highlights, search, TOC, TTS.
-- No behavioral change from before Feature #42.
+**Pass if:** Text in the reader updates to the new size immediately.
 
-### 11.2 PDF Reader (Unchanged)
+#### 8.2 Theme Change
 
-**Steps:**
-1. Import and open `test.pdf`.
+1. Switch between light and dark theme
 
-**Expected:**
-- Dispatches to `PDFReaderHost` (case `"pdf"`).
-- Uses `PDFReaderContainerView` with PDFKit.
-- All PDF features work.
+**Pass if:** Reader background and text color change accordingly.
 
-### 11.3 TXT Reader (Unchanged)
+#### 8.3 Line Spacing
 
-**Steps:**
-1. Import and open `test.txt`.
+1. Change line spacing in settings
 
-**Expected:**
-- Dispatches to `TXTReaderHost` (case `"txt"`).
-- Uses `TXTReaderContainerView`.
-- All TXT features work.
-
-### 11.4 Library Mixed Formats
-
-**Steps:**
-1. Import one book of each format: EPUB, PDF, TXT, AZW3.
-2. Open each from the library.
-3. Verify each opens in the correct reader.
-
-**Expected:**
-- Format dispatch in `ReaderContainerView.nativeReaderView` correctly routes each format.
-- No cross-contamination between reader engines.
-- Library sort and filter work with mixed formats.
+**Pass if:** Text in the reader reflects the new spacing.
 
 ---
 
-## 12. Edge Cases
+### 9. Error Handling
 
-### 12.1 Very Long Chapter Names in TOC
+#### 9.1 Corrupt File
 
-**Steps:**
-1. Open a book with long chapter names (>80 characters).
+1. Import and open `corrupt.azw3` (truncated to 1KB)
 
-**Expected:**
-- TOC entries truncate gracefully in the UI (no layout overflow).
-- Bottom overlay TOC label truncates with `lineLimit(1)`.
+**Pass if:** Error message appears. App does not crash.
 
-### 12.2 CJK Text (Chinese/Japanese/Korean)
+#### 9.2 DRM-Protected
 
-**Steps:**
-1. Open `cjk-book.azw3`.
+1. Import and open a DRM-protected Kindle book
 
-**Expected:**
-- Chinese/Japanese/Korean characters render correctly.
-- Text selection works with CJK characters.
-- Search works with CJK queries.
-- TTS reads CJK text (if the system TTS voice supports it).
+**Pass if:** Clear error message. App does not crash.
 
-### 12.3 RTL Text (Arabic/Hebrew)
+#### 9.3 Unsupported Format
 
-**Steps:**
-1. Open an AZW3 with Arabic or Hebrew text (if available).
+1. Rename a .jpg to .azw3 and import it
 
-**Expected:**
-- Text flows right-to-left.
-- Page turns are reversed (swipe right = forward in RTL).
-- Or: Foliate-js handles RTL layout internally.
+**Pass if:** Error on import or on open. No crash.
 
-### 12.4 Books with Many Images
+#### 9.4 Missing Book File
 
-**Steps:**
-1. Open `image-heavy.azw3`.
-2. Navigate through image-heavy sections.
+1. Open a book, then delete its source file from Files while reading
 
-**Expected:**
-- Images load without crashing.
-- Memory usage remains reasonable.
-- Pagination handles pages with mixed text and images.
-- No blank pages where images should be.
+**Pass if:** Error message appears. App does not crash.
 
-### 12.5 Empty Book (0 Sections)
+#### 9.9 Offline
 
-**Steps:**
-1. If possible, create an AZW3 with no content sections.
-2. Import and open it.
+1. Enable airplane mode
+2. Open an already-imported AZW3 book
 
-**Expected:**
-- Foliate-js either shows an empty view or posts an error.
-- App does NOT crash.
-- The user sees some feedback (blank page or error message).
-
-### 12.6 Special Characters in Filename
-
-**Steps:**
-1. Rename a valid AZW3 to `book (1) [copy] & friends.azw3`.
-2. Import it.
-
-**Expected:**
-- Import succeeds.
-- The filename is not used for the sandbox path (fingerprint key is used instead).
-- Book title may come from the filename if metadata extraction returns nil.
-- No path traversal or encoding issues.
-
-### 12.7 External Link Tapped
-
-**Steps:**
-1. Open an AZW3 book that contains external HTTP links.
-2. Tap an external link.
-
-**Expected:**
-- `onExternalLink` callback fires.
-- URL scheme is validated (only `http`, `https`, `mailto` allowed).
-- `UIApplication.shared.open(url)` opens the link in Safari/Mail.
-- Invalid schemes (e.g., `javascript:`, `file:`) are silently ignored.
-
-### 12.8 Rapid Page Turns
-
-**Steps:**
-1. Open an AZW3 book.
-2. Tap the right edge rapidly (10+ times in quick succession).
-
-**Expected:**
-- Pages advance smoothly without crashes.
-- `relocate` events fire for each page.
-- Position save debounce prevents excessive writes (2-second interval).
-- No UI freezes or unresponsive states.
-
-### 12.9 Orientation Change
-
-**Steps:**
-1. Open an AZW3 book in portrait.
-2. Rotate to landscape.
-3. Rotate back to portrait.
-
-**Expected:**
-- Content re-paginates for the new viewport size.
-- Reading position is approximately maintained.
-- No layout artifacts or blank pages.
-- Chrome overlay repositions correctly.
-
-### 12.10 Book Metadata with Special Characters (JS Injection Safety)
-
-**Steps:**
-1. Use Calibre to create an AZW3 with a title containing: `Test'; alert('xss');//`
-2. Import and open the book.
-
-**Expected:**
-- `FoliateJSEscaper.escapeForJSString` sanitizes the title before any JS interpolation.
-- Backslashes, single quotes, and newlines are escaped.
-- No JavaScript injection occurs -- the title displays as literal text.
-- The reader opens normally without JS errors.
-- In Safari Web Inspector, verify no unexpected `alert()` dialogs.
-
-### 12.11 Multiple Open/Close Cycles (Memory Leak Check)
-
-**Steps:**
-1. Open an AZW3 book.
-2. Read a few pages.
-3. Go back to library.
-4. Repeat steps 1-3 at least 10 times.
-
-**Expected:**
-- Memory usage (visible in Xcode Instruments) does not grow unboundedly.
-- `WeakScriptMessageHandler` pattern breaks the WKUserContentController retain cycle.
-- Each `onDisappear` properly calls `viewModel.close()`.
-- No accumulated WKWebView instances.
-
-### 12.12 Concurrent Format Opens
-
-**Steps:**
-1. Open an AZW3 book.
-2. Quickly go back and open an EPUB book.
-3. Quickly go back and open the AZW3 book again.
-
-**Expected:**
-- Each reader host creates its own isolated ViewModel and bridge.
-- No cross-contamination of state between the Foliate-js reader and the EPUB reader.
-- Position for each book is saved independently.
-- No crashes from rapid view lifecycle changes.
+**Pass if:** Book opens and reads normally (everything is local).
 
 ---
 
-## 13. Dirty State and Data-Loss Checks
+### 10. Chrome and Navigation
 
-### 13.1 Position Not Lost on Accidental Dismiss
+#### 10.1 Chrome Toggle
 
-**Steps:**
-1. Open an AZW3 book and read to page ~50.
-2. Swipe down from the top edge (iOS dismiss gesture).
+1. Tap the center of the page content
 
-**Expected:**
-- `onDisappear` fires and saves position.
-- Reopening restores to the same position.
+**Pass if:** Toolbar and bottom bar toggle visibility.
 
-### 13.2 Position Save During Background Task
+#### 10.2 Bottom Overlay
 
-**Steps:**
-1. Read to a position.
-2. Press Home.
-3. Wait 30 seconds.
-4. Return.
+1. Read for a few minutes
+2. Show the bottom bar
 
-**Expected:**
-- Position was saved during the background transition.
-- `UIApplication.shared.beginBackgroundTask` ensured the save completed.
-- Content is at the same position.
+**Pass if:** Session reading time is displayed.
 
-### 13.3 No Data Loss on Error
+#### 10.3 Bookmark
 
-**Steps:**
-1. Read a book and create bookmarks/highlights.
-2. Open a corrupt AZW3 file.
-3. Dismiss the error.
-4. Reopen the previously working book.
+1. Tap the bookmark button
 
-**Expected:**
-- The error from the corrupt file does NOT affect other books.
-- All bookmarks and highlights for the working book are preserved.
-- Position for the working book is restored.
+**Pass if:** Bookmark is created at current position.
+
+#### 10.4 Back to Library
+
+1. Tap the back button
+
+**Pass if:** Returns to library. Book position is saved.
 
 ---
 
-## Regression Checklist
+### 11. Regression Testing
 
-Run after all tests pass. Each item should be checked on a real device.
+#### 11.1 EPUB
 
-### Existing Formats (no regression)
+1. Open a previously working EPUB book
 
-- [ ] EPUB import + open + read -- no change from pre-Feature-42 behavior
-- [ ] PDF import + open + read -- no change
-- [ ] TXT import + open + read -- no change
-- [ ] MD import + open + read -- no change
-- [ ] Library mixed formats -- open each, verify correct reader dispatched
+**Pass if:** Renders and behaves exactly as before. No changes.
 
-### AZW3/MOBI Import
+#### 11.2 PDF
 
-- [ ] AZW3 import works
-- [ ] MOBI file imports as AZW3 format
-- [ ] AZW file imports as AZW3 format
-- [ ] PRC file imports as AZW3 format
-- [ ] Duplicate detection works for re-imported AZW3
-- [ ] Library shows correct format badge for AZW3
+1. Open a previously working PDF
 
-### AZW3 Core Reading
+**Pass if:** Renders normally. Page navigation works.
 
-- [ ] AZW3 opens in Foliate-js reader (not EPUB reader)
-- [ ] AZW3 paginated reading works (page turns, swipes)
-- [ ] AZW3 text renders legibly (fonts, paragraphs, images)
-- [ ] AZW3 CJK text renders correctly
-- [ ] AZW3 position saves and restores across close/reopen
-- [ ] AZW3 position saves on background and restores on foreground
-- [ ] Force quit + reopen restores position (after 2s debounce)
+#### 11.3 TXT
 
-### AZW3 Features
+1. Open a previously working TXT file
 
-- [ ] AZW3 bookmarks create and persist
-- [ ] AZW3 TOC displays and navigates
-- [ ] AZW3 search returns results and navigates to them
-- [ ] AZW3 text selection works (copy + highlight dialog)
-- [ ] AZW3 highlights create (visual SVG overlay)
-- [ ] Chrome toggle works in AZW3 reader
-- [ ] Theme/font/line-spacing changes apply in AZW3 reader
-- [ ] TTS plays and highlights words (if implemented)
+**Pass if:** Renders normally. Chapter detection works.
 
-### AZW3 Error Handling
+#### 11.4 Mixed Library
 
-- [ ] AZW3 DRM file shows error (no crash)
-- [ ] AZW3 corrupt/truncated file shows error (no crash)
-- [ ] Unsupported MOBI variant shows error (no crash)
-- [ ] Missing book file shows error (no crash)
-- [ ] WebView process crash recovers gracefully
-- [ ] Offline mode works (all resources local)
+1. Have EPUB, AZW3, PDF, and TXT books in the library
 
-### Safety and Stability
+**Pass if:** All display correctly in the library grid. Each opens in its correct reader.
 
-- [ ] No memory leaks on repeated open/close of AZW3 reader (10+ cycles)
-- [ ] No JS injection from malicious book metadata
-- [ ] Navigation policy blocks external URLs in WebView
-- [ ] Safari Web Inspector shows no JS errors during normal reading
-- [ ] External links open in Safari (http/https/mailto only)
+---
+
+### 12. Edge Cases
+
+#### 12.1 Long Chapter Names
+Open a book with very long chapter titles. **Pass if:** TOC doesn't overflow or crash.
+
+#### 12.2 CJK Text
+Open `cjk-book.azw3`. **Pass if:** Chinese/Japanese characters render correctly.
+
+#### 12.3 RTL Text
+Open a book with Arabic/Hebrew text. **Pass if:** Text reads right-to-left.
+
+#### 12.4 Image-Heavy Book
+Open a book with many images. **Pass if:** Images load. No crash.
+
+#### 12.5 Empty Book
+Open a book with no readable content. **Pass if:** Error message, not a blank screen.
+
+#### 12.6 Special Filename
+Import a file named `书籍 (copy).azw3`. **Pass if:** Imports successfully.
+
+#### 12.7 External Links
+Tap a hyperlink in book content. **Pass if:** Opens Safari for http/https links. Does not open tel:/sms: links.
+
+#### 12.8 Rapid Page Turns
+Tap next page 20+ times rapidly. **Pass if:** No crash or freeze.
+
+#### 12.9 Orientation Change
+Rotate the device while reading. **Pass if:** Layout adapts.
+
+#### 12.10 Special Characters in Metadata
+Open a book with quotes or ampersands in title. **Pass if:** Title displays correctly.
+
+#### 12.11 Memory Stability
+Open and close the same book 10 times. **Pass if:** No slowdown or memory warnings.
+
+#### 12.12 Concurrent Formats
+Open AZW3, go back, open PDF, go back, open TXT. **Pass if:** Each reader works independently.
+
+---
+
+### 13. Data Safety
+
+#### 13.1 Accidental Dismiss
+Swipe to dismiss reader. **Pass if:** Position was saved.
+
+#### 13.2 Background Save
+Switch apps while reading. **Pass if:** Position saved before backgrounding.
+
+#### 13.3 Error Isolation
+Fail to open one book. **Pass if:** Other books still open normally.

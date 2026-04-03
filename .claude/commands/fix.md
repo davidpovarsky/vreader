@@ -33,7 +33,11 @@ $ARGUMENTS
 ### 1. Reproduce
 
 - Read the relevant source files. Trace the call chain from symptom to root cause.
-- If the issue involves UI behavior, ask the user to reproduce on device or simulator.
+- If the issue involves UI behavior:
+  - Use **computer use + Simulator** to reproduce visually (tap, scroll, screenshot).
+  - Use `sim-transfer` skill to push test files to the simulator when needed.
+  - Stream live logs: `SIMCTL spawn booted log stream --predicate 'subsystem == "com.vreader.app"' --debug`
+  - Use `AppLogger.<category>.debug/error()` for any new debug logging (not `print()`).
 
 ### 2. Diagnose
 

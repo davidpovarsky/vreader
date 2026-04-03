@@ -114,7 +114,7 @@ struct FoliateViewBridge: UIViewRepresentable {
         coordinator.jsEvaluator = { [weak webView] js in
             webView?.evaluateJavaScript(js) { _, error in
                 if let error {
-                    print("[FoliateViewBridge] JS eval error: \(error.localizedDescription)")
+                    AppLogger.foliate.error("JS eval error: \(error.localizedDescription)")
                 }
             }
         }
@@ -205,7 +205,7 @@ struct FoliateViewBridge: UIViewRepresentable {
                 let js = "readerAPI.setStyles('\(escaped)')"
                 webView.evaluateJavaScript(js) { _, error in
                     if let error {
-                        print("[FoliateViewBridge] setStyles error: \(error.localizedDescription)")
+                        AppLogger.foliate.error("setStyles error: \(error.localizedDescription)")
                     }
                 }
             }
@@ -218,7 +218,7 @@ struct FoliateViewBridge: UIViewRepresentable {
             let js = "readerAPI.setLayout({flow: '\(safeFlow)'})"
             webView.evaluateJavaScript(js) { _, error in
                 if let error {
-                    print("[FoliateViewBridge] setLayout error: \(error.localizedDescription)")
+                    AppLogger.foliate.error("setLayout error: \(error.localizedDescription)")
                 }
             }
         }

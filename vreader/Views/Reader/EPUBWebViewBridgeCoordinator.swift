@@ -145,7 +145,7 @@ extension EPUBWebViewBridge {
             if let css = themeCSS {
                 let js = EPUBWebViewBridge.injectThemeCSSJS(css)
                 webView.evaluateJavaScript(js) { _, error in
-                    if let error { print("[EPUBWebViewBridge] didFinish theme inject error: \(error)") }
+                    if let error { AppLogger.epub.error("didFinish theme inject error: \(error)") }
                 }
             }
 
@@ -159,7 +159,7 @@ extension EPUBWebViewBridge {
                     let scrollJS = EPUBWebViewBridge.scrollToFractionJS(fraction)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                         webView.evaluateJavaScript(scrollJS) { _, error in
-                            if let error { print("[EPUBWebViewBridge] scroll error: \(error)") }
+                            if let error { AppLogger.epub.error("scroll error: \(error)") }
                         }
                     }
                 }
@@ -170,7 +170,7 @@ extension EPUBWebViewBridge {
             Task { @MainActor in
                 onPageDidFinishLoad?({ js in
                     webView.evaluateJavaScript(js) { _, error in
-                        if let error { print("[EPUBWebViewBridge] restore error: \(error)") }
+                        if let error { AppLogger.epub.error("restore error: \(error)") }
                     }
                 })
             }
@@ -187,7 +187,7 @@ extension EPUBWebViewBridge {
             )
             webView.evaluateJavaScript(injectJS) { [weak self] _, error in
                 if let error {
-                    print("[EPUBWebViewBridge] pagination CSS error: \(error)")
+                    AppLogger.epub.error("pagination CSS error: \(error)")
                     return
                 }
                 // Delay to allow column layout to settle before querying page count
@@ -199,7 +199,7 @@ extension EPUBWebViewBridge {
                     webView.evaluateJavaScript(totalPagesJS) { [weak self] result, error in
                         guard let self else { return }
                         if let error {
-                            print("[EPUBWebViewBridge] totalPages query error: \(error)")
+                            AppLogger.epub.error("totalPages query error: \(error)")
                             return
                         }
                         let totalPages = (result as? Int) ?? 1
@@ -214,7 +214,7 @@ extension EPUBWebViewBridge {
                             )
                             webView.evaluateJavaScript(navJS) { _, error in
                                 if let error {
-                                    print("[EPUBWebViewBridge] page nav error: \(error)")
+                                    AppLogger.epub.error("page nav error: \(error)")
                                 }
                             }
                         }

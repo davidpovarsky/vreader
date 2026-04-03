@@ -187,7 +187,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
                 context.coordinator.setupPagination(webView: webView)
             } else {
                 webView.evaluateJavaScript(EPUBPaginationHelper.removePaginationCSSJS) { _, error in
-                    if let error { print("[EPUBWebViewBridge] remove pagination CSS error: \(error)") }
+                    if let error { AppLogger.epub.error("remove pagination CSS error: \(error)") }
                 }
             }
         }
@@ -209,7 +209,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
                 page: page, viewportWidth: viewportWidth
             )
             webView.evaluateJavaScript(js) { _, error in
-                if let error { print("[EPUBWebViewBridge] page nav error: \(error)") }
+                if let error { AppLogger.epub.error("page nav error: \(error)") }
             }
         } else if let fraction = scrollFraction,
                   fraction != context.coordinator.pendingScrollFraction {
@@ -217,7 +217,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
             context.coordinator.pendingScrollFraction = fraction
             let js = Self.scrollToFractionJS(fraction)
             webView.evaluateJavaScript(js) { _, error in
-                if let error { print("[EPUBWebViewBridge] scroll error: \(error)") }
+                if let error { AppLogger.epub.error("scroll error: \(error)") }
             }
         } else if context.coordinator.themeCSS != themeCSS {
             // Theme changed without URL change — inject or remove CSS live
@@ -225,12 +225,12 @@ struct EPUBWebViewBridge: UIViewRepresentable {
             if let css = themeCSS {
                 let js = Self.injectThemeCSSJS(css)
                 webView.evaluateJavaScript(js) { _, error in
-                    if let error { print("[EPUBWebViewBridge] theme inject error: \(error)") }
+                    if let error { AppLogger.epub.error("theme inject error: \(error)") }
                 }
             } else {
                 // Theme cleared — remove previously injected style element
                 webView.evaluateJavaScript(Self.removeThemeCSSJS) { _, error in
-                    if let error { print("[EPUBWebViewBridge] theme remove error: \(error)") }
+                    if let error { AppLogger.epub.error("theme remove error: \(error)") }
                 }
             }
         }
@@ -238,7 +238,7 @@ struct EPUBWebViewBridge: UIViewRepresentable {
         // Evaluate pending JS from container (e.g., highlight injection after persist)
         if let js = pendingJS {
             webView.evaluateJavaScript(js) { _, error in
-                if let error { print("[EPUBWebViewBridge] pendingJS error: \(error)") }
+                if let error { AppLogger.epub.error("pendingJS error: \(error)") }
             }
             Task { @MainActor in
                 onPendingJSCompleted?()

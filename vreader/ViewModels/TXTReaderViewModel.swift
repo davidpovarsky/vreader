@@ -257,6 +257,7 @@ final class TXTReaderViewModel {
     /// Falls back to full-text open if chapter-based loading fails.
     func openChapterBased(url: URL) async {
         guard !isLoading else { return }
+        AppLogger.txt.debug("openChapterBased called")
 
         if textContent != nil || chapterIndex != nil { await close() }
 
@@ -273,8 +274,10 @@ final class TXTReaderViewModel {
                 positionStore: positionStore, bookFingerprintKey: bookFingerprintKey
             )
         } catch is CancellationError {
+            AppLogger.txt.debug("openChapterBased cancelled")
             resetState(); isLoading = false; return
         } catch {
+            AppLogger.txt.error("openChapterBased failed, falling back: \(error)")
             await txtService.close(); isLoading = false; await open(url: url); return
         }
 
@@ -316,6 +319,7 @@ final class TXTReaderViewModel {
             ? Date().addingTimeInterval(Self.restoreSuppressDuration) : nil
 
         isOpenComplete = true; isLoading = false
+        AppLogger.txt.debug("openChapterBased done: chapters=\(openResult.chapterIndex.chapters.count) initialIdx=\(chapterLoadResult.initialChapterIndex) isChapterMode=\(self.isChapterMode) hadSaved=\(chapterLoadResult.hadSavedPosition) localOffset=\(self.currentChapterLocalUTF16)")
         do { try lifecycle.beginSession() } catch { /* non-fatal */ }
         Task { await lifecycle.updateLastOpened() }
 
@@ -335,6 +339,7 @@ final class TXTReaderViewModel {
         guard let chIdx = chapterIndex, let loader = chapterContentLoader,
               index >= 0, index < chIdx.chapters.count else { return }
         let chapter = chIdx.chapters[index]
+        AppLogger.txt.debug("navigateToChapter: idx=\(index) title=\(chapter.title)")
         do {
             let text = try await loader.loadChapter(chapter)
             currentChapterIdx = index; currentChapterText = text; textContent = text
@@ -509,6 +514,8 @@ final class TXTReaderViewModel {
         let chapterHref: String? = isChapterMode
             ? "txtchapter:\(currentChapterIdx):\(currentChapterLocalUTF16)"
             : nil
+
+        AppLogger.txt.debug("makeLocator: isChapterMode=\(self.isChapterMode) chIdx=\(self.currentChapterIdx) local=\(self.currentChapterLocalUTF16) href=\(chapterHref ?? "nil")")
 
         return Locator.validated(
             bookFingerprint: bookFingerprint,

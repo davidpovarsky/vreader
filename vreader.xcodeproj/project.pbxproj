@@ -323,6 +323,10 @@
 		762B3F65978080FE7D26BF4C /* AnnotationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11E9DBFB16DA26DD0659851 /* AnnotationModelTests.swift */; };
 		7872FD996BEB1009EFF26413 /* AnnotationEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAE2660201ADC0B4272B9EE /* AnnotationEditSheet.swift */; };
 		78A8B8FE91360F619F57DDB1 /* ContentHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84D0E1452F211B986E8328A /* ContentHasher.swift */; };
+		C22A4BB53C1C2D95463DEB5E /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C4578C95C6329672399F9E /* AppLogger.swift */; };
+
+		D3C4578C95C6329672399F9E /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+
 		792681509B48600C93D01C39 /* ReaderTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4581A94B5099D15743DC02F3 /* ReaderTheme.swift */; };
 		793A39541D8253B1CA8984A5 /* ScrollProgressHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7024E7AEAC9AEAA028952C46 /* ScrollProgressHelper.swift */; };
 		7B9FDFE7688C6E45D59916CD /* MockBackupProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9501ED4FB49C6035FDF5BB /* MockBackupProvider.swift */; };
@@ -1408,6 +1412,7 @@
 			isa = PBXGroup;
 			children = (
 				ABC4CE4DBCD7E5A52BC4E511 /* AccessibilityFormatters.swift */,
+				D3C4578C95C6329672399F9E /* AppLogger.swift */,
 				B84D0E1452F211B986E8328A /* ContentHasher.swift */,
 				A43A801A0876E2437CE63808 /* EncodingDetector.swift */,
 				7C0A7E77EFE308BC9CF8A3FE /* ErrorMessageAuditor.swift */,
@@ -3011,6 +3016,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C22A4BB53C1C2D95463DEB5E /* AppLogger.swift in Sources */,
 				822D2DE8366AE763FAA0A424 /* TextTransform.swift in Sources */,
 				A2038806633CEB1515E27008 /* OffsetMap.swift in Sources */,
 				44C7CAB1B9EAAD4F33BAD7AF /* TextMapper.swift in Sources */,

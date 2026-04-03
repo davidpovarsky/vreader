@@ -37,8 +37,9 @@ Goal: take a high-level plan and drive it to completion using specialized subage
    - Keep side effects isolated; keep changes local; keep files under ~300 lines.
 
 5) **Test (Test Runner agent)**
-   - Run `pnpm check:all` (and `cargo test` when Rust changes).
-   - If UI flows are impacted, request the user to run the app and use Tauri MCP for E2E.
+   - Run gate: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project vreader.xcodeproj -scheme vreader -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:vreaderTests`
+   - If UI flows are impacted, use computer use + Simulator to verify visually.
+   - Use `sim-transfer` skill to push test files, `AppLogger` for structured logging.
 
 6) **Audit (Auditor agent)**
    - Review diffs for correctness, architecture drift, and rule violations.

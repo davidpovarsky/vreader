@@ -106,6 +106,7 @@ extension TXTFileLoader {
     ) async throws -> TXTChapterLoadResult {
         // Stage 1: Open via chapter-based service (throws on failure)
         let openResult = try await service.openChapterBased(url: url)
+        AppLogger.txt.debug("loadChapterBased: chapters=\(openResult.chapterIndex.chapters.count)")
 
         // Early exit if cancelled — close service to avoid leak
         if Task.isCancelled {
@@ -143,11 +144,13 @@ extension TXTFileLoader {
             ) else { return (0, 0, false) }
 
             // GH #30: Prefer chapter-encoded href (no offset drift)
+            AppLogger.txt.debug("resolve: href=\(savedLocator.href ?? "nil") offset=\(savedLocator.charOffsetUTF16 ?? -1)")
             if let href = savedLocator.href,
                let parsed = parseChapterHref(href),
                parsed.chapterIndex >= 0, parsed.chapterIndex < chapters.count {
                 let maxLocal = chapters[parsed.chapterIndex].textLengthUTF16
                 let clamped = min(max(parsed.localOffset, 0), max(maxLocal, 0))
+                AppLogger.txt.debug("resolve: via href → chIdx=\(parsed.chapterIndex) local=\(clamped)")
                 return (parsed.chapterIndex, clamped, true)
             }
 

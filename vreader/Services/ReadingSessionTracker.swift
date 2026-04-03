@@ -16,7 +16,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.vreader", category: "ReadingSessionTracker")
+private let logger = AppLogger.persistence
 
 // MARK: - Protocols
 

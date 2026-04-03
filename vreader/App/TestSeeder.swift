@@ -25,7 +25,7 @@ enum TestSeeder {
             do {
                 _ = try await persistence.insertBook(fixture)
             } catch {
-                print("[TestSeeder] Warning: failed to seed '\(fixture.title)': \(error)")
+                AppLogger.general.warning("failed to seed '\(fixture.title)': \(error)")
             }
         }
     }
@@ -77,7 +77,7 @@ enum TestSeeder {
         do {
             _ = try await persistence.insertBook(record)
         } catch {
-            print("[TestSeeder] Warning: failed to seed position test book: \(error)")
+            AppLogger.general.warning("failed to seed position test book: \(error)")
         }
     }
 
@@ -103,7 +103,7 @@ enum TestSeeder {
                 try await persistence.deleteBook(fingerprintKey: book.fingerprintKey)
             }
         } catch {
-            print("[TestSeeder] Warning: failed to clear books: \(error)")
+            AppLogger.general.warning("failed to clear books: \(error)")
         }
     }
 

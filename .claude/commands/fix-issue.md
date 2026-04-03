@@ -24,6 +24,13 @@ $ARGUMENTS
 
 When exactly one issue number is provided, run phases 1-6 sequentially.
 
+### Phase 0.5: Visual Reproduce (optional, for UI bugs)
+
+If the issue involves visual/UI behavior, use computer use + Simulator to reproduce before diving into code:
+- Use `sim-transfer` skill to push test files to the simulator.
+- Stream live logs: `SIMCTL spawn booted log stream --predicate 'subsystem == "com.vreader.app"' --debug`
+- Take screenshots as evidence. Batch actions with `computer_batch` — don't add unnecessary waits.
+
 ### Phase 1: Fetch & Classify
 
 ```bash
@@ -167,6 +174,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -only-testing:vreaderTests
 ```
 
+> **Note:** `xcodebuild` CLI builds to a different DerivedData than Xcode's Run button.
+> For debugger-attached builds or when `simctl install` installs a stale binary, use Xcode's
+> Run button (click via computer use) instead of `xcodebuild` + `simctl install`.
+
 - Pass: proceed to Phase 6.
 - Fail: read errors, fix, retry.
 - 3 failures: report errors, keep branch, STOP.
@@ -253,6 +264,18 @@ After all agents complete, display a summary table:
 ```bash
 # Remove successful worktrees
 git worktree remove .claude/worktrees/issue-{N}
+
+# Clean up stale DerivedData created by worktree builds
+# Each worktree creates its own DerivedData folder that persists after removal
+for dd in ~/Library/Developer/Xcode/DerivedData/vreader-*/; do
+  wp=$(defaults read "$dd/info.plist" WorkspacePath 2>/dev/null)
+  if [[ "$wp" == *".claude/worktrees/"* ]]; then
+    rm -rf "$dd"
+  fi
+done
+
+# Remove empty worktree directories
+rm -rf .claude/worktrees/agent-*
 
 # Keep failed ones for investigation
 ```

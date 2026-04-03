@@ -47,9 +47,9 @@ struct MetadataExtractorTests {
         #expect(metadata.title == "日本語の本")
     }
 
-    // MARK: - EPUB Stub
+    // MARK: - EPUB Fallback
 
-    @Test func epubStubExtractsFromFilename() async throws {
+    @Test func epubFallsBackToFilenameWhenFileInvalid() async throws {
         let extractor = EPUBMetadataExtractor()
         let url = URL(fileURLWithPath: "/tmp/Great Novel.epub")
         let metadata = try await extractor.extractMetadata(from: url)

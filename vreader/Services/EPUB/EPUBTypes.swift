@@ -30,6 +30,26 @@ struct EPUBMetadata: Sendable, Equatable {
     let readingDirection: ReadingDirection
     let layout: EPUBLayout
     let spineItems: [EPUBSpineItem]
+    /// Cover image href relative to OPF directory (nil if no cover found).
+    let coverImageHref: String?
+
+    init(
+        title: String,
+        author: String?,
+        language: String?,
+        readingDirection: ReadingDirection,
+        layout: EPUBLayout,
+        spineItems: [EPUBSpineItem],
+        coverImageHref: String? = nil
+    ) {
+        self.title = title
+        self.author = author
+        self.language = language
+        self.readingDirection = readingDirection
+        self.layout = layout
+        self.spineItems = spineItems
+        self.coverImageHref = coverImageHref
+    }
 
     /// Total number of spine items (chapters/sections).
     var spineCount: Int { spineItems.count }
@@ -45,7 +65,8 @@ struct EPUBMetadata: Sendable, Equatable {
         }
         return EPUBMetadata(
             title: title, author: author, language: language,
-            readingDirection: readingDirection, layout: layout, spineItems: resolved
+            readingDirection: readingDirection, layout: layout, spineItems: resolved,
+            coverImageHref: coverImageHref
         )
     }
 }

@@ -10,7 +10,8 @@
 // - Indexing trigger is a Notification; the indexer is a separate concern.
 //
 // @coordinates-with: PersistenceActor.swift, ContentHasher.swift,
-//   EncodingDetector.swift, MetadataExtractor.swift, ImportError.swift
+//   EncodingDetector.swift, MetadataExtractor.swift, ImportError.swift,
+//   CustomCoverStore.swift
 
 import Foundation
 
@@ -171,6 +172,13 @@ final class BookImporter: BookImporting, Sendable {
             throw ImportError.fileNotReadable("Metadata extraction failed: \(type(of: error))")
         }
 
+        // Step 9.5: Extract and save cover image (non-fatal)
+        if !CustomCoverStore.hasCover(for: fingerprintKey) {
+            if let coverImage = await extractor.extractCoverImage(from: sandboxURL) {
+                try? CustomCoverStore.saveCover(coverImage, for: fingerprintKey)
+            }
+        }
+
         // Step 10: Build provenance
         let provenance = ImportProvenance(
             source: source,
@@ -195,9 +203,11 @@ final class BookImporter: BookImporting, Sendable {
             persisted = try await persistence.insertBook(record)
         } catch let importErr as ImportError {
             rollbackSandboxIfOwned()
+            try? CustomCoverStore.removeCover(for: fingerprintKey)
             throw importErr
         } catch {
             rollbackSandboxIfOwned()
+            try? CustomCoverStore.removeCover(for: fingerprintKey)
             throw ImportError.persistenceFailed
         }
 

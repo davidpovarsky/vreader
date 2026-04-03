@@ -8,7 +8,8 @@
 // - All methods accept an optional baseDirectory for testability (defaults to App Support).
 // - Enum with static methods — no instance state needed.
 //
-// @coordinates-with: LibraryView.swift, BookCardView.swift, BookRowView.swift, LibraryBookItem.swift
+// @coordinates-with: LibraryView.swift, BookCardView.swift, BookRowView.swift, LibraryBookItem.swift,
+//   PersistenceActor+Library.swift, BookImporter.swift
 
 import UIKit
 

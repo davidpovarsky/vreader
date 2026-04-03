@@ -204,6 +204,7 @@ vreader/
 │   ├── Locator/            # LocatorFactory, position resolution
 │   ├── OPDS/               # OPDSClient, OPDSParser
 │   ├── Sync/               # SyncService, SyncStatusMonitor
+│   ├── AZW3/              # MOBICoverExtractor (native PDB/MOBI header parsing)
 │   ├── Foliate/            # FoliateURLSchemeHandler, FoliateMessageParser, FoliateTypes, JS/
 │   ├── Unified/            # PaginationCache, TextKit2 helpers
 │   └── TextMapping/        # Transforms, offset mapping

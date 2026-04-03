@@ -273,7 +273,7 @@ actor EPUBParser: EPUBParserProtocol {
     // MARK: - container.xml Parsing
 
     /// Extracts the rootfile full-path from META-INF/container.xml.
-    private static func parseContainerXML(_ data: Data) throws -> String {
+    static func parseContainerXML(_ data: Data) throws -> String {
         let delegate = ContainerXMLDelegate()
         let xmlParser = XMLParser(data: data)
         xmlParser.delegate = delegate
@@ -297,7 +297,7 @@ actor EPUBParser: EPUBParserProtocol {
         let ncxHref: String?
     }
 
-    private static func parseOPF(_ data: Data) throws -> OPFResult {
+    static func parseOPF(_ data: Data) throws -> OPFResult {
         let delegate = OPFXMLDelegate()
         let xmlParser = XMLParser(data: data)
         xmlParser.delegate = delegate
@@ -326,13 +326,33 @@ actor EPUBParser: EPUBParserProtocol {
             throw EPUBParserError.parsingFailed("No spine items found in OPF")
         }
 
+        // Resolve cover image href: EPUB3 properties="cover-image" takes priority,
+        // fallback to EPUB2 <meta name="cover" content="id"/> → manifest lookup.
+        let rawCoverHref: String?
+        if let epub3Href = delegate.coverImageHref {
+            rawCoverHref = epub3Href
+        } else if let coverId = delegate.coverMetaContentId, let href = delegate.manifest[coverId] {
+            rawCoverHref = href
+        } else {
+            rawCoverHref = nil
+        }
+        // Clean up: strip fragment, percent-decode.
+        let coverImageHref = rawCoverHref.flatMap { href -> String? in
+            var cleaned = href.components(separatedBy: "#").first ?? href
+            if let decoded = cleaned.removingPercentEncoding {
+                cleaned = decoded
+            }
+            return cleaned.isEmpty ? nil : cleaned
+        }
+
         let metadata = EPUBMetadata(
             title: title,
             author: author,
             language: delegate.language,
             readingDirection: delegate.direction ?? .ltr,
             layout: delegate.layout ?? .reflowable,
-            spineItems: spineItems
+            spineItems: spineItems,
+            coverImageHref: coverImageHref
         )
 
         // Detect nav/NCX references for TOC title extraction (bug #74)
@@ -384,6 +404,10 @@ private final class OPFXMLDelegate: NSObject, XMLParserDelegate, @unchecked Send
     var navItemHref: String?
     /// EPUB 2 NCX id from spine toc attribute. (bug #74)
     var spineTocId: String?
+    /// EPUB 2 cover: meta name="cover" content value (manifest item id).
+    var coverMetaContentId: String?
+    /// EPUB 3 cover: href from item with properties="cover-image".
+    var coverImageHref: String?
 
     private var currentElement = ""
     private var currentText = ""
@@ -404,12 +428,22 @@ private final class OPFXMLDelegate: NSObject, XMLParserDelegate, @unchecked Send
         case "metadata":
             inMetadata = true
 
+        case "meta" where inMetadata:
+            // EPUB 2: <meta name="cover" content="cover-image-id"/>
+            if attributes["name"] == "cover", let content = attributes["content"] {
+                coverMetaContentId = content
+            }
+
         case "item":
             if let id = attributes["id"], let href = attributes["href"] {
                 manifest[id] = href
                 // EPUB 3: detect nav document (bug #74)
                 if let props = attributes["properties"], props.contains("nav") {
                     navItemHref = href
+                }
+                // EPUB 3: detect cover image (WI-1)
+                if let props = attributes["properties"], props.contains("cover-image") {
+                    coverImageHref = href
                 }
             }
 

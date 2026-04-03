@@ -1,7 +1,9 @@
 // Purpose: Extension adding LibraryPersisting conformance to PersistenceActor.
 // Provides library-specific queries: fetch all books with stats, delete book.
+// On delete, also removes the custom cover file (if any) via CustomCoverStore.
 //
-// @coordinates-with: PersistenceActor.swift, LibraryPersisting.swift, LibraryBookItem.swift
+// @coordinates-with: PersistenceActor.swift, LibraryPersisting.swift, LibraryBookItem.swift,
+//   CustomCoverStore.swift
 
 import Foundation
 import SwiftData
@@ -83,6 +85,9 @@ extension PersistenceActor: LibraryPersisting {
         if let book = try context.fetch(descriptor).first {
             context.delete(book)
         }
+
+        // Remove custom cover file (if any). Non-fatal — don't block book deletion.
+        try? CustomCoverStore.removeCover(for: fingerprintKey)
 
         try context.save()
     }

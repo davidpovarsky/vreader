@@ -494,3 +494,64 @@ struct EPUBNavTOCTests {
         #expect(resolved.spineItems[0].title == "第一章 开始")
     }
 }
+
+// MARK: - Cover Image Integration (WI-1)
+
+@Suite("EPUBParser - Cover Image Integration")
+struct EPUBCoverIntegrationTests {
+
+    @Test("Full EPUB open — coverImageHref set correctly for OPF in subdirectory")
+    func fullEPUBWithCoverInSubdirectory() async throws {
+        let opfData = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:title>Cover Test Book</dc:title>
+          </metadata>
+          <manifest>
+            <item id="cover" href="Images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+            <item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine>
+            <itemref idref="ch1"/>
+          </spine>
+        </package>
+        """.utf8)
+
+        let epubURL = try ZIPBuilder.createZIP(entries: [
+            .init(path: "META-INF/container.xml",
+                  content: EPUBTemplate.containerXML(opfPath: "OEBPS/content.opf")),
+            .init(path: "OEBPS/content.opf", content: opfData),
+            .init(path: "OEBPS/chapter1.xhtml",
+                  content: EPUBTemplate.minimalXHTML(title: "Ch1")),
+            .init(path: "OEBPS/Images/cover.jpg",
+                  content: Data([0xFF, 0xD8, 0xFF])),
+        ])
+        defer { try? FileManager.default.removeItem(at: epubURL) }
+
+        let parser = EPUBParser()
+        let metadata = try await parser.open(url: epubURL)
+        await parser.close()
+
+        #expect(metadata.coverImageHref == "Images/cover.jpg")
+    }
+
+    @Test("EPUB without cover — coverImageHref is nil after open")
+    func fullEPUBWithoutCover() async throws {
+        let epubURL = try ZIPBuilder.createZIP(entries: [
+            .init(path: "META-INF/container.xml",
+                  content: EPUBTemplate.containerXML(opfPath: "content.opf")),
+            .init(path: "content.opf",
+                  content: EPUBTemplate.contentOPF(hrefs: ["ch.xhtml"])),
+            .init(path: "ch.xhtml",
+                  content: EPUBTemplate.minimalXHTML()),
+        ])
+        defer { try? FileManager.default.removeItem(at: epubURL) }
+
+        let parser = EPUBParser()
+        let metadata = try await parser.open(url: epubURL)
+        await parser.close()
+
+        #expect(metadata.coverImageHref == nil)
+    }
+}

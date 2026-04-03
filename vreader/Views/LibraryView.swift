@@ -260,7 +260,7 @@ struct LibraryView: View {
     private var gridView: some View {
         ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 140, maximum: 180))],
+                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
                 spacing: 16
             ) {
                 ForEach(viewModel.books) { book in

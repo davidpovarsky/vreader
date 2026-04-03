@@ -1,14 +1,20 @@
-// Purpose: Protocol and stub implementations for book metadata extraction.
-// Real implementations will come in WI-6 (EPUB/Readium) and WI-7 (PDF/PDFKit).
+// Purpose: Protocol and concrete implementations for book metadata extraction.
+// EPUBMetadataExtractor reads OPF metadata (title, author) and extracts cover
+// image bytes from the EPUB ZIP archive. AZW3MetadataExtractor delegates cover
+// extraction to MOBICoverExtractor (native PDB/MOBI header parsing).
+// Other formats use filename-based stubs.
 //
 // Key decisions:
 // - Protocol-based design allows easy testing with mocks.
-// - Stub extractors derive title from filename.
-// - TXT metadata uses filename as title, nil author, no cover.
+// - extractCoverImage has a default nil implementation (opt-in per format).
+// - EPUBMetadataExtractor is stateless: each method opens the ZIP independently.
+// - Cover extraction is fast (<50ms) — lightweight OPF-only parse + single entry read.
 //
-// @coordinates-with: BookImporter.swift
+// @coordinates-with: BookImporter.swift, EPUBParser.swift, ZIPReader.swift,
+//   CustomCoverStore.swift, MOBICoverExtractor.swift
 
 import Foundation
+import UIKit
 
 /// Maximum title length in characters (shared across all extractors).
 private let maxTitleLength = 255
@@ -45,6 +51,18 @@ protocol MetadataExtractor: Sendable {
     /// - Parameter fileURL: Path to the imported file in sandbox.
     /// - Returns: Extracted metadata.
     func extractMetadata(from fileURL: URL) async throws -> BookMetadata
+
+    /// Extracts the cover image from the file at the given URL, if available.
+    /// Default implementation returns nil (no cover). Formats that support embedded
+    /// covers (EPUB, AZW3) override this.
+    ///
+    /// - Parameter fileURL: Path to the book file.
+    /// - Returns: The cover image, or nil if unavailable or not decodable.
+    func extractCoverImage(from fileURL: URL) async -> UIImage?
+}
+
+extension MetadataExtractor {
+    func extractCoverImage(from fileURL: URL) async -> UIImage? { nil }
 }
 
 /// Extracts metadata for TXT files. Title from filename, no author, no cover.
@@ -54,12 +72,89 @@ struct TXTMetadataExtractor: MetadataExtractor {
     }
 }
 
-/// Stub extractor for EPUB files.
-/// TODO(WI-6): Replace with Readium-based extractor that reads OPF metadata
-/// (title, author, publisher, cover image). Remove this stub when WI-6 lands.
+/// Extracts metadata and cover image from EPUB files.
+/// Opens the EPUB as a ZIP, parses container.xml -> OPF for metadata/cover href,
+/// then extracts the cover image entry. Stateless: each method opens the ZIP
+/// independently for simplicity and thread safety.
 struct EPUBMetadataExtractor: MetadataExtractor {
+
     func extractMetadata(from fileURL: URL) async throws -> BookMetadata {
-        .fromFilename(fileURL)
+        guard let (metadata, _) = try? await Self.parseEPUBMetadata(from: fileURL) else {
+            return .fromFilename(fileURL)
+        }
+        return BookMetadata(
+            title: String(metadata.title.prefix(maxTitleLength)),
+            author: metadata.author,
+            coverImagePath: nil
+        )
+    }
+
+    func extractCoverImage(from fileURL: URL) async -> UIImage? {
+        guard let (metadata, opfDirPath) = try? await Self.parseEPUBMetadata(from: fileURL),
+              let coverHref = metadata.coverImageHref else {
+            return nil
+        }
+
+        // Resolve cover path relative to OPF directory within the archive.
+        let archivePath = Self.resolveArchivePath(coverHref: coverHref, opfDirPath: opfDirPath)
+
+        guard let zip = try? ZIPReader(fileURL: fileURL),
+              let entry = await zip.entry(forPath: archivePath),
+              let imageData = try? await zip.extractData(for: entry) else {
+            return nil
+        }
+
+        return UIImage(data: imageData)
+    }
+
+    // MARK: - Private
+
+    /// Parses container.xml and OPF from an EPUB ZIP archive.
+    /// Returns the parsed EPUBMetadata and the OPF directory path within the archive.
+    private static func parseEPUBMetadata(from fileURL: URL) async throws -> (EPUBMetadata, String) {
+        let zip = try ZIPReader(fileURL: fileURL)
+
+        // Extract container.xml data
+        guard let containerEntry = await zip.entry(forPath: "META-INF/container.xml") else {
+            throw EPUBParserError.invalidFormat("No META-INF/container.xml")
+        }
+        let containerData = try await zip.extractData(for: containerEntry)
+        let opfRelPath = try EPUBParser.parseContainerXML(containerData)
+
+        // Extract and parse OPF
+        guard let opfEntry = await zip.entry(forPath: opfRelPath) else {
+            throw EPUBParserError.invalidFormat("OPF not found at \(opfRelPath)")
+        }
+        let opfData = try await zip.extractData(for: opfEntry)
+        let result = try EPUBParser.parseOPF(opfData)
+
+        let opfDirPath = (opfRelPath as NSString).deletingLastPathComponent
+        return (result.metadata, opfDirPath)
+    }
+
+    /// Resolves a cover image href relative to the OPF directory within the archive.
+    /// Handles ../ path components and produces a clean archive path.
+    ///
+    /// Examples:
+    /// - opfDirPath="OEBPS", coverHref="Images/cover.jpg" -> "OEBPS/Images/cover.jpg"
+    /// - opfDirPath="OEBPS", coverHref="../cover.jpg" -> "cover.jpg"
+    /// - opfDirPath="", coverHref="cover.jpg" -> "cover.jpg"
+    static func resolveArchivePath(coverHref: String, opfDirPath: String) -> String {
+        guard !opfDirPath.isEmpty else { return coverHref }
+
+        let combined = "\(opfDirPath)/\(coverHref)"
+        let parts = combined.components(separatedBy: "/")
+
+        var resolved: [String] = []
+        for part in parts {
+            if part == ".." {
+                if !resolved.isEmpty { resolved.removeLast() }
+            } else if part != "." && !part.isEmpty {
+                resolved.append(part)
+            }
+        }
+
+        return resolved.joined(separator: "/")
     }
 }
 
@@ -72,10 +167,14 @@ struct PDFMetadataExtractor: MetadataExtractor {
     }
 }
 
-/// Stub extractor for AZW3/MOBI files. Title from filename for now.
-/// TODO(WI-1): Read PDB/MOBI header bytes for embedded title and EXTH metadata.
+/// Extractor for AZW3/MOBI files. Title from filename (EXTH title parsing is
+/// out of scope). Cover image is extracted by native MOBI header parsing.
 struct AZW3MetadataExtractor: MetadataExtractor {
     func extractMetadata(from fileURL: URL) async throws -> BookMetadata {
         .fromFilename(fileURL)
+    }
+
+    func extractCoverImage(from fileURL: URL) async -> UIImage? {
+        MOBICoverExtractor.extractCover(from: fileURL)
     }
 }

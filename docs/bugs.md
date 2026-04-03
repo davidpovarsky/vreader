@@ -73,6 +73,13 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 - **Root cause**: `WKURLSchemeHandler` + JS `fetch()` doesn't work on device. The `bridge-ready` event fires, `openBookJS()` runs `fetch('vreader-resource://localhost/book/file')`, but fetch fails silently. `book-ready` never arrives so `isLoading` stays true.
 - **Fix**: Switch to `loadHTMLString` + base64 book handoff (proven working in FoliateSpikeView)
 
+### Bug #107 — Cover images with light/white edges show visible "padding"
+- **Repro**: Import AZW3 book (被讨厌的勇气) with light-colored cover art edges, view in library grid
+- **Expected**: Cover fills card edge-to-edge with no visible gap
+- **Actual**: White areas at top of cover art blend into white page background, looks like padding
+- **Root cause**: Cover art content (not layout) — image fills container correctly but has white/light pixels at edges. Container size verified identical via debug overlay.
+- **Fix options**: Auto-crop white borders in CustomCoverStore, or add contrast background behind covers
+
 ### Bug #88 — Imported annotations not visually highlighted
 - **Repro**: Import annotations JSON, check if highlights are rendered in reader
 - **Expected**: Imported highlights visible in the reader
@@ -192,3 +199,4 @@ Track bugs here. Tell the agent "fix bug #N" to start a fix.
 | 104| EPUB 3 nav titles not extracted (shows "Section N" instead of real titles)                             | EPUB/*    | Medium   | REOPENED | Bug #74 marked FIXED but EPUBParserTests.epub3NavTitlesExtracted still fails. withResolvedTitles() may not parse nav.xhtml correctly. |
 | 105| Highlighted snippet multi-word overlap not handled                                                     | Search/*  | Low      | TODO     | HighlightedSnippetTests.multiWordQuery_overlappingMatches_handled fails. Bold run count is 1, expected >=2 for overlapping matches. |
 | 106| AZW3 reader stuck on "Opening book" — loading never completes                                         | Foliate/* | High     | FIXED    | Switched to loadHTMLString+base64 (WKURLSchemeHandler fetch broken on device). GH: #115 |
+| 107| Cover images with light/white edges show visible "padding" in library grid                             | Library/* | Low      | TODO     | Cover art with white areas at edges blends into white page background, creating illusion of padding. Need auto-crop or contrast treatment. |

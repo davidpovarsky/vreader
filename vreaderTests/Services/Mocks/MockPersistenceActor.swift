@@ -82,4 +82,9 @@ actor MockPersistenceActor: BookPersisting {
     func seed(_ record: BookRecord) {
         books[record.fingerprintKey] = record
     }
+
+    /// Sets the error that insertBook will throw. Actor-isolated setter for use from tests.
+    func setInsertError(_ error: (any Error)?) {
+        insertError = error
+    }
 }

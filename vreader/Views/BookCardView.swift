@@ -19,31 +19,13 @@ struct BookCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Cover: custom image or format placeholder
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(coverColor)
-                    .aspectRatio(0.65, contentMode: .fit)
-
-                if let customCover = customCoverImage {
-                    Image(uiImage: customCover)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    VStack(spacing: 4) {
-                        Image(systemName: formatIcon)
-                            .font(.system(size: 32))
-                            .foregroundStyle(.white.opacity(0.8))
-
-                        Text(book.formatBadge)
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                }
-            }
+            // Cover: fixed 2:3 ratio container — uniform card height in grid
+            CoverContainerView(
+                image: customCoverImage,
+                coverColor: coverColor,
+                formatIcon: formatIcon,
+                formatBadge: book.formatBadge
+            )
 
             // Title
             Text(book.title)
@@ -74,6 +56,7 @@ struct BookCardView: View {
                     .foregroundStyle(.tertiary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint("Double tap to open")
@@ -107,5 +90,54 @@ struct BookCardView: View {
             format: book.format,
             readingTimeSeconds: book.totalReadingSeconds
         )
+    }
+}
+
+/// Fixed 2:3 aspect ratio cover container.
+/// `Color.clear` drives layout — guarantees identical height for every card
+/// regardless of image dimensions. Image is in `.overlay` (not `.background`)
+/// so it never participates in layout sizing. `.clipped()` trims any
+/// scaledToFill overflow.
+private struct CoverContainerView: View {
+    let image: UIImage?
+    let coverColor: Color
+    let formatIcon: String
+    let formatBadge: String
+
+    var body: some View {
+        Color(white: 0.92)
+            .aspectRatio(2.0 / 3.0, contentMode: .fit)
+            .overlay {
+                GeometryReader { geo in
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                    } else {
+                        coverColor
+                    }
+                }
+            }
+            .overlay {
+                if image == nil {
+                    VStack(spacing: 4) {
+                        Image(systemName: formatIcon)
+                            .font(.system(size: 32))
+                            .foregroundStyle(.white.opacity(0.8))
+                        Text(formatBadge)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
     }
 }

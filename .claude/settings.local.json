@@ -59,7 +59,32 @@
       "Bash(/Users/ll/workspace/vreader/vreader/Views/LibraryView.swift:*)",
       "Bash(/usr/bin/swiftc:*)",
       "Bash(/Users/ll/workspace/vreader/vreaderTests/ViewModels/LibraryTestHelpers.swift:*)",
-      "Bash(export:*)"
+      "Bash(export:*)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl list:*)",
+      "Bash(mkdir -p /Users/ll/Desktop/workspace/vreader/.claude/skills/sim-transfer)",
+      "Bash(mv /Users/ll/.claude/skills/sim-transfer/SKILL.md /Users/ll/Desktop/workspace/vreader/.claude/skills/sim-transfer/SKILL.md)",
+      "Bash(rmdir /Users/ll/.claude/skills/sim-transfer)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl spawn:*)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl terminate:*)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl launch:*)",
+      "Bash(timeout 10 cat)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project vreader.xcodeproj -scheme vreader -destination 'id=7CDC4447-FA91-49A5-9F04-905CB129A09C' build)",
+      "Bash(ruby:*)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl install:*)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project vreader.xcodeproj -scheme vreader -destination id=7CDC4447-FA91-49A5-9F04-905CB129A09C build)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl uninstall:*)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/simctl get_app_container 7CDC4447-FA91-49A5-9F04-905CB129A09C com.vreader.app)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project vreader.xcodeproj -scheme vreader -destination 'id=7CDC4447-FA91-49A5-9F04-905CB129A09C' clean build)",
+      "Bash(kill %1 wait)",
+      "Bash(pkill -f \"serve_file\")",
+      "Bash(pkill -f \"http.server 8899\")",
+      "Bash(pkill -f \"log stream\")",
+      "Bash(git stash:*)",
+      "Bash(gh issue:*)",
+      "Bash(grep -n \"MDMetadataExtractor\" /Users/ll/Desktop/workspace/vreader/vreader/Services/MD/*.swift)",
+      "Bash(grep:*)"
     ]
   }
 }

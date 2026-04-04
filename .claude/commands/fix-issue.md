@@ -177,6 +177,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 > **Note:** `xcodebuild` CLI builds to a different DerivedData than Xcode's Run button.
 > For debugger-attached builds or when `simctl install` installs a stale binary, use Xcode's
 > Run button (click via computer use) instead of `xcodebuild` + `simctl install`.
+>
+> **Never use `simctl uninstall`** — it wipes all user data (imported books, settings, reading positions).
+> Use `simctl install` to replace the binary while preserving data.
 
 - Pass: proceed to Phase 6.
 - Fail: read errors, fix, retry.

@@ -38,6 +38,8 @@ Describe issues in plain text below. The agent will triage them.
 
 ## Triaged
 
+2026-04-12 | bug #109 | TXT chapter mode progress bar shows book progress (GH #31) — implemented but broken; fix landed in bfd8345 but never recorded in tracker. Status FIXED, GH issue still OPEN (needs closure).
+
 2026-03-22 | bug #102 | EPUB fails to load chapter content — chapter navigation or content rendering broken
 
 2026-03-21 | bug #101 | Imported 2000+ book sources but list empty and search button grey — BookSource records may not persist or UI not refreshing after import

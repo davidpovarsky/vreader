@@ -2,7 +2,7 @@
 
 **Built entirely by AI — coded, tested, and debugged by AI agents. Human-directed.**
 
-An iOS reader for EPUB, AZW3/MOBI (Kindle), PDF, TXT, and Markdown — built entirely by AI coding agents, with Swift 6, SwiftUI, and SwiftData.
+An iOS reader for EPUB, AZW3/MOBI (Kindle), PDF, TXT, and Markdown — built entirely by AI coding agents, with Swift 6, SwiftUI, and SwiftData. Now with cover art extraction for EPUB and AZW3.
 
 ## About
 
@@ -49,6 +49,7 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 ### Library
 
 - **Grid/list view** — Persistent sort order and view mode
+- **Cover art** — Auto-extracted from EPUB and AZW3 metadata
 - **Collections** — Tags, series, custom groups
 - **Custom covers** — Set from photo library
 - **Context menu** — Info, share, set cover, delete
@@ -66,7 +67,6 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 
 ### Sync & Backup
 
-- **iCloud Sync** (foundation) — CloudKit sync engine, record mapper (8 types), device identity, change tokens, durable tombstones, settings bridge (NSUbiquitousKeyValueStore)
 - **WebDAV backup** — Archive to any WebDAV server (Nutstore compatible)
 - **Per-book settings** — Font, theme, spacing overrides per book (JSON-persisted)
 - **Theme backgrounds** — Custom background images via PhotosPicker with per-theme opacity
@@ -85,7 +85,7 @@ VReader is a modern reading app designed for iPhone and iPad, built entirely by 
 | Search      | SQLite FTS5 with CJK tokenization                                                               |
 | AI          | OpenAI-compatible API (summarize, chat, translate)                                              |
 | TTS         | AVSpeechSynthesizer + HTTP cloud TTS                                                            |
-| Backup      | WebDAV client + iCloud Sync foundation (CloudKit)                                               |
+| Backup      | WebDAV client                                                                                   |
 | Encoding    | ICU + heuristic detection (UTF-8/GBK/Big5/Shift-JIS)                                            |
 | Concurrency | Swift 6 strict concurrency                                                                      |
 
@@ -186,7 +186,7 @@ Shared rules for all AI agents live in ``:
 
 ## Status
 
-Active development. See [features](docs/features.md) (38 done) and [bugs](docs/bugs.md) (102 fixed) for current state.
+Active development. See [features](docs/features.md) (39 done) and [bugs](docs/bugs.md) (104 fixed) for current state.
 
 ## License
 

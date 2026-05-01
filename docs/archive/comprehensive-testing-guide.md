@@ -88,19 +88,19 @@ Priority: **P0** = must pass before merge, **P1** = should pass, **P2** = nice t
 
 ## Test Files to Prepare
 
-| File | Purpose | How to Get |
-|------|---------|-----------|
-| `test-book.azw3` | DRM-free AZW3, 2-10MB | Calibre conversion or Project Gutenberg |
-| `test-book.mobi` | DRM-free MOBI | Project Gutenberg MOBI download |
-| `test-book.azw` | DRM-free AZW | Rename a .azw3 to .azw |
-| `test-book.prc` | DRM-free PRC | Rename a .mobi to .prc |
-| `drm-book.azw3` | DRM-protected Kindle book | Amazon Kindle purchase (don't strip DRM) |
-| `large-book.azw3` | Large book >50MB | Calibre conversion with many images |
-| `corrupt.azw3` | Corrupt file | Truncate a valid .azw3 to 1KB |
-| `cjk-book.azw3` | Chinese/Japanese text | Calibre conversion of CJK source |
-| `test.epub` | Known-working EPUB | Any previously tested EPUB |
-| `test.pdf` | Known-working PDF | Any PDF |
-| `test.txt` | Known-working TXT | Any text file |
+| File              | Purpose                   | How to Get                               |
+| ----------------- | ------------------------- | ---------------------------------------- |
+| `test-book.azw3`  | DRM-free AZW3, 2-10MB     | Calibre conversion or Project Gutenberg  |
+| `test-book.mobi`  | DRM-free MOBI             | Project Gutenberg MOBI download          |
+| `test-book.azw`   | DRM-free AZW              | Rename a .azw3 to .azw                   |
+| `test-book.prc`   | DRM-free PRC              | Rename a .mobi to .prc                   |
+| `drm-book.azw3`   | DRM-protected Kindle book | Amazon Kindle purchase (don't strip DRM) |
+| `large-book.azw3` | Large book >50MB          | Calibre conversion with many images      |
+| `corrupt.azw3`    | Corrupt file              | Truncate a valid .azw3 to 1KB            |
+| `cjk-book.azw3`   | Chinese/Japanese text     | Calibre conversion of CJK source         |
+| `test.epub`       | Known-working EPUB        | Any previously tested EPUB               |
+| `test.pdf`        | Known-working PDF         | Any PDF                                  |
+| `test.txt`        | Known-working TXT         | Any text file                            |
 
 Save these in the Files app or a cloud drive accessible from the test device.
 
@@ -478,39 +478,51 @@ Save these in the Files app or a cloud drive accessible from the test device.
 ### 12. Edge Cases
 
 #### 12.1 Long Chapter Names
+
 Open a book with very long chapter titles. **Pass if:** TOC doesn't overflow or crash.
 
 #### 12.2 CJK Text
+
 Open `cjk-book.azw3`. **Pass if:** Chinese/Japanese characters render correctly.
 
 #### 12.3 RTL Text
+
 Open a book with Arabic/Hebrew text. **Pass if:** Text reads right-to-left.
 
 #### 12.4 Image-Heavy Book
+
 Open a book with many images. **Pass if:** Images load. No crash.
 
 #### 12.5 Empty Book
+
 Open a book with no readable content. **Pass if:** Error message, not a blank screen.
 
 #### 12.6 Special Filename
+
 Import a file named `书籍 (copy).azw3`. **Pass if:** Imports successfully.
 
 #### 12.7 External Links
+
 Tap a hyperlink in book content. **Pass if:** Opens Safari for http/https links. Does not open tel:/sms: links.
 
 #### 12.8 Rapid Page Turns
+
 Tap next page 20+ times rapidly. **Pass if:** No crash or freeze.
 
 #### 12.9 Orientation Change
+
 Rotate the device while reading. **Pass if:** Layout adapts.
 
 #### 12.10 Special Characters in Metadata
+
 Open a book with quotes or ampersands in title. **Pass if:** Title displays correctly.
 
 #### 12.11 Memory Stability
+
 Open and close the same book 10 times. **Pass if:** No slowdown or memory warnings.
 
 #### 12.12 Concurrent Formats
+
 Open AZW3, go back, open PDF, go back, open TXT. **Pass if:** Each reader works independently.
 
 ---
@@ -518,10 +530,13 @@ Open AZW3, go back, open PDF, go back, open TXT. **Pass if:** Each reader works 
 ### 13. Data Safety
 
 #### 13.1 Accidental Dismiss
+
 Swipe to dismiss reader. **Pass if:** Position was saved.
 
 #### 13.2 Background Save
+
 Switch apps while reading. **Pass if:** Position saved before backgrounding.
 
 #### 13.3 Error Isolation
+
 Fail to open one book. **Pass if:** Other books still open normally.

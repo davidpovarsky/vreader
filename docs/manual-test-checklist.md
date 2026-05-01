@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
 Test on device (iPhone 17 Pro simulator or physical). Check off as verified.
-Last regenerated: 2026-04-04. Last tested: 2026-04-04 (simulator interactive pass).
+Last regenerated: 2026-04-12. Last tested: 2026-04-04 (simulator interactive pass).
 
 **Test environment**: iPhone 17 Pro Simulator (Dynamic Island), 2 books in library:
 
@@ -51,6 +51,7 @@ Last regenerated: 2026-04-04. Last tested: 2026-04-04 (simulator interactive pas
 - [x] Tap TOC entry → navigates to correct position
 - [ ] TXT with Chinese chapters (第一章) → TOC populated <!-- SKIP: no TXT book in current library. Code implemented: TXTTocRuleEngine with 14+ Legado rules including 第X章 pattern -->
 - [ ] TXT with English chapters (Chapter 1) → TOC populated <!-- SKIP: no TXT book in current library. Code implemented: rule "英文Chapter/Section/Part" -->
+- [ ] TXT chapter mode: progress bar shows chapter progress (bug #109 FIXED) <!-- SKIP: needs TXT book with chapters. Fix bfd8345 added currentChapterLocalUTF16 + chapterScrollFraction -->
 
 ## Reader — Highlights & Annotations
 
@@ -133,15 +134,19 @@ Last regenerated: 2026-04-04. Last tested: 2026-04-04 (simulator interactive pas
 - [ ] Backup → archive uploaded to server <!-- SKIP: needs WebDAV server -->
 - [ ] Restore → data recovered from server <!-- SKIP: needs WebDAV server -->
 
-## Sync — iCloud (feature #10)
-
-- [ ] Not implemented (deferred)
+## ~~Sync — iCloud (feature #10) — WONT DO, not needed~~
 
 ## AZW3/MOBI Reader (Foliate spike)
 
 - [x] AZW3 book opens and text renders <!-- VERIFIED 2026-04-04: 被讨厌的勇气 opens, shows copyright page with text. FoliateSpikeView works -->
 - [ ] Page turns / scrolling works <!-- SKIP: needs more interaction in AZW3 reader -->
-- [ ] Chrome toggle works in Foliate reader <!-- BUG: center tap does NOT toggle chrome in AZW3/Foliate reader. Works in EPUB reader. -->
+- [ ] Chrome toggle works in Foliate reader <!-- BUG #108: center tap does NOT toggle chrome in AZW3/Foliate reader. Works in EPUB reader. -->
+- [ ] .mobi / .azw / .prc imports normalize to AZW3 format <!-- SKIP: needs test files. Code: BookFormat normalization in BookImporter -->
+- [ ] DRM-protected Kindle book → clear error, no crash <!-- SKIP: needs DRM file. Foliate-js detects DRM and rejects -->
+- [ ] Corrupt AZW3 (truncated) → clear error, no crash <!-- SKIP: needs corrupt file -->
+- [ ] Large AZW3 (>50MB) loads without crash <!-- SKIP: needs large file -->
+- [ ] CJK AZW3 renders Chinese/Japanese characters correctly <!-- SKIP: 被讨厌的勇气 partially covers this -->
+- [ ] Rapid page turns (20+) → no crash or freeze <!-- SKIP: needs interactive test -->
 
 ---
 
@@ -165,7 +170,7 @@ Last regenerated: 2026-04-04. Last tested: 2026-04-04 (simulator interactive pas
 | Feature | Summary                             | Priority | Status                                            |
 | ------- | ----------------------------------- | -------- | ------------------------------------------------- |
 | #5      | Search highlight auto-dismiss       | Low      | Code done, unverified                             |
-| #10     | iCloud backup                       | Medium   | Deferred                                          |
+| #10     | ~~iCloud backup~~                   | —        | WONT DO — not needed                              |
 | #29     | WebDAV backup                       | Medium   | Code done, unverified                             |
 | #36     | OPDS catalog                        | Medium   | Code done, unverified                             |
 | #42     | Foliate-js unified reader (GH #113) | High     | Planned                                           |

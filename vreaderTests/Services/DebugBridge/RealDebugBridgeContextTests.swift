@@ -16,6 +16,8 @@ final class RealDebugBridgeContextTests: XCTestCase {
     private var importer: BookImporter!
     private var sandboxDir: URL!
     private var fixtureBundleDir: URL!
+    private var defaultsSuiteName: String!
+    private var defaults: UserDefaults!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -32,17 +34,27 @@ final class RealDebugBridgeContextTests: XCTestCase {
         try FileManager.default.createDirectory(at: fixtureBundleDir, withIntermediateDirectories: true)
 
         importer = BookImporter(persistence: persistence, sandboxBooksDirectory: sandboxDir)
+
+        // Unique UserDefaults suite per test so theme tests don't pollute global state
+        // or each other.
+        defaultsSuiteName = "DebugBridgeTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuiteName)
     }
 
     override func tearDown() async throws {
         if let dir = sandboxDir?.deletingLastPathComponent() {
             try? FileManager.default.removeItem(at: dir)
         }
+        if let suite = defaultsSuiteName {
+            UserDefaults().removePersistentDomain(forName: suite)
+        }
         importer = nil
         persistence = nil
         container = nil
         sandboxDir = nil
         fixtureBundleDir = nil
+        defaults = nil
+        defaultsSuiteName = nil
         try await super.tearDown()
     }
 
@@ -185,6 +197,69 @@ final class RealDebugBridgeContextTests: XCTestCase {
 
         await bridge.handle(URL(string: "vreader-debug://reset")!)
         XCTAssertNil(bridge.lastError, "successful dispatch must clear lastError")
+    }
+
+    // MARK: - theme
+
+    @MainActor
+    func test_theme_darkModeSetsThemeInUserDefaults() async throws {
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        try await context.theme(mode: .dark, fontSize: nil)
+
+        let store = ReaderSettingsStore(defaults: defaults)
+        XCTAssertEqual(store.theme, .dark)
+    }
+
+    @MainActor
+    func test_theme_lightModeSetsThemeInUserDefaults() async throws {
+        // Pre-set to dark so we can verify mode=light flips it back
+        let pre = ReaderSettingsStore(defaults: defaults)
+        pre.theme = .dark
+
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        try await context.theme(mode: .light, fontSize: nil)
+
+        let store = ReaderSettingsStore(defaults: defaults)
+        XCTAssertEqual(store.theme, .light)
+    }
+
+    @MainActor
+    func test_theme_fontSizeIsPersisted() async throws {
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        try await context.theme(mode: .dark, fontSize: 22)
+
+        let store = ReaderSettingsStore(defaults: defaults)
+        XCTAssertEqual(store.typography.fontSize, 22.0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_theme_nilFontSizeLeavesExistingFontSizeUnchanged() async throws {
+        let pre = ReaderSettingsStore(defaults: defaults)
+        var typography = pre.typography
+        typography.fontSize = 19.0
+        pre.typography = typography
+
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        try await context.theme(mode: .light, fontSize: nil)
+
+        let store = ReaderSettingsStore(defaults: defaults)
+        XCTAssertEqual(store.typography.fontSize, 19.0, accuracy: 0.001, "nil fontSize should not overwrite")
     }
 }
 

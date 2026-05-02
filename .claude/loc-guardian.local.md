@@ -19,3 +19,4 @@ max_pure_loc: 300
 - **Data types/structs** → `types.rs` within the feature module
 - **Helper/utility functions** → `utils.rs` within the feature module
 - **Tests** → keep in `#[cfg(test)]` block at bottom of each file
+

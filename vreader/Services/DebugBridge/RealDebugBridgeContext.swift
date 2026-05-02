@@ -33,16 +33,21 @@ final class RealDebugBridgeContext: DebugBridgeContext {
     /// Bundle that holds DEBUG fixture resources. Defaults to `Bundle.main`;
     /// tests inject a custom bundle so they don't depend on app installation.
     private let fixtureBundle: Bundle
+    /// UserDefaults suite that backs reader settings. Defaults to `.standard`;
+    /// tests inject a unique suite to avoid polluting global state.
+    private let userDefaults: UserDefaults
     private let log = Logger(subsystem: "com.vreader.app", category: "DebugBridge")
 
     init(
         persistence: PersistenceActor,
         importer: BookImporting,
-        fixtureBundle: Bundle = .main
+        fixtureBundle: Bundle = .main,
+        userDefaults: UserDefaults = .standard
     ) {
         self.persistence = persistence
         self.importer = importer
         self.fixtureBundle = fixtureBundle
+        self.userDefaults = userDefaults
     }
 
     /// Wipe every book from the library. Idempotent — succeeds on an empty
@@ -88,8 +93,23 @@ final class RealDebugBridgeContext: DebugBridgeContext {
         throw notImplemented("open")
     }
 
+    /// Set reader theme + optional font size. Mutates a transient
+    /// ReaderSettingsStore whose `didSet` observers persist to
+    /// UserDefaults; the change takes effect when the next reader opens.
+    /// (A live reader's @State store won't see the update until
+    /// reopen — out of scope for v0.)
     func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws {
-        throw notImplemented("theme")
+        let store = ReaderSettingsStore(defaults: userDefaults)
+        let target: ReaderTheme = (mode == .dark) ? .dark : .light
+        if store.theme != target {
+            store.theme = target
+        }
+        if let fontSize {
+            var typography = store.typography
+            typography.fontSize = Double(fontSize)
+            store.typography = typography
+        }
+        log.info("theme: mode=\(target.rawValue, privacy: .public) fontSize=\(fontSize.map(String.init) ?? "unchanged", privacy: .public)")
     }
 
     func settle(token: String) async throws {

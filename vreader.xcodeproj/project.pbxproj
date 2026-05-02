@@ -113,6 +113,7 @@
 		265B4C9C4B99A0500F0EC6B7 /* MDMetadataExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5D3F39FDBF4693D33D1BCB /* MDMetadataExtractor.swift */; };
 		275C851E9115056F4AF6657B /* PipelineTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA41D8643B42B4B25CB6D96A /* PipelineTypes.swift */; };
 		2775DDF52321F468CB58F795 /* BookmarkListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D432C9B43D1B6662B4605664 /* BookmarkListViewModel.swift */; };
+		28F61B7B591B9DEFD7448759 /* war-and-peace.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9C1EB36BA0B8CA536DE510BF /* war-and-peace.txt */; };
 		298EB8447E1427B7FE4CE0F9 /* JSONExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA638212AA92F9FF855ABC2 /* JSONExportTests.swift */; };
 		2A4AB6F5EDB24297F77218DB /* TextReaderUIState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F7EC017FF822492219E162 /* TextReaderUIState.swift */; };
 		2AD43547691478569AA638EB /* AIConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8038AAB18412F30C09CBDD9 /* AIConfigurationStore.swift */; };
@@ -1060,6 +1061,7 @@
 		9B4B7084FA4C129303F52CB8 /* FileAvailabilityBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAvailabilityBadge.swift; sourceTree = "<group>"; };
 		9B4C9FADDEE54F268F536EC5 /* legado_source_xpath.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = legado_source_xpath.json; sourceTree = "<group>"; };
 		9C131E2BC3B226E7009FA006 /* SeriesTagPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeriesTagPersistenceTests.swift; sourceTree = "<group>"; };
+		9C1EB36BA0B8CA536DE510BF /* war-and-peace.txt */ = {isa = PBXFileReference; includeInIndex = 1; path = "war-and-peace.txt"; sourceTree = "<group>"; };
 		9C5A2D5CFE8B719D4C8F3580 /* SchemaV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaV1.swift; sourceTree = "<group>"; };
 		9CED0BF7A8104C22C6E293BF /* ReadingTimeFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingTimeFormatterTests.swift; sourceTree = "<group>"; };
 		9DAD9A773D4AA9098981720D /* EPUBReaderViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBReaderViewModelTests.swift; sourceTree = "<group>"; };
@@ -1875,6 +1877,15 @@
 			path = Migration;
 			sourceTree = "<group>";
 		};
+		89E40190B5C3A64230F56D8D /* DebugFixtures */ = {
+			isa = PBXGroup;
+			children = (
+				9C1EB36BA0B8CA536DE510BF /* war-and-peace.txt */,
+			);
+			name = DebugFixtures;
+			path = DebugFixtures;
+			sourceTree = "<group>";
+		};
 		8D2F333DAEB9758BF44807FC /* Reader */ = {
 			isa = PBXGroup;
 			children = (
@@ -2028,6 +2039,15 @@
 				FA01000000000012 /* FoliateReaderViewModel.swift */,
 			);
 			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		952BA3346BC9B48C741E911C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				89E40190B5C3A64230F56D8D /* DebugFixtures */,
+			);
+			name = Resources;
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		9A27269DBB24004990DDA77D /* OPDS */ = {
@@ -2461,6 +2481,7 @@
 				94D06942F90AF64D53FF08E9 /* ViewModels */,
 				AE4E61A680128143BD32AA91 /* Views */,
 				BF638906D30493D8A697C10D /* SupportingFiles */,
+				952BA3346BC9B48C741E911C /* Resources */,
 			);
 			path = vreader;
 			sourceTree = "<group>";
@@ -2816,6 +2837,7 @@
 				95D2D252390D26AFDBBAF43C /* SPIKE_RESULTS.md in Resources */,
 				FB01000000000009 /* foliate-bundle.js in Resources */,
 				FB0100000000000A /* foliate-reader.html in Resources */,
+				28F61B7B591B9DEFD7448759 /* war-and-peace.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3579,6 +3601,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = NHCSYAQ22P;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"war-and-peace.txt",
+					alice.epub,
+					sample.azw3,
+					sample.pdf,
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = vreader;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

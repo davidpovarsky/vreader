@@ -114,7 +114,10 @@ struct VReaderApp: App {
             // vreader-debug:// commands hit real subsystems.
             Task { @MainActor in
                 DebugBridgeProvider.shared = DebugBridge(
-                    context: RealDebugBridgeContext(persistence: persistence)
+                    context: RealDebugBridgeContext(
+                        persistence: persistence,
+                        importer: importer
+                    )
                 )
             }
             #endif

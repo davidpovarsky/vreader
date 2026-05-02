@@ -19,10 +19,20 @@ import OSLog
 @MainActor
 final class RealDebugBridgeContext: DebugBridgeContext {
     private let persistence: PersistenceActor
+    private let importer: BookImporting
+    /// Bundle that holds DEBUG fixture resources. Defaults to `Bundle.main`;
+    /// tests inject a custom bundle so they don't depend on app installation.
+    private let fixtureBundle: Bundle
     private let log = Logger(subsystem: "com.vreader.app", category: "DebugBridge")
 
-    init(persistence: PersistenceActor) {
+    init(
+        persistence: PersistenceActor,
+        importer: BookImporting,
+        fixtureBundle: Bundle = .main
+    ) {
         self.persistence = persistence
+        self.importer = importer
+        self.fixtureBundle = fixtureBundle
     }
 
     /// Wipe every book from the library. Idempotent — succeeds on an empty
@@ -43,8 +53,31 @@ final class RealDebugBridgeContext: DebugBridgeContext {
 
     // MARK: - Stubs (filled in by later WI-5 commits)
 
+    /// Import a bundled fixture book by name. Idempotent — if a book with
+    /// the same fingerprint already exists in the library, the importer
+    /// short-circuits without creating a duplicate.
+    /// Errors (unknown fixture, missing bundle resource, import failure)
+    /// are logged and swallowed; the bridge stays usable for the next
+    /// command. WI-5 future work may surface these via lastError on the
+    /// snapshot.
     func seed(fixture: String) async {
-        log.info("seed fixture=\(fixture, privacy: .public) — not yet implemented")
+        guard let entry = DebugFixtureCatalog.find(name: fixture) else {
+            log.error("seed: unknown fixture \(fixture, privacy: .public)")
+            return
+        }
+        guard let url = fixtureBundle.url(
+            forResource: entry.resourceName,
+            withExtension: entry.resourceExtension
+        ) else {
+            log.error("seed: fixture resource missing in bundle: \(entry.resourceName, privacy: .public).\(entry.resourceExtension, privacy: .public)")
+            return
+        }
+        do {
+            let result = try await importer.importFile(at: url, source: .localCopy)
+            log.info("seed: imported \(entry.name, privacy: .public) → key=\(result.fingerprintKey, privacy: .public) duplicate=\(result.isDuplicate)")
+        } catch {
+            log.error("seed: import failed for \(entry.name, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
     }
 
     func open(bookId: String, position: String?) async {

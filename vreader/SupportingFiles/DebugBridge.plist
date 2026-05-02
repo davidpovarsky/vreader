@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Partial Info.plist included only in DEBUG builds (feature #44 DebugBridge).
+  Wired via per-configuration INFOPLIST_FILE: vreader target Debug config
+  references this file; Release config leaves INFOPLIST_FILE unset so the
+  vreader-debug URL scheme is absent from shipped builds.
+
+  Xcode (14+) merges this file with auto-generated keys from
+  GENERATE_INFOPLIST_FILE=YES, so app metadata (display name, orientations,
+  etc.) continues to come from build settings.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>vreader.debug-bridge</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>vreader-debug</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

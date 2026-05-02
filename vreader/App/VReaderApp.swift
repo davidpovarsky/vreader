@@ -122,6 +122,12 @@ struct VReaderApp: App {
                 contentView
                     .modelContainer(modelContainer)
                     .modifier(TestLaunchModifier(config: testConfig))
+                    .onOpenURL { url in
+                        guard url.scheme == DebugCommand.scheme else { return }
+                        Task { @MainActor in
+                            await DebugBridgeProvider.shared.handle(url)
+                        }
+                    }
                 #else
                 contentView
                     .modelContainer(modelContainer)

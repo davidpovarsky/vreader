@@ -107,6 +107,17 @@ struct VReaderApp: App {
                 ),
                 syncMonitor: syncMonitor
             )
+
+            #if DEBUG
+            // Install the real DebugBridge context now that persistence/importer
+            // exist. Replaces the bootstrap LoggingDebugBridgeContext so
+            // vreader-debug:// commands hit real subsystems.
+            Task { @MainActor in
+                DebugBridgeProvider.shared = DebugBridge(
+                    context: RealDebugBridgeContext(persistence: persistence)
+                )
+            }
+            #endif
         } catch {
             self.modelContainer = nil
             // Sanitize: don't expose raw file paths or internal details to the user.

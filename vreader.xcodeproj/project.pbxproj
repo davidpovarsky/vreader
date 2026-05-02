@@ -146,6 +146,7 @@
 		3821F3BE76B9BE588B9FA995 /* SearchHitToLocatorResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9102277C4126793229AEEB9 /* SearchHitToLocatorResolverTests.swift */; };
 		384E9916435C82876752D9D9 /* AIAssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A5928551FF9FBB8D2E87E6F /* AIAssistantView.swift */; };
 		38661CFAC1618DB7526ACB28 /* PersistenceActor+Highlights.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC517B8E3581F795DEDEC934 /* PersistenceActor+Highlights.swift */; };
+		388B4B3BFBD66168240AADD0 /* RealDebugBridgeContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66956A94EEDA33F184F0E038 /* RealDebugBridgeContext.swift */; };
 		38F1AB473618B5EB717D05DE /* ReadingTimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FE0912FBC85E22DF8C637F /* ReadingTimeFormatter.swift */; };
 		39699408A91BBF24E36FCE53 /* EPUBPaginationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EC9B0FFB09D08F65F205F3 /* EPUBPaginationHelper.swift */; };
 		39D1A8383CEBC235DDAA552F /* UnifiedPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82AD6F50703DBCA984EBAAC /* UnifiedPagedView.swift */; };
@@ -520,6 +521,7 @@
 		D0FB5FB63B24803C9ADA5E1A /* EPUBHighlightBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C5EC86BB06D46DC9A5A4F6B /* EPUBHighlightBridgeTests.swift */; };
 		D132935C6491DFCD0DF07A77 /* TXTOffsetTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36127649BE3B7962E97F9C9 /* TXTOffsetTranslatorTests.swift */; };
 		D19881EF60E15DFDCFF74173 /* EPUBComplexityClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC42F137A3776DEED18D9044 /* EPUBComplexityClassifierTests.swift */; };
+		D1A8A5A5889D3013F2C6BA6A /* RealDebugBridgeContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEB93C7B5624E56BE15F982 /* RealDebugBridgeContextTests.swift */; };
 		D1C8E2F09B3E47AB62F5A710 /* TextReaderUIStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3CF12A4D922873FC18E55 /* TextReaderUIStateTests.swift */; };
 		D1F6F2B6287F6C78E947FFAE /* BilingualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8781075EA7AF25572A741C40 /* BilingualView.swift */; };
 		D2997E6E5680E58471DAA777 /* NoOpPersistenceStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D45B144AFD2D20CAEACC48 /* NoOpPersistenceStores.swift */; };
@@ -928,6 +930,7 @@
 		63E4737FA3A880C3CC2BA07D /* ReadingProgressBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgressBarTests.swift; sourceTree = "<group>"; };
 		660A657BC4712219BAF7858C /* TXTTocRuleEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTTocRuleEngineTests.swift; sourceTree = "<group>"; };
 		667AC3E733DFC3883BC89D39 /* AlertDialogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertDialogTests.swift; sourceTree = "<group>"; };
+		66956A94EEDA33F184F0E038 /* RealDebugBridgeContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealDebugBridgeContext.swift; sourceTree = "<group>"; };
 		6740AA93BF7040C4EC1D65E8 /* TXTChapterContentLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTChapterContentLoaderTests.swift; sourceTree = "<group>"; };
 		676562105FCC5AE0633F7EA7 /* TXTLazyTextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTLazyTextProvider.swift; sourceTree = "<group>"; };
 		6782FA6981AE8309748D8E5D /* binary_masquerade.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = binary_masquerade.txt; sourceTree = "<group>"; };
@@ -1100,6 +1103,7 @@
 		AC12F17B1F2EDD25E25B114C /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		AC38E517D1EE7098DCB96426 /* MarkdownExportFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExportFormatter.swift; sourceTree = "<group>"; };
 		AC517B8E3581F795DEDEC934 /* PersistenceActor+Highlights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PersistenceActor+Highlights.swift"; sourceTree = "<group>"; };
+		ACEB93C7B5624E56BE15F982 /* RealDebugBridgeContextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealDebugBridgeContextTests.swift; sourceTree = "<group>"; };
 		AD065491E8CFE99188D62E09 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		AD6CBECDB1B545AEC90C9A9B /* DebugFixtureCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugFixtureCatalogTests.swift; sourceTree = "<group>"; };
 		AE0CDD04120BFF39B61E8418 /* BackgroundIndexingCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundIndexingCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -2158,6 +2162,7 @@
 				D7F1AE1C279E77B5BFFE4A33 /* DebugFixtureCatalog.swift */,
 				1F65CD78E52AF656CD80A01D /* DebugBridge.swift */,
 				5BF874D85B8DAFBDD568B9F3 /* DebugBridgeProvider.swift */,
+				66956A94EEDA33F184F0E038 /* RealDebugBridgeContext.swift */,
 			);
 			name = DebugBridge;
 			path = DebugBridge;
@@ -2331,6 +2336,7 @@
 				746C6D246C50642A75DF0132 /* DebugSnapshotTests.swift */,
 				AD6CBECDB1B545AEC90C9A9B /* DebugFixtureCatalogTests.swift */,
 				5754B6F22BDE336812B9E3B6 /* DebugBridgeTests.swift */,
+				ACEB93C7B5624E56BE15F982 /* RealDebugBridgeContextTests.swift */,
 			);
 			name = DebugBridge;
 			path = DebugBridge;
@@ -3093,6 +3099,7 @@
 				B0C8FF0D5BCB6053B2CD637F /* DebugSnapshotTests.swift in Sources */,
 				D697FB1FEDD8809977C2CDCC /* DebugFixtureCatalogTests.swift in Sources */,
 				7A8A726E08B6B45217D33A27 /* DebugBridgeTests.swift in Sources */,
+				D1A8A5A5889D3013F2C6BA6A /* RealDebugBridgeContextTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3446,6 +3453,7 @@
 				0ED89008EFE68CA6FC453519 /* DebugFixtureCatalog.swift in Sources */,
 				481EF3BB135D63C2D39B9A16 /* DebugBridge.swift in Sources */,
 				5FA94546AEA62AA91EE162BF /* DebugBridgeProvider.swift in Sources */,
+				388B4B3BFBD66168240AADD0 /* RealDebugBridgeContext.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

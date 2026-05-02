@@ -91,4 +91,46 @@ Before setting a feature to `PLANNED`, fill in these fields in a sub-section und
 | 41 | TTS auto-scroll/paginate                                      | Reader/*     | Medium   | DONE      | TTSHighlightCoordinator sets uiState.scrollToOffset from sentence start. TXT/MD only via same onChange wiring. Needs device verification                                         |
 | 42 | AZW3/KF8 + Foliate-js unified reader engine                   | Reader/*     | High     | PLANNED   | Replace EPUB bridge with Foliate-js `<foliate-view>`. EPUB+AZW3/MOBI via one engine. PDF/TXT unchanged. GH: #113                                                                |
 | 43 | Extract and display cover images from EPUB/AZW3               | Library/*    | Medium   | DONE      | EPUB OPF + AZW3 MOBI header parsing. 46 tests. Bug #107 for white-edge padding. GH: #121                                                                                        |
+| 44 | DebugBridge — debug-only URL scheme + state dumper for autonomous testing | DevTools/*  | High | PLANNED | DEBUG-only `vreader-debug://` handler. Enables AI-driven repro/debug loop and XCUITest state setup. ~200 LOC, no release surface. See plan below. |
+
+### Feature #44 — DebugBridge — Plan
+
+- **Problem**: Autonomous AI debug loop and XCUITest regression suite both need cheap, deterministic state setup and ground-truth state inspection. Currently every repro requires manual UI-driving (open library → tap book → scroll → set theme → ...). For WKWebView-heavy bugs (Foliate-js highlights, EPUB rendering, page navigation) there is no external way to read what the webview actually rendered. Vision-only inspection is too flaky for the hard bugs, which is the class that piles up in `docs/bugs.md`.
+
+- **Scope**:
+  - **Included**: A `#if DEBUG`-gated `DebugBridge` that handles the `vreader-debug://` URL scheme via `.onOpenURL` on `VReaderApp`. Commands: `reset`, `seed?fixture=<name>`, `open?bookId=<uuid>&cfi=<x>` (plus equivalent for TXT/MD/PDF positions), `theme?mode=<dark|light>&fontSize=<n>`, `settle?token=<id>` (writes ready-sentinel after Foliate `relocate` + native layout settles), `snapshot?dest=<file>` (semantic state JSON to app container), `eval?bridge=foliate&js=<base64>` (active WKWebView JS eval, result to container). Bundle a small set of fixture books in `vreader/Resources/DebugFixtures/` (alice.epub, war-and-peace.txt, sample.azw3, sample.pdf). Document one repro recipe per existing open bug (#107, #108, plus a few of the "Needs device verification" features) in `dev-docs/debug-bridge.md`.
+  - **Excluded**: No release-build code path. No remote control over network. No authentication (device-local only, DEBUG-only). No fixture *editing* in the bridge — fixtures are read-only bundle resources. No replacement of XCUITest — DebugBridge is a state-setup peer, not a test runner. No screenshot capture from inside the bridge — caller uses `xcrun simctl io booted screenshot`. No mutation of SwiftData beyond the `reset` and `seed` commands.
+  - **Out of scope, deferred**: Recording-and-replay of user gestures. Mocking the network layer. AI Genie state injection.
+
+- **Edge cases**:
+  - URL scheme called in non-DEBUG build → ignore silently (handler not registered).
+  - `seed` called twice with the same fixture → idempotent (no duplicate library row).
+  - `open` with unknown `bookId` → write error JSON to `lastError.json`, do not crash.
+  - `eval` JS that throws → capture exception in result JSON; do not propagate to app.
+  - `eval` called when no webview is active → return `{ "error": "no active webview" }`.
+  - `settle` called when render never completes (e.g., corrupt EPUB) → timeout sentinel after 30s with `{ "error": "settle timeout", "phase": "<lastPhase>" }`.
+  - Concurrent `vreader-debug://` calls → serialize via `MainActor` queue; later calls wait.
+  - Snapshot during in-flight TTS or AI streaming → state JSON includes a `transientOps` array so caller can decide whether to retry.
+  - Filesystem write failures on `Caches/` → log and continue; do not block app.
+  - `reset` while a book is open → close reader first, dismiss sheets, then wipe.
+  - Build configuration with `DEBUG` undefined but URL scheme registered (e.g., archive build): URL scheme registration also `#if DEBUG`-gated in Info.plist via Active Compilation Conditions check at build phase. Verify no `vreader-debug` entry leaks into Release.app.
+  - `snapshot` JSON must exclude PII (no fingerprinting hashes of book content beyond what's already in SwiftData).
+
+- **Test plan**:
+  - Unit: `DebugBridgeRouterTests` — URL parsing for each command, error paths (malformed URL, missing required params, unknown command).
+  - Unit: `DebugStateSnapshotterTests` — JSON shape stability against a fixed model (golden JSON), nil/optional handling, `transientOps` array population.
+  - Unit: `DebugFixtureLoaderTests` — idempotent `seed`, missing fixture name → error, fixture path resolution.
+  - Integration: `DebugBridgeIntegrationTests` (XCUITest) — launch with `vreader-debug://reset` then `seed` then `open` then `snapshot`, read back container JSON, assert state matches expected.
+  - Integration: `DebugBridgeFoliateEvalTests` — open EPUB fixture, `eval` returns `document.querySelectorAll('.foliate-highlight').length` correctly after creating a highlight.
+  - Build gate: a CI step asserts `vreader-debug` is **not** present in the Release bundle's Info.plist. Fail the build if found.
+  - Manual verification: one repro recipe in `dev-docs/debug-bridge.md` exercised end-to-end against current open bugs.
+
+- **Acceptance criteria**:
+  - DEBUG build registers `vreader-debug://` and handles all six commands above with correct success/error JSON in the app container.
+  - Release build has zero `vreader-debug` references (verified by CI grep + Info.plist check).
+  - `xcrun simctl openurl booted vreader-debug://snapshot?dest=state.json` followed by `simctl get_app_container booted <bundle-id> data` produces a valid JSON file with the documented schema (currentBookId, format, cfi/page, theme, fontSize, selection, highlightCount, renderPhase, lastError).
+  - `settle` reliably blocks until the Foliate `relocate` event has fired and a frame has been committed (no mid-frame screenshots in the documented happy-path repro).
+  - All unit + integration tests pass under `xcodebuild test -only-testing:vreaderTests` and `-only-testing:vreaderUITests`.
+  - `dev-docs/debug-bridge.md` documents the URL grammar, JSON schema, fixture catalogue, and one worked repro per currently-open bug.
+  - LOC under ~300 across new files (router, snapshotter, fixture loader, Foliate eval adapter); no file exceeds the project's 300-line guideline.
 

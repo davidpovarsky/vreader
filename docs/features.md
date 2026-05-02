@@ -30,7 +30,8 @@ Track features to be implemented here. Must be planned before implementation.
 - `TODO` — not started
 - `PLANNED` — plan complete (problem, scope, edge cases, tests, acceptance criteria), ready to implement
 - `IN PROGRESS` — being worked on
-- `DONE` — implemented and verified
+- `DONE` — implemented; correctness not yet verified end-to-end
+- `VERIFIED` — covered by an automated end-to-end test (XCUITest + DebugBridge) or by an explicit on-device manual verification log
 - `DEFERRED` — postponed to a later milestone
 - `WONT DO` — out of scope or rejected
 
@@ -92,6 +93,7 @@ Before setting a feature to `PLANNED`, fill in these fields in a sub-section und
 | 42 | AZW3/KF8 + Foliate-js unified reader engine                   | Reader/*     | High     | PLANNED   | Replace EPUB bridge with Foliate-js `<foliate-view>`. EPUB+AZW3/MOBI via one engine. PDF/TXT unchanged. GH: #113                                                                |
 | 43 | Extract and display cover images from EPUB/AZW3               | Library/*    | Medium   | DONE      | EPUB OPF + AZW3 MOBI header parsing. 46 tests. Bug #107 for white-edge padding. GH: #121                                                                                        |
 | 44 | DebugBridge — debug-only URL scheme + state dumper for autonomous testing | DevTools/*  | High | PLANNED | DEBUG-only `vreader-debug://` handler. Enables AI-driven repro/debug loop and XCUITest state setup. ~200 LOC, no release surface. See plan below. |
+| 45 | Verification harness sweep — retire the "Needs device verification" backlog | DevTools/* | High | PLANNED | XCUITest + DebugBridge recipes for 13 of 15 simulator-automatable backlog items. Adds VERIFIED status. Depends on #44. See plan below. |
 
 ### Feature #44 — DebugBridge — Plan
 
@@ -133,4 +135,61 @@ Before setting a feature to `PLANNED`, fill in these fields in a sub-section und
   - All unit + integration tests pass under `xcodebuild test -only-testing:vreaderTests` and `-only-testing:vreaderUITests`.
   - `dev-docs/debug-bridge.md` documents the URL grammar, JSON schema, fixture catalogue, and one worked repro per currently-open bug.
   - LOC under ~300 across new files (router, snapshotter, fixture loader, Foliate eval adapter); no file exceeds the project's 300-line guideline.
+
+### Feature #45 — Verification harness sweep — Plan
+
+- **Problem**: 15 features in `docs/features.md` and many bugs in `docs/bugs.md` are marked "Needs device verification" or "Not verified on device". This backlog grows monotonically because every release adds new entries faster than humans can verify the old ones, and the verification work is repetitive UI-driving that humans hate. Result: tracker statuses lie (`DONE` actually means "code shipped, untested"), regressions ride to release, and pre-release manual passes balloon. Currently 16 occurrences in `docs/features.md` alone.
+- **Scope**:
+  - **Included**:
+    - Add `VERIFIED` status to `docs/features.md` statuses (already done in this commit).
+    - Build a verification harness in `vreaderUITests/Verification/` with one XCUITest file per backlog item, sharing helpers in `vreaderUITests/Verification/Helpers/` (DebugBridge URL builder, container JSON reader, settle-token waiter, fixture catalog).
+    - Implement automated verifications for 13 simulator-automatable backlog items: features #11, #21, #23, #27, #28, #29 (with local WebDAV container), #31, #34, #35, #36 (with local OPDS feed fixture), #37, #40, #41.
+    - Three proving-ground items implemented first to crystallize the pattern: **#37 Per-book reading settings** (simple UI-state assertion), **#34 Collections / tags** (SwiftData + UI), **#11 EPUB highlighting** (webview + race condition; previously bug #77).
+    - For each item: at least one happy-path test plus the *specific* edge case that the original bug fix addressed (e.g., #11 must exercise the JS buffering race that bug #77 fixed; #28 must exercise the `didSet` re-apply path that bug #98 fixed).
+    - Update `docs/manual-test-checklist.md`: each verified item is marked "Auto-verified by `<test-name>`" and removed from the human checklist.
+    - CI: add a `xcodebuild test -only-testing:vreaderUITests/Verification` job to the existing test gate. Target completion under 8 min on CI hardware.
+    - A short residual manual checklist (`docs/manual-test-checklist.md` "Real-device only" section) for the irreducible items: #26 TTS audio quality and any flow that requires real iCloud / real haptics / real Apple ID.
+  - **Excluded**:
+    - Verifying #26 audible TTS output (no programmatic way to QA voice quality on simulator).
+    - Real iCloud sync paths, real Apple ID flows, real-device haptics — those stay manual.
+    - Visual regression / snapshot diffing — separate concern, separate feature if/when it arrives.
+    - Performance / load testing — separate concern.
+    - Replacing existing unit tests in `vreaderTests/` — those continue to gate at the unit level; this harness is layered on top, not a replacement.
+    - Full test fixture authoring tools (the harness uses fixed bundle resources from #44; new fixtures get added there, not here).
+  - **Out of scope, deferred**:
+    - Cross-device-type matrix runs (iPad layouts, multiple iOS versions).
+    - Localization sweep across all supported languages — verifications run in the default locale.
+    - Stress / fuzz testing of the bridge surface itself.
+- **Edge cases**:
+  - **Flaky tests**: Foliate render and SwiftData async save have inherent timing. The harness must use `settle` from #44 — never `sleep`. Any test that needs `sleep` to pass is rejected from merge.
+  - **Fixture pollution**: each test runs `vreader-debug://reset` in `setUp` so the SwiftData container is fresh; tests that depend on a prior test's state are forbidden.
+  - **WebDAV / OPDS containers**: tests that need a live server run *only* when the server is up; if it isn't, the test is skipped (not failed) with a clear log line. CI starts the containers as a job step before the test phase.
+  - **Race conditions in concurrency-sensitive flows**: bug #77 (highlight buffering), bug #82 (paginate navigator preserve), bug #88 (highlight refresh on import) — each must have a verification that *would have caught the original bug* if run before the fix, not just a happy-path smoke. Verified by reverting the fix locally and confirming the test fails (RED check, then re-apply).
+  - **Locale / dynamic type / dark mode**: verifications use a fixed default. A separate "appearance variations" sweep is out of scope.
+  - **TTS callbacks without audio**: TTS verification asserts on `AVSpeechSynthesizerDelegate` callback events surfaced via DebugBridge `snapshot` — never requires audible output. Sentence boundary count + fired-callback count is the assertion.
+  - **OPDS / WebDAV server flake**: harness uses local fixtures (a static OPDS XML feed served from the test bundle, a local WebDAV root in `/tmp`) to avoid external network dependence. CI never reaches the public internet.
+  - **PhotosPicker (#32 theme backgrounds)**: simulator's photo library may be empty; the test seeds a known image into the simulator's Photos via `xcrun simctl addmedia` in setUp.
+  - **DocumentPicker (import/export #35)**: handled via `vreader-debug://` import command that bypasses the OS picker (file path passed directly), since the picker is OS chrome and not vreader's responsibility. The test verifies *what happens after import succeeds*, not the picker UI.
+  - **Test-name collisions**: each verification is named `verify_feature_<NN>_<short_name>` so they're greppable and the failure → tracker mapping is mechanical.
+  - **Tracker drift**: when a verification passes, status moves to `VERIFIED`. When it later starts failing, it moves back to `DONE` and a bug is filed. CI prints a one-line status summary so the tracker can be updated mechanically.
+- **Test plan**:
+  - The deliverable *is* tests. The plan is what they cover and how they're structured.
+  - **Helper unit tests** in `vreaderTests/Verification/`:
+    - `DebugBridgeURLBuilderTests` — URL escaping, command serialization, fixture name validation.
+    - `ContainerJSONReaderTests` — parses `simctl get_app_container` output, handles missing files, malformed JSON.
+    - `SettleTokenWaiterTests` — timeout, success path, never returns false-positive.
+    - `FixtureCatalogTests` — fixtures listed in catalog actually exist in the bundle.
+  - **Verification tests** in `vreaderUITests/Verification/` — one file per feature in the 13-item list. Each file contains:
+    1. A happy-path `verify_feature_<NN>_<name>` test.
+    2. One regression test per linked bug (e.g., feature #11 has a test specifically targeting the bug #77 race).
+  - **CI integration**: `verification` test plan added to the Xcode scheme; new CI step runs it after the unit-test phase. Failure of any verification → red CI.
+- **Acceptance criteria**:
+  - 13 of the 15 backlog items reach `VERIFIED` status, with each entry's Notes column citing the test name.
+  - The 2 items that stay manual (#26 audio, anything real-device) are explicitly listed in `docs/manual-test-checklist.md` under a "Real-device only" section, and *removed* from the auto-verifiable list — the manual checklist for these gets shorter, not longer.
+  - `xcodebuild test -only-testing:vreaderUITests/Verification` exits 0 and completes in under 8 minutes on the CI runner.
+  - Each regression test, when run against the pre-fix commit of its linked bug, fails (RED proof) — recorded once in `dev-docs/verification-red-checks.md`.
+  - `docs/manual-test-checklist.md` reflects the new state: items moved to "Auto-verified by `<test-name>`" or "Real-device only".
+  - CI prints a summary line per verification (`PASS feature_11_epub_highlighting in 4.2s`) so tracker updates are mechanical.
+  - No verification test uses `sleep` or `Thread.sleep` for synchronization — `settle` and explicit waiters only.
+  - Total LOC for harness helpers under 500; per-feature tests average ~80 LOC. Files under 300-line guideline.
 

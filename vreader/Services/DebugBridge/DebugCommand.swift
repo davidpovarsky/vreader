@@ -56,7 +56,12 @@ extension DebugCommand {
         guard let host = url.host, !host.isEmpty else {
             throw DebugCommandError.unknownCommand("")
         }
-        let params = queryParams(url)
+        // A test-control URL has no meaningful path. Reject `vreader-debug://settle/extra/path?token=x`
+        // so a typo never silently dispatches the wrong command.
+        guard url.path.isEmpty || url.path == "/" else {
+            throw DebugCommandError.unknownCommand(host)
+        }
+        let params = try queryParams(url)
 
         switch host {
         case "reset":
@@ -89,10 +94,12 @@ extension DebugCommand {
 
         case "settle":
             let token = try requireParam("token", in: params)
+            try validateBasename(token, paramName: "token")
             return .settle(token: token)
 
         case "snapshot":
             let dest = try requireParam("dest", in: params)
+            try validateBasename(dest, paramName: "dest")
             return .snapshot(dest: dest)
 
         case "eval":
@@ -111,13 +118,19 @@ extension DebugCommand {
 
     // MARK: - Helpers
 
-    private static func queryParams(_ url: URL) -> [String: String] {
+    private static func queryParams(_ url: URL) throws -> [String: String] {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let items = comps.queryItems else {
             return [:]
         }
+        var seen: Set<String> = []
         var out: [String: String] = [:]
         for item in items {
+            // Reject duplicate keys explicitly. `?fixture=a&fixture=b` is almost always
+            // a caller bug; silently using the last value masks it.
+            if !seen.insert(item.name).inserted {
+                throw DebugCommandError.invalidParam(item.name, reason: "duplicate parameter")
+            }
             out[item.name] = item.value ?? ""
         }
         return out
@@ -133,6 +146,31 @@ extension DebugCommand {
     private static func nonEmpty(_ raw: String?) -> String? {
         guard let raw, !raw.isEmpty else { return nil }
         return raw
+    }
+
+    /// Maximum length for filename-like parameters (`token`, `dest`).
+    static let basenameMaxLength = 64
+
+    /// Validate a parameter as a safe filename basename. The bridge writes
+    /// real files with these values in WI-5, so this is the right place to
+    /// stop path traversal (`..`), separators (`/`), and control characters
+    /// before they reach the filesystem.
+    ///
+    /// Allowed: `[A-Za-z0-9._-]`, length 1..=64.
+    private static func validateBasename(_ value: String, paramName: String) throws {
+        guard value.count <= basenameMaxLength else {
+            throw DebugCommandError.invalidParam(
+                paramName,
+                reason: "exceeds \(basenameMaxLength) characters"
+            )
+        }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        if value.unicodeScalars.contains(where: { !allowed.contains($0) }) {
+            throw DebugCommandError.invalidParam(
+                paramName,
+                reason: "must match [A-Za-z0-9._-]"
+            )
+        }
     }
 }
 

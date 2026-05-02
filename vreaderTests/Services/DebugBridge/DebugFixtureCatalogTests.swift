@@ -11,7 +11,7 @@ final class DebugFixtureCatalogTests: XCTestCase {
 
     func test_all_returnsKnownFixtureNames() {
         let names = DebugFixtureCatalog.all().map { $0.name }
-        XCTAssertEqual(Set(names), ["alice", "warpeace", "sample-pdf"])
+        XCTAssertEqual(Set(names), ["alice", "war-and-peace", "sample-azw3", "sample-pdf"])
     }
 
     func test_find_byName_returnsMatchingFixture() throws {
@@ -44,15 +44,21 @@ final class DebugFixtureCatalogTests: XCTestCase {
     }
 
     func test_textFixtureCatalogedAsTxtFormat() throws {
-        let warpeace = try XCTUnwrap(DebugFixtureCatalog.find(name: "warpeace"))
-        XCTAssertEqual(warpeace.format, .txt)
-        XCTAssertEqual(warpeace.resourceExtension, "txt")
+        let entry = try XCTUnwrap(DebugFixtureCatalog.find(name: "war-and-peace"))
+        XCTAssertEqual(entry.format, .txt)
+        XCTAssertEqual(entry.resourceExtension, "txt")
     }
 
     func test_pdfFixtureCatalogedAsPdfFormat() throws {
         let pdf = try XCTUnwrap(DebugFixtureCatalog.find(name: "sample-pdf"))
         XCTAssertEqual(pdf.format, .pdf)
         XCTAssertEqual(pdf.resourceExtension, "pdf")
+    }
+
+    func test_azw3FixtureCatalogedAsAzw3Format() throws {
+        let entry = try XCTUnwrap(DebugFixtureCatalog.find(name: "sample-azw3"))
+        XCTAssertEqual(entry.format, .azw3)
+        XCTAssertEqual(entry.resourceExtension, "azw3")
     }
 }
 

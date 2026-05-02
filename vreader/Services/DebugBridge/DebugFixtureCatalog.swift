@@ -33,9 +33,10 @@ struct DebugFixture: Equatable {
 enum DebugFixtureCatalog {
 
     private static let entries: [DebugFixture] = [
-        DebugFixture(name: "alice",      format: .epub, resourceName: "alice",      resourceExtension: "epub"),
-        DebugFixture(name: "warpeace",   format: .txt,  resourceName: "warpeace",   resourceExtension: "txt"),
-        DebugFixture(name: "sample-pdf", format: .pdf,  resourceName: "sample-pdf", resourceExtension: "pdf"),
+        DebugFixture(name: "alice",         format: .epub, resourceName: "alice",         resourceExtension: "epub"),
+        DebugFixture(name: "war-and-peace", format: .txt,  resourceName: "war-and-peace", resourceExtension: "txt"),
+        DebugFixture(name: "sample-azw3",   format: .azw3, resourceName: "sample",        resourceExtension: "azw3"),
+        DebugFixture(name: "sample-pdf",    format: .pdf,  resourceName: "sample",        resourceExtension: "pdf"),
     ]
 
     /// All catalog entries.

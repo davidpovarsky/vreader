@@ -22,18 +22,38 @@ protocol DebugBridgeContext {
 
 /// Routes parsed `DebugCommand` values to a `DebugBridgeContext`.
 /// Records the most recent error (parse failures) for debugging.
+///
+/// Concurrency: commands are serialized through a chained Task so that two
+/// rapid `handle(_:)` calls cannot interleave. `@MainActor` alone wouldn't
+/// guarantee this — actor methods are reentrant across `await` points, and
+/// `.onOpenURL` callbacks spawn independent unstructured tasks.
 @MainActor
 final class DebugBridge {
     private let context: DebugBridgeContext
     private(set) var lastError: Error?
+    /// Tail of the chain of in-flight command tasks. Each new `handle(_:)`
+    /// awaits the previous task before processing, giving FIFO semantics.
+    private var pendingTask: Task<Void, Never>?
 
     init(context: DebugBridgeContext) {
         self.context = context
     }
 
-    /// Parse `url`, dispatch to the matching context method.
+    /// Parse `url`, dispatch to the matching context method, serialized
+    /// after any previously-enqueued command. Returns when this command
+    /// (and the chain in front of it) has completed.
     /// Sets `lastError` on parse failure; clears it on successful dispatch.
     func handle(_ url: URL) async {
+        let previous = pendingTask
+        let next = Task<Void, Never> { @MainActor [weak self] in
+            _ = await previous?.value
+            await self?.process(url)
+        }
+        pendingTask = next
+        await next.value
+    }
+
+    private func process(_ url: URL) async {
         do {
             let cmd = try DebugCommand.parse(url)
             await dispatch(cmd)

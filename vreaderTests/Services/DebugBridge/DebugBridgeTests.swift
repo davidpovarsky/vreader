@@ -135,13 +135,13 @@ final class SlowDebugBridgeContext: DebugBridgeContext {
         calls.append(.end(tag))
     }
 
-    func reset() async { await record("reset") }
-    func seed(fixture: String) async { await record("seed:\(fixture)") }
-    func open(bookId: String, position: String?) async { await record("open:\(bookId)") }
-    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async { await record("theme:\(mode.rawValue)") }
-    func settle(token: String) async { await record("settle:\(token)") }
-    func snapshot(dest: String) async { await record("snapshot:\(dest)") }
-    func eval(bridge: String, js: String) async { await record("eval:\(bridge)") }
+    func reset() async throws { await record("reset") }
+    func seed(fixture: String) async throws { await record("seed:\(fixture)") }
+    func open(bookId: String, position: String?) async throws { await record("open:\(bookId)") }
+    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws { await record("theme:\(mode.rawValue)") }
+    func settle(token: String) async throws { await record("settle:\(token)") }
+    func snapshot(dest: String) async throws { await record("snapshot:\(dest)") }
+    func eval(bridge: String, js: String) async throws { await record("eval:\(bridge)") }
 }
 
 // MARK: - Recorder
@@ -163,17 +163,17 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
 
     private(set) var calls: [Call] = []
 
-    func reset() async { calls.append(.reset) }
-    func seed(fixture: String) async { calls.append(.seed(fixture: fixture)) }
-    func open(bookId: String, position: String?) async {
+    func reset() async throws { calls.append(.reset) }
+    func seed(fixture: String) async throws { calls.append(.seed(fixture: fixture)) }
+    func open(bookId: String, position: String?) async throws {
         calls.append(.open(bookId: bookId, position: position))
     }
-    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async {
+    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws {
         calls.append(.theme(mode: mode, fontSize: fontSize))
     }
-    func settle(token: String) async { calls.append(.settle(token: token)) }
-    func snapshot(dest: String) async { calls.append(.snapshot(dest: dest)) }
-    func eval(bridge: String, js: String) async {
+    func settle(token: String) async throws { calls.append(.settle(token: token)) }
+    func snapshot(dest: String) async throws { calls.append(.snapshot(dest: dest)) }
+    func eval(bridge: String, js: String) async throws {
         calls.append(.eval(bridge: bridge, js: js))
     }
 }

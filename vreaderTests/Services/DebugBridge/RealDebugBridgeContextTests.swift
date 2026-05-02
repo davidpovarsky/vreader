@@ -73,7 +73,7 @@ final class RealDebugBridgeContextTests: XCTestCase {
         XCTAssertEqual(beforeCount, 2)
 
         let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
-        await context.reset()
+        try await context.reset()
 
         let afterCount = try await persistence.fetchAllLibraryBooks().count
         XCTAssertEqual(afterCount, 0, "reset must remove every book")
@@ -82,8 +82,8 @@ final class RealDebugBridgeContextTests: XCTestCase {
     @MainActor
     func test_reset_onEmptyLibraryIsIdempotent() async throws {
         let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
-        await context.reset()
-        await context.reset()
+        try await context.reset()
+        try await context.reset()
 
         let afterCount = try await persistence.fetchAllLibraryBooks().count
         XCTAssertEqual(afterCount, 0)
@@ -92,11 +92,32 @@ final class RealDebugBridgeContextTests: XCTestCase {
     // MARK: - seed
 
     @MainActor
-    func test_seed_unknownFixtureName_doesNotImportAndDoesNotThrow() async throws {
+    func test_seed_unknownFixtureName_throwsAndDoesNotImport() async throws {
         let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
-        await context.seed(fixture: "definitely-not-a-fixture")
+        do {
+            try await context.seed(fixture: "definitely-not-a-fixture")
+            XCTFail("expected unknownFixture error")
+        } catch DebugBridgeContextError.unknownFixture(let name) {
+            XCTAssertEqual(name, "definitely-not-a-fixture")
+        }
         let count = try await persistence.fetchAllLibraryBooks().count
         XCTAssertEqual(count, 0, "no library mutation for unknown fixture")
+    }
+
+    @MainActor
+    func test_seed_resourceMissing_throwsAndDoesNotImport() async throws {
+        // Use a bundle that doesn't have the war-and-peace fixture in it
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            fixtureBundle: Bundle(url: fixtureBundleDir)!
+        )
+        do {
+            try await context.seed(fixture: "war-and-peace")
+            XCTFail("expected fixtureResourceMissing error")
+        } catch DebugBridgeContextError.fixtureResourceMissing {
+            // expected
+        }
     }
 
     @MainActor
@@ -112,7 +133,7 @@ final class RealDebugBridgeContextTests: XCTestCase {
             fixtureBundle: bundle
         )
 
-        await context.seed(fixture: "war-and-peace")
+        try await context.seed(fixture: "war-and-peace")
 
         let books = try await persistence.fetchAllLibraryBooks()
         XCTAssertEqual(books.count, 1, "seed must import exactly one book")
@@ -132,11 +153,38 @@ final class RealDebugBridgeContextTests: XCTestCase {
             fixtureBundle: bundle
         )
 
-        await context.seed(fixture: "war-and-peace")
-        await context.seed(fixture: "war-and-peace")
+        try await context.seed(fixture: "war-and-peace")
+        try await context.seed(fixture: "war-and-peace")
 
         let books = try await persistence.fetchAllLibraryBooks()
         XCTAssertEqual(books.count, 1, "second seed of same fixture must not duplicate")
+    }
+
+    // MARK: - error propagation through DebugBridge.lastError
+
+    @MainActor
+    func test_unknownFixture_setsLastErrorOnBridge() async {
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+        let bridge = DebugBridge(context: context)
+
+        await bridge.handle(URL(string: "vreader-debug://seed?fixture=missing")!)
+
+        guard case DebugBridgeContextError.unknownFixture? = bridge.lastError as? DebugBridgeContextError else {
+            XCTFail("expected unknownFixture in lastError, got \(String(describing: bridge.lastError))")
+            return
+        }
+    }
+
+    @MainActor
+    func test_successfulCommand_clearsLastError() async throws {
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+        let bridge = DebugBridge(context: context)
+
+        await bridge.handle(URL(string: "vreader-debug://seed?fixture=missing")!)
+        XCTAssertNotNil(bridge.lastError)
+
+        await bridge.handle(URL(string: "vreader-debug://reset")!)
+        XCTAssertNil(bridge.lastError, "successful dispatch must clear lastError")
     }
 }
 

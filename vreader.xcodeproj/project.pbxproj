@@ -240,7 +240,6 @@
 		5C20BECE1338802F60F3E7B7 /* AITranslationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE29B97304B59C88E3F3F9CF /* AITranslationTests.swift */; };
 		5D3C554CE5388769AA455D1E /* SearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41F3E1A368720EFCB55A9582 /* SearchService.swift */; };
 		5DDD5217EFD8A53C4C5DD152 /* search_no_results.html in Resources */ = {isa = PBXBuildFile; fileRef = F099DED45D1C192D6F99A194 /* search_no_results.html */; };
-		5FA94546AEA62AA91EE162BF /* DebugBridgeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF874D85B8DAFBDD568B9F3 /* DebugBridgeProvider.swift */; };
 		5FE7F04D448C49D466F641FB /* LocatorNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C20D015AD61E29BEB57DC3 /* LocatorNormalizerTests.swift */; };
 		6018C875BCDA469C84DE3BC2 /* VReaderAnnotationParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C8EE35219F3BAFBDA81AAE /* VReaderAnnotationParser.swift */; };
 		6070A8AF12AADF388F7C1383 /* V1toV2MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 939BC09F1D771D2E22301ED3 /* V1toV2MigrationTests.swift */; };
@@ -897,7 +896,6 @@
 		5A53D87F16774F64922C855A /* ContentReplacementRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentReplacementRule.swift; sourceTree = "<group>"; };
 		5A54A2C5DE8C1631C04BB2A1 /* PDFProgressHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFProgressHelper.swift; sourceTree = "<group>"; };
 		5BB9773A4631BEDEDD187F08 /* AnnotationExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationExporterTests.swift; sourceTree = "<group>"; };
-		5BF874D85B8DAFBDD568B9F3 /* DebugBridgeProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugBridgeProvider.swift; sourceTree = "<group>"; };
 		5C0C66947C5376BF1D53A893 /* EPUBParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParserTests.swift; sourceTree = "<group>"; };
 		5C5EC86BB06D46DC9A5A4F6B /* EPUBHighlightBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBHighlightBridgeTests.swift; sourceTree = "<group>"; };
 		5C65E5FD23C2800C87ADD82A /* TOCProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOCProvider.swift; sourceTree = "<group>"; };
@@ -2181,7 +2179,6 @@
 				8920F071D059945BAD6FE3F7 /* DebugSnapshot.swift */,
 				D7F1AE1C279E77B5BFFE4A33 /* DebugFixtureCatalog.swift */,
 				1F65CD78E52AF656CD80A01D /* DebugBridge.swift */,
-				5BF874D85B8DAFBDD568B9F3 /* DebugBridgeProvider.swift */,
 				66956A94EEDA33F184F0E038 /* RealDebugBridgeContext.swift */,
 			);
 			name = DebugBridge;
@@ -3474,7 +3471,6 @@
 				54A45631059107EECD379A2B /* DebugSnapshot.swift in Sources */,
 				0ED89008EFE68CA6FC453519 /* DebugFixtureCatalog.swift in Sources */,
 				481EF3BB135D63C2D39B9A16 /* DebugBridge.swift in Sources */,
-				5FA94546AEA62AA91EE162BF /* DebugBridgeProvider.swift in Sources */,
 				388B4B3BFBD66168240AADD0 /* RealDebugBridgeContext.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -3601,12 +3597,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = NHCSYAQ22P;
-				EXCLUDED_SOURCE_FILE_NAMES = (
-					"war-and-peace.txt",
-					alice.epub,
-					sample.azw3,
-					sample.pdf,
-				);
+				EXCLUDED_SOURCE_FILE_NAMES = "*/DebugFixtures/*";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = vreader;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

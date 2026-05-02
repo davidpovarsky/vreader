@@ -32,11 +32,13 @@ struct DebugFixture: Equatable {
 /// Static catalog of fixture books. Single source of truth for fixture names.
 enum DebugFixtureCatalog {
 
+    /// Catalog tracks fixtures that actually ship in the DEBUG bundle.
+    /// Adding a new fixture requires both (a) dropping the file in
+    /// `vreader/Resources/DebugFixtures/` and registering it as a Resource,
+    /// and (b) adding a row here. The bundle-existence test in
+    /// `DebugFixtureCatalogTests` enforces (a).
     private static let entries: [DebugFixture] = [
-        DebugFixture(name: "alice",         format: .epub, resourceName: "alice",         resourceExtension: "epub"),
         DebugFixture(name: "war-and-peace", format: .txt,  resourceName: "war-and-peace", resourceExtension: "txt"),
-        DebugFixture(name: "sample-azw3",   format: .azw3, resourceName: "sample",        resourceExtension: "azw3"),
-        DebugFixture(name: "sample-pdf",    format: .pdf,  resourceName: "sample",        resourceExtension: "pdf"),
     ]
 
     /// All catalog entries.

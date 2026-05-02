@@ -1,7 +1,8 @@
 // Purpose: Production handler set behind the vreader-debug:// URL scheme
 // (feature #44 DebugBridge, WI-5). Owns dependencies on real app subsystems
-// (PersistenceActor for now; importer/active-reader added incrementally) so
-// each command performs real work rather than logging. DEBUG-only.
+// (PersistenceActor, BookImporting, plus active-reader hooks added in later
+// WI-5 commits) so each command performs real work rather than logging.
+// DEBUG-only.
 //
 // Composition: VReaderApp.init() builds one of these with the same
 // dependencies it injects into LibraryViewModel, then installs it on
@@ -12,10 +13,19 @@
 import Foundation
 import OSLog
 
+/// Errors specific to RealDebugBridgeContext. Generic errors from underlying
+/// services (PersistenceActor, BookImporter) propagate as-is so callers see
+/// the real cause via `DebugBridge.lastError`.
+enum DebugBridgeContextError: Error, Equatable {
+    case unknownFixture(String)
+    case fixtureResourceMissing(String)
+    case notImplemented(command: String)
+}
+
 /// Production DebugBridgeContext. Each handler is a thin wrapper over
 /// existing app services so behavior matches what the user-facing UI does
 /// (no parallel implementations to drift). Handlers added incrementally
-/// across WI-5; un-implemented ones log and no-op.
+/// across WI-5; un-implemented ones throw.
 @MainActor
 final class RealDebugBridgeContext: DebugBridgeContext {
     private let persistence: PersistenceActor
@@ -36,68 +46,62 @@ final class RealDebugBridgeContext: DebugBridgeContext {
     }
 
     /// Wipe every book from the library. Idempotent — succeeds on an empty
-    /// library. Mirrors `TestSeeder.clearAllBooks`; keeping a separate path
-    /// rather than calling that helper directly so test-seeding logic and
-    /// debug-bridge logic stay independent.
-    func reset() async {
-        do {
-            let books = try await persistence.fetchAllLibraryBooks()
-            for book in books {
-                try await persistence.deleteBook(fingerprintKey: book.fingerprintKey)
-            }
-            log.info("reset: removed \(books.count) book(s)")
-        } catch {
-            log.error("reset failed: \(String(describing: error), privacy: .public)")
+    /// library.
+    func reset() async throws {
+        let books = try await persistence.fetchAllLibraryBooks()
+        for book in books {
+            try await persistence.deleteBook(fingerprintKey: book.fingerprintKey)
         }
+        log.info("reset: removed \(books.count) book(s)")
     }
 
-    // MARK: - Stubs (filled in by later WI-5 commits)
-
     /// Import a bundled fixture book by name. Idempotent — if a book with
-    /// the same fingerprint already exists in the library, the importer
-    /// short-circuits without creating a duplicate.
-    /// Errors (unknown fixture, missing bundle resource, import failure)
-    /// are logged and swallowed; the bridge stays usable for the next
-    /// command. WI-5 future work may surface these via lastError on the
-    /// snapshot.
-    func seed(fixture: String) async {
+    /// the same fingerprint already exists in the library, the importer's
+    /// duplicate detection short-circuits and seed succeeds without creating
+    /// a duplicate.
+    /// Throws `DebugBridgeContextError.unknownFixture` for an unknown name,
+    /// `DebugBridgeContextError.fixtureResourceMissing` if the bundle is
+    /// missing the file, and propagates `ImportError` from the importer
+    /// for actual import failures.
+    func seed(fixture: String) async throws {
         guard let entry = DebugFixtureCatalog.find(name: fixture) else {
-            log.error("seed: unknown fixture \(fixture, privacy: .public)")
-            return
+            throw DebugBridgeContextError.unknownFixture(fixture)
         }
         guard let url = fixtureBundle.url(
             forResource: entry.resourceName,
             withExtension: entry.resourceExtension
         ) else {
-            log.error("seed: fixture resource missing in bundle: \(entry.resourceName, privacy: .public).\(entry.resourceExtension, privacy: .public)")
-            return
+            throw DebugBridgeContextError.fixtureResourceMissing("\(entry.resourceName).\(entry.resourceExtension)")
         }
-        do {
-            let result = try await importer.importFile(at: url, source: .localCopy)
-            log.info("seed: imported \(entry.name, privacy: .public) → key=\(result.fingerprintKey, privacy: .public) duplicate=\(result.isDuplicate)")
-        } catch {
-            log.error("seed: import failed for \(entry.name, privacy: .public): \(String(describing: error), privacy: .public)")
-        }
+        let result = try await importer.importFile(at: url, source: .localCopy)
+        log.info("seed: imported \(entry.name, privacy: .public) → key=\(result.fingerprintKey, privacy: .public) duplicate=\(result.isDuplicate)")
     }
 
-    func open(bookId: String, position: String?) async {
-        log.info("open bookId=\(bookId, privacy: .public) position=\(position ?? "nil", privacy: .public) — not yet implemented")
+    // MARK: - Stubs (filled in by later WI-5 commits)
+
+    private func notImplemented(_ command: String) -> Error {
+        log.notice("\(command, privacy: .public): not yet implemented")
+        return DebugBridgeContextError.notImplemented(command: command)
     }
 
-    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async {
-        log.info("theme mode=\(mode.rawValue, privacy: .public) fontSize=\(fontSize.map(String.init) ?? "nil", privacy: .public) — not yet implemented")
+    func open(bookId: String, position: String?) async throws {
+        throw notImplemented("open")
     }
 
-    func settle(token: String) async {
-        log.info("settle token=\(token, privacy: .public) — not yet implemented")
+    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws {
+        throw notImplemented("theme")
     }
 
-    func snapshot(dest: String) async {
-        log.info("snapshot dest=\(dest, privacy: .public) — not yet implemented")
+    func settle(token: String) async throws {
+        throw notImplemented("settle")
     }
 
-    func eval(bridge: String, js: String) async {
-        log.info("eval bridge=\(bridge, privacy: .public) jsLen=\(js.count) — not yet implemented")
+    func snapshot(dest: String) async throws {
+        throw notImplemented("snapshot")
+    }
+
+    func eval(bridge: String, js: String) async throws {
+        throw notImplemented("eval")
     }
 }
 

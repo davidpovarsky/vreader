@@ -13,6 +13,11 @@ struct VReaderApp: App {
     #if DEBUG
     /// Parsed launch argument overrides for UI testing.
     private let testConfig: TestLaunchConfig
+    /// DebugBridge for the vreader-debug:// URL scheme. Set synchronously
+    /// in `init()` so .onOpenURL can dispatch to it without a swap race.
+    /// Optional because init can fail (corrupt DB path) before the bridge
+    /// is built; in that case the URL handler no-ops.
+    private let debugBridge: DebugBridge?
     #endif
 
     init() {
@@ -29,6 +34,7 @@ struct VReaderApp: App {
             self.modelContainer = nil
             self.initError = "The library database could not be opened. It may need to be reset."
             self.contentView = nil
+            self.debugBridge = nil
             return
         }
         #endif
@@ -109,11 +115,12 @@ struct VReaderApp: App {
             )
 
             #if DEBUG
-            // Install the real DebugBridge context now that persistence/importer
-            // exist. Replaces the bootstrap LoggingDebugBridgeContext so
-            // vreader-debug:// commands hit real subsystems.
-            Task { @MainActor in
-                DebugBridgeProvider.shared = DebugBridge(
+            // Build the DebugBridge synchronously so .onOpenURL can never
+            // race with bridge construction. App init runs on the main
+            // thread; assumeIsolated is the right tool for entering the
+            // MainActor-isolated context from a nonisolated struct init.
+            self.debugBridge = MainActor.assumeIsolated {
+                DebugBridge(
                     context: RealDebugBridgeContext(
                         persistence: persistence,
                         importer: importer
@@ -126,6 +133,9 @@ struct VReaderApp: App {
             // Sanitize: don't expose raw file paths or internal details to the user.
             self.initError = Self.sanitizedErrorMessage(error)
             self.contentView = nil
+            #if DEBUG
+            self.debugBridge = nil
+            #endif
         }
     }
 
@@ -136,10 +146,11 @@ struct VReaderApp: App {
                 contentView
                     .modelContainer(modelContainer)
                     .modifier(TestLaunchModifier(config: testConfig))
-                    .onOpenURL { url in
+                    .onOpenURL { [debugBridge] url in
                         guard url.scheme == DebugCommand.scheme else { return }
+                        guard let debugBridge else { return }
                         Task { @MainActor in
-                            await DebugBridgeProvider.shared.handle(url)
+                            await debugBridge.handle(url)
                         }
                     }
                 #else

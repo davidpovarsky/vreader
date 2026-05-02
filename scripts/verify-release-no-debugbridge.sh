@@ -36,9 +36,11 @@ fi
 FAIL=0
 
 # Pattern matched against bundle file names, file contents, and binary strings.
-# DebugBridge-specific identifiers — narrow enough that a generic word like
-# "Bridge" alone won't trip the gate.
-PATTERN='vreader-debug|DebugBridge\.|DebugCommand\.|DebugFixtureCatalog|DebugSnapshot\.|LoggingDebugBridgeContext|DebugBridgeProvider'
+# Broad enough to catch new DebugBridge files added in the future
+# (Debug<anything>) and Swift mangled symbols (which use various separators
+# around qualified names), but narrow enough that generic words like "Bridge"
+# alone won't trip the gate.
+PATTERN='vreader-debug|DebugBridge|DebugCommand|DebugFixture|DebugSnapshot|LoggingDebugBridgeContext|DebugBridgeProvider|RealDebugBridgeContext|DebugBridgeContextError'
 
 # 1. Info.plist must not declare the vreader-debug URL scheme
 if plutil -p "$INFO_PLIST" | grep -q "vreader-debug"; then
@@ -48,8 +50,19 @@ else
     echo "OK: Info.plist has no vreader-debug entry"
 fi
 
-# 2. No file in the .app bundle should be named with DebugBridge identifiers
-LEAKED_NAMES=$(find "$APP_PATH" -type f \( -name "*DebugBridge*" -o -name "*vreader-debug*" -o -name "DebugCommand*" -o -name "DebugSnapshot*" -o -name "DebugFixtureCatalog*" \) | head -10)
+# 2a. No DebugFixtures directory or fixture file should be present anywhere
+# in the .app bundle. Catches accidental copying via build phase changes.
+LEAKED_FIXTURES=$(find "$APP_PATH" -type d -name "DebugFixtures" -o -path "*/DebugFixtures/*" 2>/dev/null | head -10)
+if [[ -n "$LEAKED_FIXTURES" ]]; then
+    echo "FAIL: bundle contains DebugFixtures content:" >&2
+    echo "$LEAKED_FIXTURES" >&2
+    FAIL=1
+else
+    echo "OK: no DebugFixtures directory in bundle"
+fi
+
+# 2b. No file in the .app bundle should be named with DebugBridge identifiers
+LEAKED_NAMES=$(find "$APP_PATH" -type f \( -name "*DebugBridge*" -o -name "*vreader-debug*" -o -name "DebugCommand*" -o -name "DebugSnapshot*" -o -name "DebugFixture*" \) | head -10)
 if [[ -n "$LEAKED_NAMES" ]]; then
     echo "FAIL: bundle contains DebugBridge-named files:" >&2
     echo "$LEAKED_NAMES" >&2

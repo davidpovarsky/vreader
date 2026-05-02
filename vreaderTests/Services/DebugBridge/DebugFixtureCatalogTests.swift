@@ -1,6 +1,7 @@
 // Purpose: Tests for DebugFixtureCatalog — the static list of fixture books
 // available to the vreader-debug://seed command (feature #44 DebugBridge).
-// Verifies catalog entries by name, format, and unknown-name behavior.
+// Verifies catalog entries by name, format, unknown-name behavior, and that
+// every catalog row resolves to a real bundle resource.
 
 #if DEBUG
 
@@ -11,15 +12,15 @@ final class DebugFixtureCatalogTests: XCTestCase {
 
     func test_all_returnsKnownFixtureNames() {
         let names = DebugFixtureCatalog.all().map { $0.name }
-        XCTAssertEqual(Set(names), ["alice", "war-and-peace", "sample-azw3", "sample-pdf"])
+        XCTAssertEqual(Set(names), ["war-and-peace"])
     }
 
     func test_find_byName_returnsMatchingFixture() throws {
-        let alice = try XCTUnwrap(DebugFixtureCatalog.find(name: "alice"))
-        XCTAssertEqual(alice.name, "alice")
-        XCTAssertEqual(alice.format, .epub)
-        XCTAssertEqual(alice.resourceName, "alice")
-        XCTAssertEqual(alice.resourceExtension, "epub")
+        let entry = try XCTUnwrap(DebugFixtureCatalog.find(name: "war-and-peace"))
+        XCTAssertEqual(entry.name, "war-and-peace")
+        XCTAssertEqual(entry.format, .txt)
+        XCTAssertEqual(entry.resourceName, "war-and-peace")
+        XCTAssertEqual(entry.resourceExtension, "txt")
     }
 
     func test_find_unknownName_returnsNil() {
@@ -43,22 +44,23 @@ final class DebugFixtureCatalogTests: XCTestCase {
         }
     }
 
-    func test_textFixtureCatalogedAsTxtFormat() throws {
-        let entry = try XCTUnwrap(DebugFixtureCatalog.find(name: "war-and-peace"))
-        XCTAssertEqual(entry.format, .txt)
-        XCTAssertEqual(entry.resourceExtension, "txt")
-    }
-
-    func test_pdfFixtureCatalogedAsPdfFormat() throws {
-        let pdf = try XCTUnwrap(DebugFixtureCatalog.find(name: "sample-pdf"))
-        XCTAssertEqual(pdf.format, .pdf)
-        XCTAssertEqual(pdf.resourceExtension, "pdf")
-    }
-
-    func test_azw3FixtureCatalogedAsAzw3Format() throws {
-        let entry = try XCTUnwrap(DebugFixtureCatalog.find(name: "sample-azw3"))
-        XCTAssertEqual(entry.format, .azw3)
-        XCTAssertEqual(entry.resourceExtension, "azw3")
+    /// Every catalog entry must resolve to a real bundle resource.
+    /// This is the gate that prevents catalog/bundle drift — adding a row
+    /// without dropping the file fails this test.
+    func test_all_entriesResolveInTheTestBundle() {
+        // The DEBUG main bundle (when running tests) contains the app's
+        // bundled resources. DebugFixtures are flat-copied to the bundle
+        // root by Xcode's resource pipeline.
+        for fixture in DebugFixtureCatalog.all() {
+            let url = Bundle.main.url(
+                forResource: fixture.resourceName,
+                withExtension: fixture.resourceExtension
+            )
+            XCTAssertNotNil(
+                url,
+                "fixture \(fixture.name) declares \(fixture.resourceName).\(fixture.resourceExtension) but the bundle has no such file"
+            )
+        }
     }
 }
 

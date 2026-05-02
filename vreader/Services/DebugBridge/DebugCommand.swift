@@ -152,11 +152,13 @@ extension DebugCommand {
     static let basenameMaxLength = 64
 
     /// Validate a parameter as a safe filename basename. The bridge writes
-    /// real files with these values in WI-5, so this is the right place to
-    /// stop path traversal (`..`), separators (`/`), and control characters
-    /// before they reach the filesystem.
+    /// real files with these values, so this is the right place to stop
+    /// path traversal (`..`), separators (`/`), control characters, and
+    /// dot-only sequences (`.`, `..`, `...`) before they reach the
+    /// filesystem.
     ///
-    /// Allowed: `[A-Za-z0-9._-]`, length 1..=64.
+    /// Allowed: `[A-Za-z0-9._-]`, length 1..=64, with at least one char
+    /// outside the dot-only set.
     private static func validateBasename(_ value: String, paramName: String) throws {
         guard value.count <= basenameMaxLength else {
             throw DebugCommandError.invalidParam(
@@ -169,6 +171,15 @@ extension DebugCommand {
             throw DebugCommandError.invalidParam(
                 paramName,
                 reason: "must match [A-Za-z0-9._-]"
+            )
+        }
+        // Reject pure-dot sequences (".", "..", "...", etc.). They pass the
+        // character-class check but trip path-traversal in any handler that
+        // does `base.appendingPathComponent(value)`.
+        if value.allSatisfy({ $0 == "." }) {
+            throw DebugCommandError.invalidParam(
+                paramName,
+                reason: "dot-only basenames are not allowed"
             )
         }
     }

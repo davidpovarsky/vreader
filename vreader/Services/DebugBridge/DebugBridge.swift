@@ -9,15 +9,20 @@ import Foundation
 
 /// All side-effectful command handlers used by the debug bridge. Implementations
 /// own real app state; the bridge itself stays a pure dispatcher.
+///
+/// Handlers throw on real failures (unknown fixture, missing resource, import
+/// failure, etc.) so the bridge can record `lastError` for later inspection
+/// via `snapshot`. A no-op success returns without throwing; callers that want
+/// "swallow errors" semantics must catch explicitly.
 @MainActor
 protocol DebugBridgeContext {
-    func reset() async
-    func seed(fixture: String) async
-    func open(bookId: String, position: String?) async
-    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async
-    func settle(token: String) async
-    func snapshot(dest: String) async
-    func eval(bridge: String, js: String) async
+    func reset() async throws
+    func seed(fixture: String) async throws
+    func open(bookId: String, position: String?) async throws
+    func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws
+    func settle(token: String) async throws
+    func snapshot(dest: String) async throws
+    func eval(bridge: String, js: String) async throws
 }
 
 /// Routes parsed `DebugCommand` values to a `DebugBridgeContext`.
@@ -56,29 +61,29 @@ final class DebugBridge {
     private func process(_ url: URL) async {
         do {
             let cmd = try DebugCommand.parse(url)
-            await dispatch(cmd)
+            try await dispatch(cmd)
             lastError = nil
         } catch {
             lastError = error
         }
     }
 
-    private func dispatch(_ cmd: DebugCommand) async {
+    private func dispatch(_ cmd: DebugCommand) async throws {
         switch cmd {
         case .reset:
-            await context.reset()
+            try await context.reset()
         case .seed(let fixture):
-            await context.seed(fixture: fixture)
+            try await context.seed(fixture: fixture)
         case .open(let bookId, let position):
-            await context.open(bookId: bookId, position: position)
+            try await context.open(bookId: bookId, position: position)
         case .theme(let mode, let fontSize):
-            await context.theme(mode: mode, fontSize: fontSize)
+            try await context.theme(mode: mode, fontSize: fontSize)
         case .settle(let token):
-            await context.settle(token: token)
+            try await context.settle(token: token)
         case .snapshot(let dest):
-            await context.snapshot(dest: dest)
+            try await context.snapshot(dest: dest)
         case .eval(let bridge, let js):
-            await context.eval(bridge: bridge, js: js)
+            try await context.eval(bridge: bridge, js: js)
         }
     }
 }

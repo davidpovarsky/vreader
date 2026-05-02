@@ -267,17 +267,38 @@ final class DebugCommandTests: XCTestCase {
     }
 
     func test_parse_settleWithDotDotToken_throwsInvalidParam() {
-        // Path traversal must be rejected before the real handler writes a sentinel file.
+        // Path traversal: ".." passes the character-class check but is rejected
+        // explicitly to stop `base.appendingPathComponent("..")` foot-guns in
+        // future handlers.
         let url = URL(string: "vreader-debug://settle?token=..")!
-        let cmd = try? DebugCommand.parse(url)
-        // ".." matches the basename allowlist (only `.`), but should be rejected by the
-        // length cap or by an explicit dotdot check. Here we accept it via the regex
-        // since `.` is allowed; document this and rely on the real handler to reject
-        // pure-dot tokens.
-        // Actually: the allowlist permits `.`, so ".." parses successfully. The real
-        // sentinel writer will need an additional check. This test asserts the parser
-        // contract: it only rejects characters outside `[A-Za-z0-9._-]`.
-        XCTAssertNotNil(cmd, "parser allows dot-only tokens; sentinel writer must reject them")
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "token")
+        }
+    }
+
+    func test_parse_settleWithSingleDotToken_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://settle?token=.")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam = error else {
+                XCTFail("expected invalidParam for `.`, got \(error)")
+                return
+            }
+        }
+    }
+
+    func test_parse_snapshotWithTripleDotDest_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://snapshot?dest=...")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "dest")
+        }
     }
 
     func test_parse_snapshotWithSpaceInDest_throwsInvalidParam() {

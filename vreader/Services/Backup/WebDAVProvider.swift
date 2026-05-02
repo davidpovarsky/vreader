@@ -123,7 +123,13 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
         // Phase 3: Upload to WebDAV (0.5 → 1.0)
         let remotePath = makeRemotePath(id: backupId, date: now)
         do {
-            try await transport.createDirectory(path: basePath); progress(0.55)
+            // Create each parent collection in turn — WebDAV MKCOL won't
+            // create intermediate directories on most servers, so a nested
+            // basePath like "VReader/backups" needs two MKCOLs.
+            for ancestor in nestedAncestors(of: basePath) {
+                try await transport.createDirectory(path: ancestor)
+            }
+            progress(0.55)
             try await transport.upload(data: zipData, toPath: remotePath); progress(0.95)
         } catch let error as WebDAVError {
             throw BackupError.storageUnavailable("WebDAV upload failed: \(error)")
@@ -187,25 +193,40 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
 
         // Apply restored data to local database via BackupDataRestoring delegate.
         // Each file is optional — missing entries are silently skipped (forward compatibility).
-        let restoreFiles: [(String, (Data) async throws -> Void)] = [
-            ("annotations.json", dataRestorer.restoreAnnotations),
-            ("positions.json", dataRestorer.restorePositions),
-            ("settings.json", dataRestorer.restoreSettings),
-            ("collections.json", dataRestorer.restoreCollections),
-            ("book-sources.json", dataRestorer.restoreBookSources),
-            ("per-book-settings.json", dataRestorer.restorePerBookSettings),
-            ("replacement-rules.json", dataRestorer.restoreReplacementRules),
+        // Each tuple: (zip filename, user-facing section label, restore fn).
+        // The label is what shows up in BackupError.restorePartiallyFailed —
+        // it must not leak internal filenames.
+        let restoreFiles: [(filename: String, label: String, fn: (Data) async throws -> Void)] = [
+            ("annotations.json", "annotations", dataRestorer.restoreAnnotations),
+            ("positions.json", "reading positions", dataRestorer.restorePositions),
+            ("settings.json", "settings", dataRestorer.restoreSettings),
+            ("collections.json", "collections", dataRestorer.restoreCollections),
+            ("book-sources.json", "book sources", dataRestorer.restoreBookSources),
+            ("per-book-settings.json", "per-book settings", dataRestorer.restorePerBookSettings),
+            ("replacement-rules.json", "replacement rules", dataRestorer.restoreReplacementRules),
         ]
 
         let totalFiles = Double(restoreFiles.count)
-        for (index, (filename, restoreFunc)) in restoreFiles.enumerated() {
-            if let entryData = try? ZIPWriter.extractEntry(named: filename, from: zipData) {
-                try await restoreFunc(entryData)
+        var failedLabels: [String] = []
+        for (index, item) in restoreFiles.enumerated() {
+            if let entryData = try? ZIPWriter.extractEntry(named: item.filename, from: zipData) {
+                do {
+                    try await item.fn(entryData)
+                } catch {
+                    // Per-section restore errors don't abort the loop —
+                    // restoring the remaining sections is more useful than
+                    // bailing out and leaving the user with a half-applied
+                    // archive that's hard to reason about.
+                    failedLabels.append(item.label)
+                }
             }
             progress(0.55 + 0.40 * Double(index + 1) / totalFiles)
         }
 
         progress(1.0)
+        if !failedLabels.isEmpty {
+            throw BackupError.restorePartiallyFailed(failedLabels.joined(separator: ", "))
+        }
     }
 
     func listBackups() async throws -> [BackupMetadata] {
@@ -287,6 +308,18 @@ final class WebDAVProvider: BackupProvider, @unchecked Sendable {
     }
 
     // MARK: - Private Helpers
+
+    /// Returns each ancestor directory that should be MKCOL'd, deepest last.
+    /// e.g. `"VReader/backups"` → `["VReader", "VReader/backups"]`.
+    private func nestedAncestors(of path: String) -> [String] {
+        var components: [String] = []
+        var accumulator: [String] = []
+        for piece in path.split(separator: "/") where !piece.isEmpty {
+            accumulator.append(String(piece))
+            components.append(accumulator.joined(separator: "/"))
+        }
+        return components
+    }
 
     /// Creates a remote path for a backup file.
     private func makeRemotePath(id: UUID, date: Date) -> String {

@@ -21,7 +21,11 @@ protocol DebugBridgeContext {
     func open(bookId: String, position: String?) async throws
     func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws
     func settle(token: String) async throws
-    func snapshot(dest: String) async throws
+    /// Build a state snapshot and write it to `dest` (a basename, validated
+    /// by the parser). `lastErrorMessage` is the bridge's lastError as a
+    /// string at dispatch time — the previous command's failure reason, or
+    /// nil if the previous command succeeded.
+    func snapshot(dest: String, lastErrorMessage: String?) async throws
     func eval(bridge: String, js: String) async throws
 }
 
@@ -81,7 +85,11 @@ final class DebugBridge {
         case .settle(let token):
             try await context.settle(token: token)
         case .snapshot(let dest):
-            try await context.snapshot(dest: dest)
+            // Pass the bridge's current lastError so snapshot can encode it.
+            // After this call returns successfully, process() clears lastError
+            // — the snapshot captures the state at dispatch time.
+            let msg = lastError.map { String(describing: $0) }
+            try await context.snapshot(dest: dest, lastErrorMessage: msg)
         case .eval(let bridge, let js):
             try await context.eval(bridge: bridge, js: js)
         }

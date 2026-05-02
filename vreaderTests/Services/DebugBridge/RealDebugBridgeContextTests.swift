@@ -261,6 +261,133 @@ final class RealDebugBridgeContextTests: XCTestCase {
         let store = ReaderSettingsStore(defaults: defaults)
         XCTAssertEqual(store.typography.fontSize, 19.0, accuracy: 0.001, "nil fontSize should not overwrite")
     }
+
+    // MARK: - snapshot
+
+    @MainActor
+    func test_snapshot_writesValidJSONWithDocumentedShape() async throws {
+        // Pre-set theme so snapshot has something to encode
+        try await RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        ).theme(mode: .dark, fontSize: 22)
+
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        let dest = "snapshot-\(UUID().uuidString).json"
+        try await context.snapshot(dest: dest, lastErrorMessage: nil)
+
+        let url = try RealDebugBridgeContext.snapshotsDirectory().appendingPathComponent(dest)
+        let data = try Data(contentsOf: url)
+        let snap = try JSONDecoder().decode(DebugSnapshot.self, from: data)
+
+        XCTAssertFalse(snap.ts.isEmpty)
+        XCTAssertEqual(snap.theme, "dark")
+        XCTAssertEqual(snap.fontSize, 22)
+        XCTAssertEqual(snap.highlightCount, 0)
+        XCTAssertEqual(snap.renderPhase, "idle")
+        XCTAssertNil(snap.lastError)
+        XCTAssertNil(snap.currentBookId)
+        XCTAssertNil(snap.format)
+        XCTAssertNil(snap.position)
+        XCTAssertNil(snap.selection)
+
+        // Cleanup
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @MainActor
+    func test_snapshot_lastErrorMessageIsPropagatedIntoJSON() async throws {
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        let dest = "snapshot-error-\(UUID().uuidString).json"
+        try await context.snapshot(dest: dest, lastErrorMessage: "unknownFixture(\"missing\")")
+
+        let url = try RealDebugBridgeContext.snapshotsDirectory().appendingPathComponent(dest)
+        let snap = try JSONDecoder().decode(DebugSnapshot.self, from: Data(contentsOf: url))
+        XCTAssertEqual(snap.lastError, "unknownFixture(\"missing\")")
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @MainActor
+    func test_snapshot_afterFailedCommand_includesErrorInJSON() async throws {
+        // Drive through the bridge so lastError flows from a failed dispatch
+        // into the snapshot via the parameter.
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        let bridge = DebugBridge(context: context)
+
+        await bridge.handle(URL(string: "vreader-debug://seed?fixture=missing")!)
+        XCTAssertNotNil(bridge.lastError)
+
+        let dest = "snapshot-bridge-\(UUID().uuidString).json"
+        await bridge.handle(URL(string: "vreader-debug://snapshot?dest=\(dest)")!)
+
+        let url = try RealDebugBridgeContext.snapshotsDirectory().appendingPathComponent(dest)
+        let snap = try JSONDecoder().decode(DebugSnapshot.self, from: Data(contentsOf: url))
+        XCTAssertNotNil(snap.lastError, "snapshot must encode bridge.lastError from previous failure")
+        XCTAssertTrue(
+            snap.lastError?.contains("unknownFixture") == true,
+            "lastError content should mention the previous failure: \(snap.lastError ?? "nil")"
+        )
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @MainActor
+    func test_snapshot_highlightCountReflectsLibrary() async throws {
+        // Insert a book, then add highlights via the persistence API.
+        // CollectionTestHelper.insertBook defaults to .epub format, so the
+        // matching Locator must use the same fingerprint shape.
+        let sha = String(repeating: "c", count: 64)
+        let fp = CollectionTestHelper.makeFingerprint(sha: sha)
+        let key = try await CollectionTestHelper.insertBook(
+            persistence: persistence,
+            title: "With Highlights",
+            sha: sha
+        )
+        for i in 0..<3 {
+            let locator = Locator(
+                bookFingerprint: fp,
+                href: nil, progression: nil, totalProgression: nil,
+                cfi: nil, page: nil,
+                charOffsetUTF16: nil,
+                charRangeStartUTF16: i * 10,
+                charRangeEndUTF16: i * 10 + 5,
+                textQuote: "snip\(i)",
+                textContextBefore: nil, textContextAfter: nil
+            )
+            _ = try await persistence.addHighlight(
+                locator: locator,
+                selectedText: "snip\(i)",
+                color: "yellow",
+                note: nil,
+                toBookWithKey: key
+            )
+        }
+
+        let context = RealDebugBridgeContext(
+            persistence: persistence,
+            importer: importer,
+            userDefaults: defaults
+        )
+        let dest = "snapshot-counts-\(UUID().uuidString).json"
+        try await context.snapshot(dest: dest, lastErrorMessage: nil)
+
+        let url = try RealDebugBridgeContext.snapshotsDirectory().appendingPathComponent(dest)
+        let snap = try JSONDecoder().decode(DebugSnapshot.self, from: Data(contentsOf: url))
+        XCTAssertEqual(snap.highlightCount, 3)
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 
 #endif

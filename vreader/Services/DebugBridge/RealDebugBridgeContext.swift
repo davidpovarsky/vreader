@@ -116,8 +116,65 @@ final class RealDebugBridgeContext: DebugBridgeContext {
         throw notImplemented("settle")
     }
 
-    func snapshot(dest: String) async throws {
-        throw notImplemented("snapshot")
+    /// Build a state snapshot and write the JSON to
+    /// `Library/Caches/DebugBridge/{dest}` in the app container.
+    /// `dest` is a parser-validated basename (`[A-Za-z0-9._-]{1,64}`,
+    /// no slashes, no dot-only sequences). Path traversal is structurally
+    /// impossible.
+    ///
+    /// V0 fields filled in: ts, theme, fontSize, highlightCount, renderPhase
+    /// ("idle"), lastError. Reader-derived fields (currentBookId, format,
+    /// position, selection) are nil until the active-reader registry lands
+    /// in a later WI-5 commit.
+    func snapshot(dest: String, lastErrorMessage: String?) async throws {
+        let store = ReaderSettingsStore(defaults: userDefaults)
+        let highlightCount = try await totalHighlightCount()
+
+        let snap = DebugSnapshot(
+            ts: ISO8601DateFormatter().string(from: Date()),
+            currentBookId: nil,
+            format: nil,
+            position: nil,
+            theme: themeName(from: store.theme),
+            fontSize: Int(store.typography.fontSize),
+            selection: nil,
+            highlightCount: highlightCount,
+            renderPhase: "idle",
+            lastError: lastErrorMessage
+        )
+
+        let data = try DebugSnapshot.encoder.encode(snap)
+        let outputURL = try Self.snapshotsDirectory().appendingPathComponent(dest)
+        try data.write(to: outputURL, options: .atomic)
+        log.info("snapshot: wrote \(data.count) bytes to \(dest, privacy: .public)")
+    }
+
+    /// Output directory in the app container — readable from the host via
+    /// `xcrun simctl get_app_container <udid> com.vreader.app data`.
+    /// Created on first call; idempotent.
+    static func snapshotsDirectory() throws -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("DebugBridge", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func themeName(from theme: ReaderTheme) -> String {
+        switch theme {
+        case .light: return "light"
+        case .sepia: return "sepia"
+        case .dark: return "dark"
+        }
+    }
+
+    private func totalHighlightCount() async throws -> Int {
+        let books = try await persistence.fetchAllLibraryBooks()
+        var total = 0
+        for book in books {
+            let highlights = try await persistence.fetchHighlights(forBookWithKey: book.fingerprintKey)
+            total += highlights.count
+        }
+        return total
     }
 
     func eval(bridge: String, js: String) async throws {

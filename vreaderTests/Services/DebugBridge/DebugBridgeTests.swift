@@ -140,7 +140,7 @@ final class SlowDebugBridgeContext: DebugBridgeContext {
     func open(bookId: String, position: String?) async throws { await record("open:\(bookId)") }
     func theme(mode: DebugCommand.ThemeMode, fontSize: Int?) async throws { await record("theme:\(mode.rawValue)") }
     func settle(token: String) async throws { await record("settle:\(token)") }
-    func snapshot(dest: String) async throws { await record("snapshot:\(dest)") }
+    func snapshot(dest: String, lastErrorMessage: String?) async throws { await record("snapshot:\(dest)") }
     func eval(bridge: String, js: String) async throws { await record("eval:\(bridge)") }
 }
 
@@ -157,7 +157,7 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
         case open(bookId: String, position: String?)
         case theme(mode: DebugCommand.ThemeMode, fontSize: Int?)
         case settle(token: String)
-        case snapshot(dest: String)
+        case snapshot(dest: String, lastErrorMessage: String?)
         case eval(bridge: String, js: String)
     }
 
@@ -172,7 +172,9 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
         calls.append(.theme(mode: mode, fontSize: fontSize))
     }
     func settle(token: String) async throws { calls.append(.settle(token: token)) }
-    func snapshot(dest: String) async throws { calls.append(.snapshot(dest: dest)) }
+    func snapshot(dest: String, lastErrorMessage: String?) async throws {
+        calls.append(.snapshot(dest: dest, lastErrorMessage: lastErrorMessage))
+    }
     func eval(bridge: String, js: String) async throws {
         calls.append(.eval(bridge: bridge, js: js))
     }

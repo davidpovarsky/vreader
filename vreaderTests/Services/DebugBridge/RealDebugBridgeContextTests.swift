@@ -59,10 +59,20 @@ final class RealDebugBridgeContextTests: XCTestCase {
     }
 
     /// Writes a fake fixture file into a temp directory and returns a Bundle
-    /// rooted at that directory. Bundle.url(forResource:withExtension:) finds
-    /// loose files in any directory you point it at.
+    /// rooted at that directory. The file is placed inside the
+    /// `RealDebugBridgeContext.fixtureBundleSubdirectory` subdirectory so the
+    /// test mirrors the real `vreader.app/<subdir>/<name>.<ext>` layout that
+    /// `project.yml`'s "Copy DebugFixtures (DEBUG only)" pre-build script
+    /// produces. Reusing the prod constant keeps the writer (this helper) and
+    /// the reader (`RealDebugBridgeContext.seed`) in sync — change the constant
+    /// and this helper updates without edit.
     private func makeFixtureBundle(name: String, ext: String, contents: String) throws -> Bundle {
-        let path = fixtureBundleDir.appendingPathComponent("\(name).\(ext)")
+        let subdirURL = fixtureBundleDir.appendingPathComponent(
+            RealDebugBridgeContext.fixtureBundleSubdirectory,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: subdirURL, withIntermediateDirectories: true)
+        let path = subdirURL.appendingPathComponent("\(name).\(ext)")
         try contents.data(using: .utf8)!.write(to: path)
         return Bundle(url: fixtureBundleDir)!
     }

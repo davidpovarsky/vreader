@@ -387,13 +387,22 @@ struct LibraryView: View {
         }
     }
 
+    /// Bug #155: books visible under the active sidebar filter. The grid and
+    /// list bodies iterate this rather than `viewModel.books` directly so that
+    /// selecting a collection in `CollectionSidebar` actually narrows the
+    /// shown list. Computing here (not in the view model) keeps the filter a
+    /// pure view-state concern — the model still owns the full set + sort.
+    private var displayedBooks: [LibraryBookItem] {
+        viewModel.books.filter { activeFilter.matches($0) }
+    }
+
     private var gridView: some View {
         ScrollView {
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
                 spacing: 16
             ) {
-                ForEach(viewModel.books) { book in
+                ForEach(displayedBooks) { book in
                     Button {
                         openBook(book)
                     } label: {
@@ -419,7 +428,7 @@ struct LibraryView: View {
 
     private var listView: some View {
         List {
-            ForEach(viewModel.books) { book in
+            ForEach(displayedBooks) { book in
                 Button {
                     openBook(book)
                 } label: {
@@ -626,6 +635,12 @@ struct LibraryView: View {
                                 collectionName: collection.name
                             )
                             collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                            // Bug #155: also refresh viewModel.books so the
+                            // in-memory `LibraryBookItem.collectionNames` is
+                            // current — otherwise tapping the collection in
+                            // the sidebar filter shows an empty list because
+                            // the stale row still has `collectionNames: []`.
+                            await viewModel.refresh(force: true)
                         }
                     } label: {
                         Label(collection.name, systemImage: "folder")

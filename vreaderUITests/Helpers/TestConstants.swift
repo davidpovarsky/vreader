@@ -76,6 +76,55 @@ enum AccessibilityID {
     static let annotationEditCancel = "annotationEditCancel"
     static let annotationEditSave = "annotationEditSave"
 
+    // MARK: - Library toolbar
+    static let collectionsToolbarButton = "collectionsToolbarButton"
+    static let settingsToolbarButton = "settingsToolbarButton"
+    static let opdsCatalogsToolbarButton = "opdsCatalogsToolbarButton"
+
+    // MARK: - Collections sidebar
+    static let filterAllBooks = "filterAllBooks"
+    static let newCollectionButton = "newCollectionButton"
+    static let newCollectionTextField = "newCollectionTextField"
+    static let addCollectionButton = "addCollectionButton"
+    static let filterDoneButton = "filterDoneButton"
+
+    // MARK: - Global settings
+    static let settingsView = "settingsView"
+    static let settingsDoneButton = "settingsDoneButton"
+    static let settingsReplacementRules = "settingsReplacementRules"
+
+    // MARK: - Replacement rules
+    static let replacementRulesAddButton = "replacementRulesAddButton"
+
+    // MARK: - Reader settings panel
+    static let autoPageTurnToggle = "autoPageTurnToggle"
+    static let autoPageTurnIntervalSlider = "autoPageTurnIntervalSlider"
+
+    // MARK: - EPUB reader
+    static let epubReaderContainer = "epubReaderContainer"
+    static let epubReaderContent = "epubReaderContent"
+
+    // MARK: - TTS
+    static let readerTTSButton = "readerTTSButton"
+    static let ttsControlBar = "ttsControlBar"
+    static let ttsPlayPauseButton = "ttsPlayPauseButton"
+
+    // MARK: - Reading progress
+    static let nativeTextPagedView = "nativeTextPagedView"
+    static let readingProgressLabel = "readingProgressLabel"
+
+    // MARK: - Annotations import/export
+    static let annotationsExportButton = "annotationsExportButton"
+    static let annotationsImportButton = "annotationsImportButton"
+
+    // MARK: - OPDS
+    static let opdsEmptyState = "opdsEmptyState"
+    static let opdsCatalogList = "opdsCatalogList"
+    static let opdsAddCatalog = "opdsAddCatalog"
+    static let opdsCatalogNameField = "opdsCatalogNameField"
+    static let opdsCatalogURLField = "opdsCatalogURLField"
+    static let opdsCatalogSaveButton = "opdsCatalogSaveButton"
+
     // MARK: - AI
     static let aiConsentView = "aiConsentView"
     static let aiConsentButton = "aiConsentButton"

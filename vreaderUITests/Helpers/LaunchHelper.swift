@@ -21,6 +21,8 @@ enum TestSeedState {
     case books
     /// Single TXT book with real file for position persistence testing.
     case positionTest
+    /// War and Peace TXT book (chaptered) for chapter-mode testing.
+    case warAndPeace
     /// Keep existing database state (no seeding). For relaunch tests.
     case keepExisting
     /// Corrupted database (triggers init error screen).
@@ -32,6 +34,7 @@ enum TestSeedState {
         case .empty: return "--seed-empty"
         case .books: return "--seed-books"
         case .positionTest: return "--seed-position-test"
+        case .warAndPeace: return "--seed-war-and-peace"
         case .keepExisting: return "--uitesting-no-seed"
         case .corruptDB: return "--seed-corrupt-db"
         }

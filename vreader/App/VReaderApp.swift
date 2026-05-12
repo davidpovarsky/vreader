@@ -93,6 +93,7 @@ struct VReaderApp: App {
             let modelConfig: ModelConfiguration
             if config.isUITesting {
                 let needsDiskBackedStore = config.seedPositionTest
+                    || config.seedWarAndPeace
                     || config.seedKeepExisting
                 modelConfig = needsDiskBackedStore
                     ? ModelConfiguration()
@@ -138,6 +139,8 @@ struct VReaderApp: App {
                         await TestSeeder.clearAllBooks(persistence: persistence)
                     } else if seedConfig.seedPositionTest {
                         await TestSeeder.seedPositionTest(persistence: persistence)
+                    } else if seedConfig.seedWarAndPeace {
+                        await TestSeeder.seedWarAndPeace(persistence: persistence)
                     } else if seedConfig.seedBooks {
                         await TestSeeder.seedBooks(persistence: persistence)
                     }
@@ -310,6 +313,7 @@ struct TestLaunchConfig: Sendable {
     let seedEmpty: Bool
     let seedBooks: Bool
     let seedPositionTest: Bool
+    let seedWarAndPeace: Bool
     let seedCorruptDB: Bool
     /// `--uitesting-no-seed` — skip seeding, expect the previous launch's
     /// SwiftData store to remain. Used for terminate-then-relaunch tests
@@ -362,6 +366,7 @@ struct TestLaunchConfig: Sendable {
             seedEmpty: args.contains("--seed-empty"),
             seedBooks: args.contains("--seed-books"),
             seedPositionTest: args.contains("--seed-position-test"),
+            seedWarAndPeace: args.contains("--seed-war-and-peace"),
             seedCorruptDB: args.contains("--seed-corrupt-db"),
             seedKeepExisting: args.contains("--uitesting-no-seed"),
             seedResetPreferences: args.contains("--reset-preferences"),
@@ -379,6 +384,7 @@ struct TestLaunchConfig: Sendable {
         seedEmpty: false,
         seedBooks: false,
         seedPositionTest: false,
+        seedWarAndPeace: false,
         seedCorruptDB: false,
         seedKeepExisting: false,
         seedResetPreferences: false,

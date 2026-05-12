@@ -430,7 +430,7 @@ struct TXTReaderContainerView: View {
             highlightCoordinator: highlightCoordinator ?? makeNoOpCoordinator()
         )
         .accessibilityIdentifier("txtReaderContainer")
-        .accessibilityValue(initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none")
+        .accessibilityValue(readerAccessibilityValue)
     }
 
     // MARK: - Notification Dependencies
@@ -695,6 +695,15 @@ struct TXTReaderContainerView: View {
     }
 
     // MARK: - Helpers
+
+    /// Accessibility value for the txtReaderContainer element.
+    /// Encodes restore offset and chapter mode so UITests can detect reader state
+    /// without relying on inner view identifiers (which are flattened in iOS 26 SwiftUI).
+    private var readerAccessibilityValue: String {
+        let base = initialRestoreOffset.map { "restoredOffset:\($0)" } ?? "restoredOffset:none"
+        guard viewModel.isChapterMode else { return base }
+        return "\(base) chapterMode:true chapters:\(viewModel.totalChapterCount)"
+    }
 
     func makeNoOpCoordinator() -> HighlightCoordinator {
         let renderer = highlightRenderer ?? TextHighlightRenderer(uiState: uiState)

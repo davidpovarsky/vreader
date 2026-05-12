@@ -81,6 +81,84 @@ enum TestSeeder {
         }
     }
 
+    /// Seeds a Markdown file with multiple headings for TOC verification testing.
+    /// Generates MD content in-memory, writes to ImportedBooks/, inserts a BookRecord.
+    static func seedMDWithTOC(persistence: PersistenceActor) async {
+        await clearAllBooks(persistence: persistence)
+
+        let text = generateMDWithHeadings()
+        let data = Data(text.utf8)
+        let hash = "0000000000000000000000000000000000000000000000000000000000c0c001"
+        let byteCount = Int64(data.count)
+
+        let fingerprint = DocumentFingerprint(
+            contentSHA256: hash,
+            fileByteCount: byteCount,
+            format: .md
+        )
+
+        let booksDir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ImportedBooks", isDirectory: true)
+        try? FileManager.default.createDirectory(at: booksDir, withIntermediateDirectories: true)
+
+        let safeName = fingerprint.canonicalKey.replacingOccurrences(of: ":", with: "_")
+        let filePath = booksDir.appendingPathComponent(safeName).appendingPathExtension("md")
+        try? data.write(to: filePath)
+
+        let provenance = ImportProvenance(
+            source: .localCopy,
+            importedAt: Date(),
+            originalURLBookmarkData: nil
+        )
+
+        let record = BookRecord(
+            fingerprintKey: fingerprint.canonicalKey,
+            title: "Test Markdown TOC",
+            author: "MD Author",
+            coverImagePath: nil,
+            fingerprint: fingerprint,
+            provenance: provenance,
+            detectedEncoding: "utf-8",
+            addedAt: Date()
+        )
+
+        do {
+            _ = try await persistence.insertBook(record)
+        } catch {
+            AppLogger.general.warning("failed to seed MD TOC book: \(error)")
+        }
+    }
+
+    /// Generates Markdown content with multiple headings for TOC testing.
+    private static func generateMDWithHeadings() -> String {
+        """
+        # Introduction
+
+        This is a test markdown document for verifying the table of contents feature.
+        The TOC panel should extract all ATX headings from this document.
+
+        ## Chapter 1: The Beginning
+
+        Content for the first chapter. This section tests H2 heading extraction
+        and verifies the TOC shows a second-level entry.
+
+        ## Chapter 2: The Middle
+
+        Content for the second chapter. Multiple H2 entries should all appear
+        in the TOC as separate rows.
+
+        ### Section 2.1: A Subsection
+
+        An H3 heading to verify nested TOC entries render at the correct level.
+
+        ## Chapter 3: The End
+
+        The final chapter. Tapping any TOC row should dismiss the panel and
+        scroll to the corresponding heading position.
+        """
+    }
+
     /// Seeds War and Peace as a real TXT file (chaptered) for chapter-mode testing.
     /// Copies the DebugFixtures bundle resource to ImportedBooks/ and inserts a BookRecord.
     static func seedWarAndPeace(persistence: PersistenceActor) async {

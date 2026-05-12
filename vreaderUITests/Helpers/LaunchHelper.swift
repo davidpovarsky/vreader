@@ -23,6 +23,8 @@ enum TestSeedState {
     case positionTest
     /// War and Peace TXT book (chaptered) for chapter-mode testing.
     case warAndPeace
+    /// Markdown file with multiple ATX headings for TOC verification testing.
+    case mdTOC
     /// Keep existing database state (no seeding). For relaunch tests.
     case keepExisting
     /// Corrupted database (triggers init error screen).
@@ -35,6 +37,7 @@ enum TestSeedState {
         case .books: return "--seed-books"
         case .positionTest: return "--seed-position-test"
         case .warAndPeace: return "--seed-war-and-peace"
+        case .mdTOC: return "--seed-md-toc"
         case .keepExisting: return "--uitesting-no-seed"
         case .corruptDB: return "--seed-corrupt-db"
         }

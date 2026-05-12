@@ -81,6 +81,64 @@ enum TestSeeder {
         }
     }
 
+    /// Seeds War and Peace as a real TXT file (chaptered) for chapter-mode testing.
+    /// Copies the DebugFixtures bundle resource to ImportedBooks/ and inserts a BookRecord.
+    static func seedWarAndPeace(persistence: PersistenceActor) async {
+        await clearAllBooks(persistence: persistence)
+
+        guard let bundleURL = Bundle.main.url(
+            forResource: "war-and-peace",
+            withExtension: "txt",
+            subdirectory: "DebugFixtures"
+        ) else {
+            AppLogger.general.warning("war-and-peace.txt not found in DebugFixtures bundle")
+            return
+        }
+
+        guard let data = try? Data(contentsOf: bundleURL) else {
+            AppLogger.general.warning("failed to read war-and-peace.txt from bundle")
+            return
+        }
+
+        let hash = "0000000000000000000000000000000000000000000000000000000000beef01"
+        let fingerprint = DocumentFingerprint(
+            contentSHA256: hash,
+            fileByteCount: Int64(data.count),
+            format: .txt
+        )
+
+        let booksDir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ImportedBooks", isDirectory: true)
+        try? FileManager.default.createDirectory(at: booksDir, withIntermediateDirectories: true)
+
+        let safeName = fingerprint.canonicalKey.replacingOccurrences(of: ":", with: "_")
+        let filePath = booksDir.appendingPathComponent(safeName).appendingPathExtension("txt")
+        try? data.write(to: filePath)
+
+        let provenance = ImportProvenance(
+            source: .localCopy,
+            importedAt: Date(),
+            originalURLBookmarkData: nil
+        )
+        let record = BookRecord(
+            fingerprintKey: fingerprint.canonicalKey,
+            title: "War and Peace",
+            author: "Leo Tolstoy",
+            coverImagePath: nil,
+            fingerprint: fingerprint,
+            provenance: provenance,
+            detectedEncoding: "utf-8",
+            addedAt: Date()
+        )
+
+        do {
+            _ = try await persistence.insertBook(record)
+        } catch {
+            AppLogger.general.warning("failed to seed war-and-peace: \(error)")
+        }
+    }
+
     /// Generates ~5000 characters of scrollable test content with numbered paragraphs.
     private static func generateTestText() -> String {
         var lines: [String] = []

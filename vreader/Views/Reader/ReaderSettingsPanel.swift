@@ -349,6 +349,7 @@ struct ReaderSettingsPanel: View {
         Section {
             Toggle("Auto Page Turn", isOn: $store.autoPageTurn)
                 .accessibilityLabel("Auto page turn")
+                .accessibilityIdentifier("autoPageTurnToggle")
 
             if store.autoPageTurn {
                 HStack {
@@ -361,6 +362,7 @@ struct ReaderSettingsPanel: View {
                     )
                     .frame(maxWidth: 160)
                     .accessibilityLabel("Auto page turn interval")
+                    .accessibilityIdentifier("autoPageTurnIntervalSlider")
                     Text("\(Int(store.autoPageTurnInterval))s")
                         .font(.caption)
                         .monospacedDigit()

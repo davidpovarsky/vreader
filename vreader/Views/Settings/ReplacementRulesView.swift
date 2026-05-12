@@ -70,6 +70,7 @@ struct ReplacementRulesView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityIdentifier("replacementRulesAddButton")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 EditButton()

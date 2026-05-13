@@ -139,32 +139,33 @@ extension AIProviderEditSheet {
                         .accessibilityLabel("API key saved")
                 }
             }
-            HStack {
-                Button("Save Key") {
-                    Task { await saveKey() }
-                }
-                // Audit round-1 finding [4]: in add-mode the sheet
-                // generates a UUID up front but the profile isn't in the
-                // store yet. Writing a keychain entry here would leak an
-                // orphaned secret if the user then taps Cancel. Force
-                // add-mode users to enter the key in the SecureField and
-                // commit via the top-level "Save" button — addProfile
-                // persists key + profile atomically.
-                .disabled(apiKey.isEmpty || existing == nil)
-                .accessibilityIdentifier("editProviderSaveKeyButton")
 
-                if isAPIKeySaved && existing != nil {
-                    Button("Delete Key", role: .destructive) {
-                        Task { await deleteKey() }
+            // Bug #184: in add-mode the Save Key button was always disabled
+            // (keychain-orphan prevention — see audit round-1 finding [4]).
+            // The disabled button confused users who didn't notice the
+            // caption2/tertiary hint. Hide the buttons row in add-mode and
+            // show only a promoted (footnote/secondary) inline note so the
+            // next action is unambiguous: "tap Save at the top".
+            if let _ = existing {
+                HStack {
+                    Button("Save Key") {
+                        Task { await saveKey() }
                     }
-                    .accessibilityIdentifier("editProviderDeleteKeyButton")
-                }
-            }
+                    .disabled(apiKey.isEmpty)
+                    .accessibilityIdentifier("editProviderSaveKeyButton")
 
-            if existing == nil {
-                Text("Enter your API key above, then tap Save to create the profile. The key is stored only after the profile is saved.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    if isAPIKeySaved {
+                        Button("Delete Key", role: .destructive) {
+                            Task { await deleteKey() }
+                        }
+                        .accessibilityIdentifier("editProviderDeleteKeyButton")
+                    }
+                }
+            } else {
+                Text("The key is stored only after the profile is saved. Enter the key above, then tap Save at the top of this sheet.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("editProviderSaveKeyNote")
             }
         }
     }
@@ -174,36 +175,37 @@ extension AIProviderEditSheet {
     @ViewBuilder
     var testConnectionSection: some View {
         Section("Connection") {
-            Button {
-                Task { await runTest() }
-            } label: {
-                HStack {
-                    if testInFlight {
-                        ProgressView().padding(.trailing, 8)
+            // Bug #184: in add-mode the Test Connection button was always
+            // disabled because the keychain account is keyed by profileID,
+            // and in add-mode that key is only written by addProfile on
+            // top-level Save (audit round-1 finding [1]). Hide the button
+            // in add-mode and promote the explanation from caption2/tertiary
+            // to footnote/secondary so it reads as the next instruction.
+            if existing != nil {
+                Button {
+                    Task { await runTest() }
+                } label: {
+                    HStack {
+                        if testInFlight {
+                            ProgressView().padding(.trailing, 8)
+                        }
+                        Text("Test Connection")
                     }
-                    Text("Test Connection")
                 }
-            }
-            // Test Connection now operates on live form state (round-1
-            // audit finding [1]), but still requires a saved keychain
-            // entry — the keychain account is keyed by profileID, and
-            // in add-mode that key is only written by addProfile on
-            // top-level Save. So the button is enabled in edit-mode
-            // when a key is saved, and disabled in add-mode.
-            .disabled(testInFlight || !isAPIKeySaved || existing == nil)
-            .accessibilityIdentifier("editProviderTestConnection")
+                .disabled(testInFlight || !isAPIKeySaved)
+                .accessibilityIdentifier("editProviderTestConnection")
 
-            if let result = testResultText {
-                Text(result)
-                    .font(.caption)
-                    .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
-                    .accessibilityIdentifier("editProviderTestResult")
-            }
-
-            if existing == nil {
-                Text("Save the profile first to test the connection.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if let result = testResultText {
+                    Text(result)
+                        .font(.caption)
+                        .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
+                        .accessibilityIdentifier("editProviderTestResult")
+                }
+            } else {
+                Text("Save the profile first, then return here to test the connection.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("editProviderTestConnectionNote")
             }
         }
     }

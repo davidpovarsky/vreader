@@ -67,4 +67,27 @@ struct ProviderKindTests {
         let names = ProviderKind.allCases.map(\.displayName)
         #expect(Set(names).count == names.count)
     }
+
+    // MARK: - Bug #185: endpointPathHint
+
+    @Test func endpointPathHintOpenAIMentionsAppendedPath() {
+        let hint = ProviderKind.openAICompatible.endpointPathHint
+        #expect(hint.contains("/chat/completions"))
+    }
+
+    @Test func endpointPathHintAnthropicMentionsAppendedPath() {
+        let hint = ProviderKind.anthropicNative.endpointPathHint
+        #expect(hint.contains("/v1/messages"))
+    }
+
+    @Test func endpointPathHintAllKindsNonEmpty() {
+        for kind in ProviderKind.allCases {
+            #expect(!kind.endpointPathHint.isEmpty)
+        }
+    }
+
+    @Test func endpointPathHintsAreDistinct() {
+        let hints = ProviderKind.allCases.map(\.endpointPathHint)
+        #expect(Set(hints).count == hints.count)
+    }
 }

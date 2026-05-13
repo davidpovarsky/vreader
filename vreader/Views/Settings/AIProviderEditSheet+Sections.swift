@@ -60,7 +60,7 @@ extension AIProviderEditSheet {
 
     @ViewBuilder
     var providerSection: some View {
-        Section("Endpoint") {
+        Section {
             HStack {
                 Text("Base URL")
                     .foregroundStyle(.secondary)
@@ -91,6 +91,14 @@ extension AIProviderEditSheet {
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("editProviderModel")
             }
+        } header: {
+            Text("Endpoint")
+        } footer: {
+            // Bug #185: per-kind hint explaining what path the app appends.
+            // Without this, users entering full endpoint URLs get silent
+            // doubled paths (e.g. `…/v1/chat/completions/chat/completions`).
+            Text(kind.endpointPathHint)
+                .accessibilityIdentifier("editProviderBaseURLHint")
         }
 
         Section("Sampling") {

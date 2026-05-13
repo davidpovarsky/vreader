@@ -55,4 +55,17 @@ enum ProviderKind: String, Codable, Sendable, CaseIterable {
             return "Anthropic"
         }
     }
+
+    /// Hint shown below the Base URL field describing what path the app
+    /// appends when constructing the chat endpoint. Bug #185: users
+    /// entering full endpoint URLs (e.g. `…/v1/chat/completions`) get
+    /// silent doubled paths; this hint makes the append explicit.
+    var endpointPathHint: String {
+        switch self {
+        case .openAICompatible:
+            return "Enter the base URL only. The app appends `/chat/completions` when calling the model. Example: `https://api.openai.com/v1` or `https://openrouter.ai/api/v1`."
+        case .anthropicNative:
+            return "Enter the base URL only. The app appends `/v1/messages` when calling the model. Example: `https://api.anthropic.com`."
+        }
+    }
 }

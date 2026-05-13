@@ -1014,3 +1014,231 @@ Codex MCP unavailable this session (`stream disconnected before completion` on e
 5. Existing snapshot tests (`test_snapshot_withoutActiveReader_*`, `test_snapshot_withActiveReader_*`, `test_snapshot_withActiveReaderAndPosition_*`) updated for the new partial-array members.
 6. `xcodebuild test -only-testing:vreaderTests` green.
 
+
+---
+
+## WI-4d — Refactor Feature40/41 XCUITest verification to use DebugBridge TTS URL (2026-05-14)
+
+### Problem
+
+WI-4c-b shipped `vreader-debug://tts?action=start` (the URL handler that drives
+the production AVSpeechSynthesizer in a way XCUITest can reach), and WI-4c-c
+wired `ttsState`/`ttsOffsetUTF16` into `DebugSnapshot`. The remaining work is
+to actually USE these in the XCUITest verification tests for features #40 and
+#41, which still XCTSkip on the `ttsButton.tap()` path because AVSpeechSynthesizer
+won't activate its audio session under XCUITest's runner-test split.
+
+Both tests currently flow: tap reader → `ttsButton.tap()` → wait 30s for
+`ttsControlBar` → XCTSkip when it never appears. After this WI the flow becomes:
+tap reader → fire `vreader-debug://tts?action=start` → wait 5s for
+`ttsControlBar` → snapshot to confirm `ttsState == "speaking"` and
+`ttsOffsetUTF16 > 0`.
+
+### Scope
+
+1. `vreaderUITests/Verification/Helpers/VerificationDebugBridgeHelper.swift`:
+   add `func ttsAction(_ action: String)` method that fires
+   `vreader-debug://tts?action=<action>` (mirrors `seedFixture`/`settleApp`
+   shape). Add `DebugCommand.ttsURL(action:)` static helper.
+2. `vreaderUITests/Verification/Feature40TTSSentenceHighlightVerificationTests.swift`:
+   replace `ttsButton.tap()` path with `bridgeHelper.ttsAction("start")`.
+   Drop the AVSpeech XCTSkip. Reduce control-bar timeout from 30s to 5s
+   (the URL path is synchronous; the bar appears within ~1s once the URL
+   fires per WI-4c-b spike-0).
+3. `vreaderUITests/Verification/Feature41TTSAutoScrollVerificationTests.swift`:
+   same refactor pattern.
+
+**Files OUT of scope:**
+
+- `Feature31AutoPageTurnVerificationTests.swift` — already refactored in
+  WI-4c-a to use `LaunchArgs.readerLayoutPaged`. Its remaining XCTSkip is
+  a defensive fallback for "section not present" — out of scope to touch.
+- Production code (DebugCommand, ReaderContainerView observer) — already
+  shipped in WI-4c-b.
+- `RealDebugBridgeContext+Snapshot.swift` and `DebugReaderProbeAdapter.swift`
+  — already shipped in WI-4c-c.
+- TTS-stop test paths — feature #40/#41 acceptance criteria don't require
+  testing stop; existing tests don't exercise it.
+
+### Prior art / project precedent
+
+- `seedFixture(named:)` and `settleApp(token:)` in `VerificationDebugBridgeHelper`
+  — exact precedent for "fire-and-observe" URL helper methods. `ttsAction`
+  follows the same shape.
+- WI-4c-b's `DebugCommand.parse` already accepts `action=start|stop` and
+  routes through `.debugBridgeTTSCommand`; consumer side is wired.
+- WI-4c-b spike-0 verified the URL drives real AVSpeech successfully under
+  the same iOS Simulator XCUITest would use.
+
+### Work-item sequencing
+
+Single WI. 3 files modified (helper + 2 tests). PR size: ~60-80 LOC.
+
+### Test catalogue
+
+- `Feature40TTSSentenceHighlightVerificationTests.verify_feature_40_tts_state_reported_after_start`:
+  RED (pre-WI-4d): XCTSkips on AVSpeech session. GREEN: asserts
+  `snapshot["ttsState"] != "idle"` within 5s of firing the URL.
+- `Feature40TTSSentenceHighlightVerificationTests.verify_feature_40_tts_offset_advances_during_playback`:
+  same RED→GREEN; the offset-advancement check now actually runs.
+- `Feature41TTSAutoScrollVerificationTests.verify_feature_41_tts_control_bar_visible_during_playback`:
+  RED→GREEN.
+- `Feature41TTSAutoScrollVerificationTests.verify_feature_41_tts_autoscroll_position_advances`:
+  RED→GREEN.
+
+No new unit tests — `DebugCommand.parse` for `tts?action=start` is already
+covered by `DebugCommandTests` (WI-4c-b shipped 4 cases).
+
+### Risks + mitigations
+
+- **Risk**: the test app launches `--reset-preferences` so any pre-existing
+  TTS provider config is wiped. `startTTS()` may surface a provider-selection
+  sheet on first activation. **Mitigation**: the spike-0 path used the URL
+  AFTER the reader was loaded; that code path goes through `startTTS()` which
+  reads `ttsService` directly. The provider-selection sheet was a finding
+  about the BUTTON-tap path going through a different flow. The URL path
+  bypasses that. If the test still fails, the symptom would be "URL fires
+  but ttsControlBar never appears" — we'd then need to investigate the
+  observer side. Spike-0 evidence suggests this won't reproduce.
+- **Risk**: AccessibilityID.ttsControlBar may rename. **Mitigation**:
+  AccessibilityID is the single source of truth used across production and
+  tests; refactoring would propagate automatically.
+- **Risk**: XCUITest's container-path lookup may break post-launch.
+  **Mitigation**: `VerificationDebugBridgeHelper.appDataContainerPath()`
+  is already used by all snapshot reads; this WI doesn't change that path.
+
+### Backward compat
+
+- All changes are additive (one new helper method) or test-only refactors.
+- No production-code change.
+
+### Edge cases
+
+- TTS already speaking (idempotent start): `ttsService.startSpeaking` is
+  guarded by `state != .idle` in production. The URL handler calls
+  `startTTS()` which reads `ttsService.state` first. No double-start.
+- URL fires before reader has loaded the book: spike-0's reader-tap pattern
+  is preserved (`tapFirstBook` + `waitForExistence(readerBackButton)`)
+  before firing the URL.
+
+### Gate
+
+- `xcodebuild test -only-testing:vreaderUITests/Feature40TTSSentenceHighlightVerificationTests`
+  passes without XCTSkip (both methods).
+- `xcodebuild test -only-testing:vreaderUITests/Feature41TTSAutoScrollVerificationTests`
+  passes without XCTSkip (both methods).
+- `xcodebuild test -only-testing:vreaderTests` stays green (unit test
+  surface unchanged).
+
+### Acceptance criteria
+
+1. `VerificationDebugBridgeHelper.ttsAction(_:)` method exists; fires
+   `vreader-debug://tts?action=<action>` via `xcrun simctl openurl booted`.
+2. `DebugCommand.ttsURL(action:)` static helper constructs the URL.
+3. Feature40 + Feature41 tests use `bridgeHelper.ttsAction("start")`
+   instead of `ttsButton.tap()`.
+4. Both tests' `XCTSkip` branches for AVSpeech audio session are removed
+   (the defensive `Reader TTS button not present` skip stays — that's a
+   genuine accessibility surface check).
+5. Control-bar timeout reduced 30s → 5s.
+6. Both XCUITest verification tests pass without XCTSkip on iPhone 17 Pro Sim.
+
+### Gate 2 — Independent audit (manual fallback)
+
+Codex MCP unavailable this session (`stream disconnected before completion`
+across the day). Manual fallback per rule 47.
+
+**Files read:**
+- `vreaderUITests/Verification/Helpers/VerificationDebugBridgeHelper.swift`
+  (full, 200 lines)
+- `vreaderUITests/Verification/Feature40TTSSentenceHighlightVerificationTests.swift`
+  (full, 153 lines)
+- `vreaderUITests/Verification/Feature41TTSAutoScrollVerificationTests.swift`
+  (full)
+- `vreader/Services/DebugBridge/DebugCommand.swift` (already includes
+  the `tts(action:)` case from WI-4c-b, lines 130-145)
+- `vreader/Views/Reader/ReaderContainerView.swift` (already observes
+  `.debugBridgeTTSCommand` from WI-4c-b)
+
+**Symbols verified:**
+- `xcrun simctl openurl booted <url>` is the same mechanism `seedFixture`
+  uses — proven to work for DebugBridge URLs in WI-4c-b spike-0. ✓
+- `DebugCommand.parse("vreader-debug://tts?action=start")` returns
+  `.tts(action: "start")` — verified in `DebugCommandTests` (WI-4c-b). ✓
+- `AccessibilityID.ttsControlBar` is the canonical identifier used by
+  `TTSControlBar.swift` and current tests. ✓
+
+**Edge cases checked:**
+1. URL fires before book reader loads → existing tests already wait on
+   `readerBackButton.waitForExistence(timeout: 15)` before any action. ✓
+2. URL fires twice (test reruns): production `startTTS()` is idempotent
+   on `state != .idle`. ✓
+3. Test setup `--reset-preferences` wipes any TTS-provider state: the URL
+   path doesn't depend on user-config; uses default AVSpeech. ✓
+4. Helper method missing the URL construction: `DebugCommand.ttsURL` is
+   a new static func; covered by RED step (writing the test before the
+   helper).
+
+**Risks accepted:**
+- None Critical/High. Single risk Low: the 5s control-bar timeout may be
+  slightly aggressive for slow CI runners; production URL fires within
+  1s per spike-0, so 5s has 5× headroom.
+
+**Verdict:** ship-as-is. WI is mechanical refactor that follows existing
+helper patterns and is gated by clear XCUITest assertions.
+
+### WI-4d outcome (2026-05-14) — PARTIAL
+
+**Shipped:** `VerificationDebugBridgeHelper.ttsAction(_:)` + `DebugCommand.ttsURL(action:)`. Clean abstraction parallel to `seedFixture` / `settleApp` / `snapshotApp`. Compiles, doesn't change any test behavior on its own.
+
+**Deferred:** the Feature40/41 test refactors. Investigation revealed an
+infrastructure blocker that's broader than WI-4d's scope:
+
+**Blocker — simctl-from-XCUITest-runner-sandbox URL delivery is unreliable.**
+The VerificationDebugBridgeHelper.send() method spawns `/usr/bin/xcrun simctl
+openurl booted <url>` via posix_spawn. But `/usr/bin/xcrun` is on the host
+Mac filesystem, not inside the iOS Simulator sandbox where the XCUITest
+runner-app runs. posix_spawn from the runner sandbox can't reach the host
+binary, so the URL never fires.
+
+Evidence:
+1. Manual repro from a Mac terminal (outside XCUITest) — TTS URL delivers
+   successfully (`ttsState: "speaking"` in post-fire snapshot, confirmed
+   in this session 2026-05-14 ~02:48).
+2. XCUITest test using `bridgeHelper.ttsAction("start")` — no app behavior
+   observed; `ttsControlBar.waitForExistence(timeout: 5)` fails.
+3. Other tests that use `bridgeHelper.settleApp` happen to also have a
+   fallback `waitForExistence` on a non-settle UI element, so the settle
+   failure is masked — they appear to pass without proving simctl URL
+   delivery from sandbox actually works.
+
+This is a foundational infrastructure problem that affects ALL XCUITest
+verification tests that try to drive DebugBridge URLs from inside the
+test. It's broader than WI-4d, and fixing it requires one of:
+
+- **(a)** Move simctl invocations to the host side via a pre-test script
+  + IPC mechanism (XCTAttachment, a shared file watcher). Significant
+  infrastructure work.
+- **(b)** Replace simctl with an in-app URL-firing mechanism (e.g., a
+  test-only HTTP endpoint inside the test app that the runner POSTs to,
+  bridging back to the DebugBridge URL handler).
+- **(c)** Mock `AVSpeechSynthesizer` via a test-only `SpeechSynthesizing`
+  adapter (the original WI-4c plan's fallback option). Bypasses the
+  URL-delivery question entirely.
+
+Acting on any of these is a separate WI (likely a feature-class one).
+Out of scope for this iteration.
+
+**Status:** Feature #45 IN PROGRESS. Helper method shipped. Feature40/41
+test refactors deferred to WI-4e (TBD) pending the simctl-from-sandbox
+investigation. Both test files reverted to their pre-WI-4d state (still
+XCTSkip on AVSpeech audio session). Helper method is harmless (additive
+only) and unblocks future work once the routing question is resolved.
+
+**Acceptance criteria (revised):**
+
+1. ~~Feature40 + Feature41 tests use `bridgeHelper.ttsAction("start")` instead of `ttsButton.tap()`~~ — DEFERRED
+2. ~~Both XCUITest verification tests pass without XCTSkip~~ — DEFERRED
+3. `VerificationDebugBridgeHelper.ttsAction(_:)` method exists, compiles, follows the established fire-and-observe helper pattern — DONE
+4. `DebugCommand.ttsURL(action:)` static helper constructs the URL — DONE
+5. `xcodebuild build-for-testing` succeeds — DONE

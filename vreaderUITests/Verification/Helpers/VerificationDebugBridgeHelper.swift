@@ -86,6 +86,20 @@ struct VerificationDebugBridgeHelper {
         send(url)
     }
 
+    /// Fire `vreader-debug://tts?action=<action>` to drive the production
+    /// AVSpeechSynthesizer without going through the readerTTSButton tap path
+    /// (which fails under XCUITest because the audio session activation
+    /// requirement breaks across the runner-test split — see feature #45
+    /// WI-4c-b spike-0 evidence). Fire-and-observe: caller waits for
+    /// `ttsControlBar` or snapshot to reflect the state change.
+    func ttsAction(_ action: String) {
+        guard let url = DebugCommand.ttsURL(action: action) else {
+            XCTFail("VerificationDebugBridgeHelper: could not construct TTS URL for action '\(action)'")
+            return
+        }
+        send(url)
+    }
+
     /// Read the snapshot JSON written by `vreader-debug://snapshot?dest=<dest>`.
     /// Returns the parsed dictionary, or nil if the file is absent or malformed.
     func readSnapshot(dest: String) -> [String: Any]? {
@@ -126,6 +140,14 @@ struct VerificationDebugBridgeHelper {
             c.scheme = "vreader-debug"
             c.host = "snapshot"
             c.queryItems = [URLQueryItem(name: "dest", value: dest)]
+            return c.url
+        }
+
+        static func ttsURL(action: String) -> URL? {
+            var c = URLComponents()
+            c.scheme = "vreader-debug"
+            c.host = "tts"
+            c.queryItems = [URLQueryItem(name: "action", value: action)]
             return c.url
         }
     }

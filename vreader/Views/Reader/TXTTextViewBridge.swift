@@ -39,6 +39,13 @@ struct TXTTextViewBridge: UIViewRepresentable {
     /// Persisted highlight ranges loaded from DB on file open (bug #55).
     /// Applied as yellow background attributes that survive text rebuilds.
     var persistedHighlights: [NSRange] = []
+    /// Top safe-area inset added on top of `config.textInset.top` so the first
+    /// line of text clears the Dynamic Island / status bar. Bug #179 (mirrors
+    /// bug #163 for EPUB). Default `0` preserves prior behaviour for callers
+    /// not yet threaded through. Wired by `TXTReaderContainerView` and
+    /// `MDReaderContainerView` via `GeometryReader { proxy in ... }` using
+    /// `proxy.safeAreaInsets.top`.
+    var safeAreaTopInset: CGFloat = 0
     weak var delegate: TXTTextViewBridgeDelegate?
 
     func makeUIView(context: Context) -> UITextView {
@@ -48,7 +55,12 @@ struct TXTTextViewBridge: UIViewRepresentable {
         textView.showsVerticalScrollIndicator = true
         textView.alwaysBounceVertical = true
         textView.delegate = context.coordinator
-        textView.textContainerInset = config.textInset
+        // Bug #179: combine base typographic padding with the SwiftUI
+        // safe-area top inset so the first line clears the Dynamic Island.
+        textView.textContainerInset = Self.combinedTextInset(
+            base: config.textInset,
+            safeAreaTop: safeAreaTopInset
+        )
         textView.textContainer.lineFragmentPadding = 0
 
         // Performance: defer off-screen glyph layout for large documents.
@@ -165,9 +177,15 @@ struct TXTTextViewBridge: UIViewRepresentable {
             applySourceText(to: htv, coordinator: context.coordinator)
         }
 
-        // Re-apply inset changes
-        if textView.textContainerInset != config.textInset {
-            textView.textContainerInset = config.textInset
+        // Re-apply inset changes. Bug #179: include safeAreaTopInset so the
+        // Dynamic Island stays uncovered when the safe area changes (rotation,
+        // split-screen, etc.) or when the bridge is rebuilt.
+        let combined = Self.combinedTextInset(
+            base: config.textInset,
+            safeAreaTop: safeAreaTopInset
+        )
+        if textView.textContainerInset != combined {
+            textView.textContainerInset = combined
         }
 
         // Programmatic scroll from search navigation. Bug #99 (cause #3): the
@@ -221,6 +239,25 @@ struct TXTTextViewBridge: UIViewRepresentable {
         guard let target else { return false }
         let effectiveLast: Int? = sourceChanged ? nil : lastTarget
         return target != effectiveLast
+    }
+
+    /// Bug #179: combine the base typographic `textInset` with the SwiftUI
+    /// safe-area top so the first line of text clears the Dynamic Island /
+    /// status bar. Sum-based composition keeps existing typographic padding
+    /// (16pt default) intact and just shifts content down by the device's
+    /// safe-area requirement. Negative inputs clamped to 0 to match
+    /// UIScrollView's defensive behaviour around tiny-viewport edge cases
+    /// (mirrors EPUB bug #167 audit-fix).
+    static func combinedTextInset(
+        base: UIEdgeInsets,
+        safeAreaTop: CGFloat
+    ) -> UIEdgeInsets {
+        UIEdgeInsets(
+            top: base.top + max(0, safeAreaTop),
+            left: base.left,
+            bottom: base.bottom,
+            right: base.right
+        )
     }
 
     // MARK: - Private

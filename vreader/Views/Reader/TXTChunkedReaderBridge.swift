@@ -39,6 +39,11 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
     var highlightIsTemporary: Bool = true
     /// Persisted highlight ranges (document-global UTF-16) loaded from DB (bug #55).
     var persistedHighlights: [NSRange] = []
+    /// Top safe-area inset applied to the UITableView's `contentInset.top` so
+    /// the first chunk renders below the Dynamic Island. Bug #179 (mirrors
+    /// the non-chunked path's same-named param). Default `0` preserves prior
+    /// behaviour for callers not yet threaded through.
+    var safeAreaTopInset: CGFloat = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(delegate: delegate)
@@ -56,6 +61,11 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         tableView.backgroundColor = config.backgroundColor
         tableView.showsVerticalScrollIndicator = true
         tableView.accessibilityIdentifier = "chunkedTextTableView"
+        // Bug #179: lift the first chunk below the Dynamic Island. Setting
+        // `contentInset.top` on the UITableView (not the per-cell inset)
+        // keeps cell sizing/highlight math unchanged.
+        tableView.contentInset.top = max(0, safeAreaTopInset)
+        tableView.contentInsetAdjustmentBehavior = .never
 
         context.coordinator.chunks = chunks
         context.coordinator.config = config
@@ -92,6 +102,13 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
 
     func updateUIView(_ tableView: UITableView, context: Context) {
         context.coordinator.delegate = delegate
+
+        // Bug #179: re-apply safe-area top inset on every update (rotation,
+        // split-screen resize, etc. can change `proxy.safeAreaInsets.top`).
+        let clamped = max(0, safeAreaTopInset)
+        if tableView.contentInset.top != clamped {
+            tableView.contentInset.top = clamped
+        }
 
         // Sync chunks and offsets if they changed (e.g., parent rebuilt chunks)
         let chunksChanged = context.coordinator.chunks.count != chunks.count

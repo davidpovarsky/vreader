@@ -510,17 +510,25 @@ struct TXTReaderContainerView: View {
 
     @ViewBuilder
     private func readerContent(text: String, attributedText: NSAttributedString) -> some View {
-        TXTTextViewBridge(
-            text: text,
-            attributedText: attributedText,
-            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-            restoreOffset: initialRestoreOffset,
-            scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
-            highlightRange: uiState.highlightRange,
-            highlightIsTemporary: uiState.highlightIsTemporary,
-            persistedHighlights: uiState.persistedHighlightRanges,
-            delegate: viewModel
-        )
+        // Bug #179: GeometryReader exposes the SwiftUI safe-area top, which
+        // the bridge sums into textContainerInset.top so the first line clears
+        // the Dynamic Island / status bar. Container applies
+        // .ignoresSafeArea(edges: .top) for chrome-overlay layout, so without
+        // this hop UITextView would render content under the notch.
+        GeometryReader { proxy in
+            TXTTextViewBridge(
+                text: text,
+                attributedText: attributedText,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                restoreOffset: initialRestoreOffset,
+                scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
+                highlightRange: uiState.highlightRange,
+                highlightIsTemporary: uiState.highlightIsTemporary,
+                persistedHighlights: uiState.persistedHighlightRanges,
+                safeAreaTopInset: proxy.safeAreaInsets.top,
+                delegate: viewModel
+            )
+        }
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("txtReaderContent")
     }
@@ -546,17 +554,22 @@ struct TXTReaderContainerView: View {
             chapterIndex: viewModel.currentChapterIdx,
             chapters: chapters
         )
-        TXTTextViewBridge(
-            text: text,
-            attributedText: attributedText,
-            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-            restoreOffset: initialRestoreOffset,
-            scrollToOffset: localScrollOffset,
-            highlightRange: highlights.temp,
-            highlightIsTemporary: uiState.highlightIsTemporary,
-            persistedHighlights: highlights.persisted,
-            delegate: viewModel
-        )
+        // Bug #179: see readerContent above — GeometryReader wires DI inset
+        // into the bridge so chapter-mode TXT renders clear of the notch.
+        GeometryReader { proxy in
+            TXTTextViewBridge(
+                text: text,
+                attributedText: attributedText,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                restoreOffset: initialRestoreOffset,
+                scrollToOffset: localScrollOffset,
+                highlightRange: highlights.temp,
+                highlightIsTemporary: uiState.highlightIsTemporary,
+                persistedHighlights: highlights.persisted,
+                safeAreaTopInset: proxy.safeAreaInsets.top,
+                delegate: viewModel
+            )
+        }
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("txtReaderChapterContent")
     }
@@ -575,18 +588,23 @@ struct TXTReaderContainerView: View {
             return CGFloat(offset - chunkStart) / CGFloat(chunkLen)
         }()
 
-        TXTChunkedReaderBridge(
-            chunks: chunks,
-            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-            restoreChunkIndex: chunkIdx,
-            restoreIntraChunkOffset: intraFraction,
-            delegate: viewModel,
-            chunkStartOffsets: offsets,
-            scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
-            highlightRange: uiState.highlightRange,
-            highlightIsTemporary: uiState.highlightIsTemporary,
-            persistedHighlights: uiState.persistedHighlightRanges
-        )
+        // Bug #179: lift the first chunk below the Dynamic Island. See
+        // readerContent above for the same pattern on the non-chunked bridge.
+        GeometryReader { proxy in
+            TXTChunkedReaderBridge(
+                chunks: chunks,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                restoreChunkIndex: chunkIdx,
+                restoreIntraChunkOffset: intraFraction,
+                delegate: viewModel,
+                chunkStartOffsets: offsets,
+                scrollToOffset: uiState.scrollToOffset ?? scrollToOffset,
+                highlightRange: uiState.highlightRange,
+                highlightIsTemporary: uiState.highlightIsTemporary,
+                persistedHighlights: uiState.persistedHighlightRanges,
+                safeAreaTopInset: proxy.safeAreaInsets.top
+            )
+        }
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("txtReaderChunkedContent")
     }

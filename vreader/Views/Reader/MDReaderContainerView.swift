@@ -303,17 +303,23 @@ struct MDReaderContainerView: View {
 
     @ViewBuilder
     private func readerContent(attributedString: NSAttributedString) -> some View {
-        TXTTextViewBridge(
-            text: attributedString.string,
-            attributedText: attributedString,
-            config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
-            restoreOffset: initialRestoreOffset,
-            scrollToOffset: uiState.scrollToOffset,
-            highlightRange: uiState.highlightRange,
-            highlightIsTemporary: uiState.highlightIsTemporary,
-            persistedHighlights: uiState.persistedHighlightRanges,
-            delegate: viewModel
-        )
+        // Bug #179: GeometryReader wires the safe-area top into the bridge so
+        // MD scroll-mode renders below the Dynamic Island. Same pattern as
+        // the TXT reader (this bridge is shared) and the EPUB fix for #163.
+        GeometryReader { proxy in
+            TXTTextViewBridge(
+                text: attributedString.string,
+                attributedText: attributedString,
+                config: settingsStore?.txtViewConfig ?? TXTViewConfig(),
+                restoreOffset: initialRestoreOffset,
+                scrollToOffset: uiState.scrollToOffset,
+                highlightRange: uiState.highlightRange,
+                highlightIsTemporary: uiState.highlightIsTemporary,
+                persistedHighlights: uiState.persistedHighlightRanges,
+                safeAreaTopInset: proxy.safeAreaInsets.top,
+                delegate: viewModel
+            )
+        }
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("mdReaderContent")
     }

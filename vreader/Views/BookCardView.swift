@@ -55,6 +55,12 @@ struct BookCardView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+
+            // Bug #177: pushes content to the top so shorter cards (fewer
+            // metadata rows) align top-edges with taller cards in the same
+            // LazyVGrid row — SwiftUI's default is vertical centering, which
+            // makes covers in the same row sit at different y-positions.
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)

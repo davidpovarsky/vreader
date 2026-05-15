@@ -33,6 +33,11 @@ struct PDFReaderContainerView: View {
     let viewModel: PDFReaderViewModel
     var modelContainer: ModelContainer?
     var ttsService: TTSService?
+    /// Bug #198: settings store threaded so the PDFView gutter background can
+    /// flip to match the current ReaderTheme (Light / Sepia / Dark). Optional
+    /// to preserve source-compatibility for existing callers; nil means the
+    /// bridge falls back to PDFKit's default gutter color.
+    var settingsStore: ReaderSettingsStore?
 
     @State var password: String = ""
     @State var submittedPassword: String?
@@ -79,7 +84,8 @@ struct PDFReaderContainerView: View {
                 pendingHighlight: pendingHighlightPayload,
                 pendingHighlightId: pendingHighlightId,
                 searchHighlightText: searchHighlightText,
-                highlightRenderer: highlightRenderer
+                highlightRenderer: highlightRenderer,
+                theme: settingsStore?.theme
             )
             .ignoresSafeArea(edges: .bottom)
             .accessibilityIdentifier("pdfReaderContent")

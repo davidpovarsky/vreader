@@ -40,6 +40,13 @@ struct PDFViewBridge: UIViewRepresentable {
     var searchHighlightText: String?
     /// Phase R4: renderer for managing highlight annotations with ID tracking.
     var highlightRenderer: PDFHighlightRenderer?
+    /// Bug #198: reader theme used to flip the PDFView gutter background
+    /// (the area surrounding the rendered PDF page). When nil, falls back to
+    /// PDFKit's default (light gray) — preserves the old behavior for any
+    /// caller that hasn't been wired through. Page-interior pixels are still
+    /// rendered by PDFKit from the source PDF (white for typical text PDFs);
+    /// inverting page colors in dark mode is a separate feature.
+    var theme: ReaderTheme?
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -49,6 +56,15 @@ struct PDFViewBridge: UIViewRepresentable {
 
         // Accessibility
         pdfView.accessibilityIdentifier = "pdfView"
+
+        // Bug #198: theme the PDFView gutter so Dark theme produces a
+        // visibly dark background around the page, matching Sepia / Light
+        // behavior (which previously only flipped the chrome bar).
+        context.coordinator.lastAppliedTheme = Self.applyThemeIfChanged(
+            pdfView: pdfView,
+            theme: theme,
+            lastAppliedTheme: context.coordinator.lastAppliedTheme
+        )
 
         context.coordinator.pdfView = pdfView
         context.coordinator.viewModel = viewModel
@@ -83,6 +99,18 @@ struct PDFViewBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ pdfView: PDFView, context: Context) {
+        // Bug #198: re-apply theme background when the user switches theme
+        // mid-session. The reverse path (concrete-theme -> nil) isn't
+        // handled because it doesn't exist in production wiring
+        // (ReaderContainerView always threads the live settingsStore) and
+        // previews start nil with lastAppliedTheme also nil so the
+        // inconsistency never materializes.
+        context.coordinator.lastAppliedTheme = Self.applyThemeIfChanged(
+            pdfView: pdfView,
+            theme: theme,
+            lastAppliedTheme: context.coordinator.lastAppliedTheme
+        )
+
         // Handle password retry: if attempt ID changed, try unlocking
         if let password,
            passwordAttemptId != context.coordinator.lastPasswordAttemptId,
@@ -227,6 +255,37 @@ struct PDFViewBridge: UIViewRepresentable {
         }
     }
 
+    // MARK: - Theme application (bug #198)
+
+    /// Sets `pdfView.backgroundColor` from the supplied `ReaderTheme`'s
+    /// `backgroundColor` palette so the gutter area surrounding the rendered
+    /// PDF page reflects Light / Sepia / Dark instead of staying on PDFKit's
+    /// default light gray. Pure helper — testable without a real
+    /// UIViewRepresentable construction. Does NOT invert the rendered page
+    /// pixels; PDFKit continues to draw the source PDF's own colors (typically
+    /// white pages with black text). Inverting the page interior in dark
+    /// theme is a separate feature.
+    static func applyThemeBackground(to pdfView: PDFView, theme: ReaderTheme) {
+        pdfView.backgroundColor = theme.backgroundColor
+    }
+
+    /// Gated reapplication used by `makeUIView` / `updateUIView`. When `theme`
+    /// is non-nil and differs from `lastAppliedTheme`, applies it and returns
+    /// the new last-applied value; otherwise returns `lastAppliedTheme`
+    /// unchanged so an unrelated update (page nav, scroll fraction) doesn't
+    /// redundantly reset the background. Extracted so tests can drive the
+    /// exact production code path with a real `PDFView` and assert against
+    /// `pdfView.backgroundColor` directly.
+    static func applyThemeIfChanged(
+        pdfView: PDFView,
+        theme: ReaderTheme?,
+        lastAppliedTheme: ReaderTheme?
+    ) -> ReaderTheme? {
+        guard let theme, lastAppliedTheme != theme else { return lastAppliedTheme }
+        applyThemeBackground(to: pdfView, theme: theme)
+        return theme
+    }
+
     // MARK: - Coordinator
 
     @MainActor
@@ -248,6 +307,9 @@ struct PDFViewBridge: UIViewRepresentable {
         /// When true, suppresses selectionDidChange from posting .readerTextSelected
         /// (prevents search highlight from opening the highlight action sheet).
         var isSearchHighlighting: Bool = false
+        /// Bug #198: tracks the last applied reader theme so updateUIView only
+        /// re-applies `applyThemeBackground` when the user actually switched.
+        var lastAppliedTheme: ReaderTheme?
         /// Cancellable work item for the selection auto-clear timer (Issue 7).
         /// Stored so a new search highlight can cancel the previous timer, preventing
         /// a stale timer from clearing the wrong selection.

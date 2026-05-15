@@ -65,6 +65,7 @@
 		0DDED2E512493B4CB2DCD33F /* FoliateReaderContainerView+Navigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC283BCD7A6105F4CD210E9D /* FoliateReaderContainerView+Navigation.swift */; };
 		0E5215DBE0AC933D4C2136F6 /* DeleteConfirmationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4078AAB96560B1BC1794472E /* DeleteConfirmationTests.swift */; };
 		0E6D4F9EF1765D5808B9EEBC /* NSUKVSBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 607B063A54628D2CC2CFCC35 /* NSUKVSBridgeTests.swift */; };
+		0ECFF8347437492AC8881CCF /* FoliateHighlightTapResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0646DB2E4CD5095035092623 /* FoliateHighlightTapResolver.swift */; };
 		0EFA98D7C252D06AD3A254A9 /* ReadingProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A7FC6A70A060CD5E43602E /* ReadingProgressBar.swift */; };
 		0F753635DD7185A076DE4196 /* SchemaV5.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6667FB5A4B6534854FD37 /* SchemaV5.swift */; };
 		0FC8E41F85E5BF4E60834E77 /* DebugReaderProbeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4184F6CBC1069C92654BCB19 /* DebugReaderProbeAdapterTests.swift */; };
@@ -223,6 +224,7 @@
 		3DF1A5D2E40DE8AAF521BB8C /* TranslationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B3F47E988913B477EACF93 /* TranslationPanel.swift */; };
 		3EA33E950536DAC4CF5AA2B2 /* BookFormatIsSupportedExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74BC81AA927F17D2572106F6 /* BookFormatIsSupportedExtensionTests.swift */; };
 		3EA88656EFB66F3FFBAC7DC5 /* Feature41TTSAutoScrollVerificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40011CB1AB56C2F4DF2EE91 /* Feature41TTSAutoScrollVerificationTests.swift */; };
+		3EB8343FF1512E959CCEDD65 /* FoliateHighlightTapResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0461A65278F56C6D2271993 /* FoliateHighlightTapResolverTests.swift */; };
 		3EF51E3A99B073988655F8F8 /* LazyDownloadCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01041344F18D1DE82B7E100C /* LazyDownloadCoordinator.swift */; };
 		401E58831F4DC6EB06E53738 /* HTTPTTSConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10C9907D3479515B56338825 /* HTTPTTSConfig.swift */; };
 		40479825289343F4985EF7C7 /* SelectiveRestorePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1A92ABEE677825BB310F05 /* SelectiveRestorePicker.swift */; };
@@ -903,6 +905,7 @@
 		050AAFD290B8995258D78AC2 /* FormatCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormatCapabilities.swift; sourceTree = "<group>"; };
 		055FBEA382F82BE342A50C8E /* LocatorFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocatorFactoryTests.swift; sourceTree = "<group>"; };
 		0616892213196BCF802266F8 /* ContentHasherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentHasherTests.swift; sourceTree = "<group>"; };
+		0646DB2E4CD5095035092623 /* FoliateHighlightTapResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateHighlightTapResolver.swift; sourceTree = "<group>"; };
 		064AE6DC1BC56B9DD7CCA796 /* AIProviderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderPicker.swift; sourceTree = "<group>"; };
 		0676527574C593F03D71FEE7 /* epubcfi.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = epubcfi.js; sourceTree = "<group>"; };
 		06EFFD5584526A6602FEE2E1 /* SyncTestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTestHelpers.swift; sourceTree = "<group>"; };
@@ -1519,6 +1522,7 @@
 		BFA61DA459242CFDBBD809B7 /* DebugSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugSnapshotTests.swift; sourceTree = "<group>"; };
 		BFB65788879E3D91E69E8BA5 /* BlobPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlobPathTests.swift; sourceTree = "<group>"; };
 		C00E5921EA2B5FE88656FED6 /* AnnotationsPanelViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationsPanelViewTests.swift; sourceTree = "<group>"; };
+		C0461A65278F56C6D2271993 /* FoliateHighlightTapResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateHighlightTapResolverTests.swift; sourceTree = "<group>"; };
 		C07FF4DC80918BEE43FF99D4 /* RealDebugBridgeContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealDebugBridgeContextTests.swift; sourceTree = "<group>"; };
 		C0B1246EC0EE34D326231F60 /* SearchQueryExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryExecutorTests.swift; sourceTree = "<group>"; };
 		C0E2A8F2AD957F6A16BC7C4F /* LazyDownloadFinalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyDownloadFinalizer.swift; sourceTree = "<group>"; };
@@ -1815,6 +1819,7 @@
 		125CC0F5D1D55B25A8D180D5 /* Foliate */ = {
 			isa = PBXGroup;
 			children = (
+				0646DB2E4CD5095035092623 /* FoliateHighlightTapResolver.swift */,
 				58CB10F386B36EF83C36873F /* FoliateJSEscaper.swift */,
 				36EE33B24FB16F8AC319BDB2 /* FoliateMessageParser.swift */,
 				9B8C36563D7885AD214F885A /* FoliateSearchAdapter.swift */,
@@ -3324,6 +3329,7 @@
 		F6B825FA31B4BE686CDE11CE /* Foliate */ = {
 			isa = PBXGroup;
 			children = (
+				C0461A65278F56C6D2271993 /* FoliateHighlightTapResolverTests.swift */,
 				61DB3214E22D83E3A8E19212 /* FoliateJSEscaperTests.swift */,
 				EB35F648E8E697C82E4C41DE /* FoliateMessageParserTests.swift */,
 				A6DB55181F2F55D99D879507 /* FoliateSearchAdapterTests.swift */,
@@ -3683,6 +3689,7 @@
 				2DB8779FF53587C400452428 /* FileAvailabilityStateMachineTests.swift in Sources */,
 				019FB8C5A2498141587A09A4 /* FileURLImportRouterTests.swift in Sources */,
 				F30E23AC6F6159FB814A7C7D /* FoliateHighlightRendererTests.swift in Sources */,
+				3EB8343FF1512E959CCEDD65 /* FoliateHighlightTapResolverTests.swift in Sources */,
 				9DD6989E27FE922715DE4990 /* FoliateJSEscaperTests.swift in Sources */,
 				6CC40A6DE2F14BB94A53006B /* FoliateMessageParserTests.swift in Sources */,
 				B8B06D067BBB837C6138967D /* FoliateReaderContainerViewTests.swift in Sources */,
@@ -4069,6 +4076,7 @@
 				095C1FEFA8400DD2F1A61CFF /* FileSizeFormatter.swift in Sources */,
 				D924CEB663B0891962654696 /* FileURLImportRouter.swift in Sources */,
 				11268CE0083F01ADC27C5C6B /* FoliateHighlightRenderer.swift in Sources */,
+				0ECFF8347437492AC8881CCF /* FoliateHighlightTapResolver.swift in Sources */,
 				9C87FCF01164A269B85DA51A /* FoliateJSEscaper.swift in Sources */,
 				297A0059E0ECEEFA691E839C /* FoliateMessageParser.swift in Sources */,
 				738B74E158FE8F96E40E718D /* FoliateReaderContainerView+Highlights.swift in Sources */,
@@ -4490,13 +4498,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 374;
+				CURRENT_PROJECT_VERSION = 375;
 				INFOPLIST_FILE = vreader/SupportingFiles/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.22.22;
+				MARKETING_VERSION = 3.22.23;
 				PRODUCT_BUNDLE_IDENTIFIER = com.vreader.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -4640,13 +4648,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 374;
+				CURRENT_PROJECT_VERSION = 375;
 				INFOPLIST_FILE = vreader/SupportingFiles/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.22.22;
+				MARKETING_VERSION = 3.22.23;
 				PRODUCT_BUNDLE_IDENTIFIER = com.vreader.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

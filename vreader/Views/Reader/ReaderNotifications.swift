@@ -65,6 +65,15 @@ extension Notification.Name {
     /// Posted when a footnote link is detected in EPUB content (foliate-js).
     /// Object is [String: String] with "href" and "text" keys.
     static let epubFootnoteDetected = Notification.Name("vreader.epubFootnoteDetected")
+    /// Feature #53 WI-5: posted by `FoliateSpikeView`'s coordinator when the
+    /// Foliate-js bridge emits `annotation-show` (user tapped an existing
+    /// highlight). The `userInfo` carries `["cfi": String, "fingerprintKey":
+    /// String]`. The outer `FoliateSpikeView.body` observes it (where
+    /// `modelContext` is in scope), resolves CFI → UUID via
+    /// `FoliateHighlightTapResolver`, and posts the cross-format
+    /// `.readerHighlightTapped` event. Filtered by `fingerprintKey` so
+    /// concurrent Foliate readers don't cross-fire.
+    static let foliateAnnotationTapRequested = Notification.Name("vreader.foliateAnnotationTapRequested")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.

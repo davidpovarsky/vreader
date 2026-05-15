@@ -5,6 +5,7 @@
 import SwiftUI
 import SwiftData
 import WebKit
+import OSLog
 
 struct FoliateSpikeView: View {
     let bookURL: URL
@@ -56,6 +57,38 @@ struct FoliateSpikeView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .foliateAnnotationTapRequested)) { notification in
+            // Feature #53 WI-5: resolve the tapped CFI → highlight UUID and
+            // post `.readerHighlightTapped` so the cross-format inline-menu
+            // pipeline picks it up. `sourceRect` is `.zero` for now —
+            // foliate-host.js doesn't yet forward the annotation's screen
+            // rect; that's a follow-up. The notification firing is the
+            // important behavior change (regression fix from posting
+            // `.readerHighlightRequested`, which was silently no-op'd).
+            guard let info = notification.userInfo,
+                  let cfi = info["cfi"] as? String,
+                  let key = info["fingerprintKey"] as? String,
+                  key == fingerprintKey else { return }
+            let persistence = PersistenceActor(modelContainer: modelContext.container)
+            Task { @MainActor in
+                do {
+                    let records = try await persistence.fetchHighlights(forBookWithKey: key)
+                    guard let highlightID = FoliateHighlightTapResolver.resolveHighlightID(
+                        forCFI: cfi, in: records
+                    ) else { return }
+                    NotificationCenter.default.post(
+                        name: .readerHighlightTapped,
+                        object: ReaderHighlightTapEvent(highlightID: highlightID, sourceRect: .zero)
+                    )
+                } catch {
+                    // Surfacing this to the user would be noisy; the inline-
+                    // menu just won't appear for this tap. Logged for
+                    // diagnosis.
+                    let log = Logger(subsystem: "com.vreader.app", category: "FoliateSpikeView")
+                    log.error("annotation-tap resolver fetch failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .readerBookmarkRequested)) { _ in
             guard let key = fingerprintKey,
                   let fp = DocumentFingerprint(canonicalKey: key) else { return }
@@ -101,8 +134,8 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
             onBookReady: onBookReady,
             onError: onError
         )
-        #if DEBUG
         coord.fingerprintKey = fingerprintKey
+        #if DEBUG
         coord.readerToken = readerToken
         #endif
         return coord
@@ -227,12 +260,13 @@ extension FoliateSpikeView {
         /// `updateUIView` checks this before pushing `setLayout` because the
         /// JS-side renderer isn't attached until after init.
         var isBookReady: Bool = false
-        #if DEBUG
-        /// Bug #141: book identity for the DebugBridge eval registry
-        /// binding. Set by FoliateSpikeWebView.makeCoordinator() from the
-        /// SwiftUI binding. didFinish reads this to register the live
-        /// `WKWebView` against the book's key.
+        /// Bug #141 / Feature #53 WI-5: book identity needed by the
+        /// DebugBridge eval registry (DEBUG only) AND by the production
+        /// `annotation-show` handler that posts the resolver request with
+        /// a per-reader filter. Set by `makeCoordinator()` from the
+        /// SwiftUI binding regardless of build configuration.
         var fingerprintKey: String?
+        #if DEBUG
         /// Bug #142: per-reader instance token paired with fingerprintKey.
         var readerToken: UUID?
         #endif
@@ -315,6 +349,25 @@ extension FoliateSpikeView {
                 // `tap` message hit the default branch and silently
                 // no-oped.
                 NotificationCenter.default.post(name: .readerContentTapped, object: nil)
+
+            case "annotation-show":
+                // Feature #53 WI-5: user tapped an existing highlight in the
+                // Foliate-rendered (AZW3/MOBI) reader. The bridge forwards
+                // `e.detail.value` (the CFI) as `value`. Forward to the
+                // outer view (which has `modelContext` in scope) so the
+                // CFI can be resolved to the persisted highlight's UUID
+                // and `.readerHighlightTapped` posted. Filtered by
+                // `fingerprintKey` so concurrent Foliate readers don't
+                // cross-fire.
+                if let dict = body as? [String: Any],
+                   let value = dict["value"] as? String,
+                   let key = self.fingerprintKey {
+                    NotificationCenter.default.post(
+                        name: .foliateAnnotationTapRequested,
+                        object: nil,
+                        userInfo: ["cfi": value, "fingerprintKey": key]
+                    )
+                }
 
             case "error":
                 if let dict = body as? [String: Any] {

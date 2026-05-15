@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VReader — Hi-fi prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..900;1,8..60,300..900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #1a1815;
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+  body {
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .page {
+    width: 100vw; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(ellipse at top, #2a2620 0%, #1a1815 60%, #100e0c 100%);
+  }
+  .stage {
+    position: relative;
+    transform-origin: center;
+    z-index: 100;
+  }
+  .hide-scroll::-webkit-scrollbar { display: none; }
+  .hide-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes popIn {
+    from { transform: translateY(8px) scale(0.96); opacity: 0; }
+    to   { transform: translateY(0) scale(1); opacity: 1; }
+  }
+
+  button { font-family: inherit; }
+  button:focus { outline: none; }
+
+  .label {
+    position: absolute; top: 18px; left: 24px;
+    color: rgba(255,255,255,0.45);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 13px; letter-spacing: 0.3px;
+    z-index: 10;
+  }
+  .label b { color: rgba(255,255,255,0.75); font-weight: 600; }
+  .footer-note {
+    position: absolute; bottom: 18px; left: 24px;
+    color: rgba(255,255,255,0.32);
+    font-size: 11px; letter-spacing: 0.3px;
+    z-index: 10;
+  }
+</style>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+    <rect width="200" height="200" fill="#1a1815"/>
+    <rect x="70" y="50" width="60" height="90" rx="2" fill="#5a3a3a"/>
+    <text x="100" y="100" font-family="Georgia, serif" font-size="34" font-style="italic" font-weight="600" fill="#f4e9d4" text-anchor="middle">V</text>
+    <text x="100" y="170" font-family="Inter, sans-serif" font-size="13" font-weight="600" fill="#d8d2c5" text-anchor="middle" letter-spacing="2">VREADER</text>
+  </svg>
+</template>
+
+</head>
+<body>
+
+<div class="label">
+  <b>VReader</b> · iPhone hi-fi prototype
+  <div style="font-size:11px;margin-top:4px;opacity:0.65;line-height:1.5;max-width:280px;">Tap a book to open. In the reader, tap edges to turn pages, long-press text to highlight, and use the toolbar for Contents, Notes, Display & AI.</div>
+</div>
+
+<div class="page">
+  <div class="stage" id="stage">
+    <div id="device-mount"></div>
+  </div>
+</div>
+
+<div class="footer-note">Source Serif 4 · Inter · oxblood accent · paper / sepia / dark / OLED / photo themes</div>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Frames + data + components -->
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="vreader-data.jsx"></script>
+<script type="text/babel" src="vreader-themes.jsx"></script>
+<script type="text/babel" src="vreader-icons.jsx"></script>
+<script type="text/babel" src="vreader-cover.jsx"></script>
+<script type="text/babel" src="vreader-library.jsx"></script>
+<script type="text/babel" src="vreader-reader.jsx"></script>
+<script type="text/babel" src="vreader-panels.jsx"></script>
+<script type="text/babel" src="vreader-app.jsx"></script>
+
+<script type="text/babel">
+  function Root() {
+    // Auto-scale device to fit viewport
+    const [scale, setScale] = React.useState(1);
+    React.useEffect(() => {
+      const fit = () => {
+        const w = window.innerWidth, h = window.innerHeight;
+        const pad = 30;
+        const s = Math.min((w - pad * 2) / 402, (h - pad * 2) / 874, 1.4);
+        setScale(s);
+        const stage = document.getElementById('stage');
+        if (stage) stage.style.transform = `scale(${s})`;
+      };
+      fit();
+      window.addEventListener('resize', fit);
+      return () => window.removeEventListener('resize', fit);
+    }, []);
+
+    return (
+      <div style={{
+        width: 402, height: 874, borderRadius: 48, overflow: 'hidden',
+        position: 'relative', background: '#000',
+        boxShadow: '0 40px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 6px #1a1815, 0 0 0 7px #2a2620',
+        fontFamily: '-apple-system, "Inter", system-ui, sans-serif',
+        WebkitFontSmoothing: 'antialiased',
+      }}>
+        {/* Dynamic island */}
+        <div style={{
+          position: 'absolute', top: 11, left: '50%', transform: 'translateX(-50%)',
+          width: 126, height: 37, borderRadius: 24, background: '#000', zIndex: 400,
+          pointerEvents: 'none',
+        }}/>
+        {/* Content (App owns status bar + everything else) */}
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <App/>
+        </div>
+        {/* Home indicator */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 600,
+          height: 28, display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
+          paddingBottom: 8, pointerEvents: 'none',
+        }}>
+          <div style={{
+            width: 139, height: 5, borderRadius: 100,
+            background: 'rgba(255,255,255,0.45)',
+            mixBlendMode: 'difference',
+          }}/>
+        </div>
+      </div>
+    );
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('device-mount'));
+  root.render(<Root/>);
+</script>
+
+</body>
+</html>

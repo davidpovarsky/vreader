@@ -184,6 +184,7 @@ All cross-component communication uses NotificationCenter:
 | `.epubFootnoteDetected`        | footnote ref         | EPUB bridge → Container (footnote popup)                |
 | `.bookFileStateDidChange`      | `["fingerprintKey","state"]` | LazyDownloadCoordinator (reconcile) → LibraryView (refresh row, feature #47) |
 | `.libraryRowTappedWhileNotLocal` | `["fingerprintKey","fileState"]` | LibraryView → BookDownloadSheet (future, #47 WI-6) |
+| `.bookDidImport`               | `["fingerprintKey"]`         | BookImporter (after persist, new + duplicate paths) → LibraryView (force-refresh; bug #197) |
 
 ## Shared Reader UI State (Phase R3)
 

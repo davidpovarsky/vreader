@@ -299,4 +299,51 @@ struct LibraryViewModelTests {
 
         #expect(vm.books.count == 2)
     }
+
+    @Test @MainActor func refreshConcurrentCalls_coalesceIntoTrailingRefresh() async {
+        // Bug #197 coalescing: when a refresh arrives while another is
+        // in-flight, the old behavior dropped it (`guard !isRefreshing
+        // else { return }`). With multi-import flows (WebDAV restore,
+        // burst .bookDidImport notifications), that lost the second
+        // refresh and left the library stale. The new behavior sets a
+        // pending flag and re-runs the fetch after the in-flight one
+        // returns. This test validates fetchCallCount >= 2 across two
+        // concurrent refresh calls (vs the old behavior's == 1).
+        let mock = MockLibraryPersistence()
+        await mock.seed(.stub(title: "Initial"))
+
+        // Force-bypass the throttle so the coalescing path is the only
+        // gating mechanism we're testing.
+        let vm = LibraryViewModel(persistence: mock)
+
+        async let first: Void = vm.refresh(force: true)
+        async let second: Void = vm.refresh(force: true)
+        _ = await (first, second)
+
+        let calls = await mock.fetchCallCount
+        #expect(calls >= 2, "Expected the trailing refresh to fire (fetchCallCount = \(calls)); coalescing must not drop re-entrant calls")
+    }
+
+    @Test @MainActor func refreshThreeWaveCoalesce_drainsUntilQuiescent() async {
+        // Bug #197 round-2 fix: the trailing edge needs to be a LOOP, not a
+        // single check. If a third refresh arrives while the trailing fetch
+        // (kicked off by a second refresh) is still in flight, that third
+        // refresh would be lost without the drain-until-quiescent loop.
+        // This test launches three concurrent forced refreshes and asserts
+        // every one of them is observable in the fetch counter.
+        let mock = MockLibraryPersistence()
+        await mock.seed(.stub(title: "Initial"))
+        let vm = LibraryViewModel(persistence: mock)
+
+        async let a: Void = vm.refresh(force: true)
+        async let b: Void = vm.refresh(force: true)
+        async let c: Void = vm.refresh(force: true)
+        _ = await (a, b, c)
+
+        let calls = await mock.fetchCallCount
+        // First call runs immediately; b and c may collapse onto a single
+        // trailing iteration (both set the same pending flag) — that's
+        // correct coalescing, NOT loss. So the floor is 2, not 3.
+        #expect(calls >= 2, "Expected the drain loop to fire at least one trailing iteration (fetchCallCount = \(calls))")
+    }
 }

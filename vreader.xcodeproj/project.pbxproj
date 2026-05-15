@@ -415,6 +415,7 @@
 		76272EACDDB7D292C6CA8C9E /* HighlightedSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF4E488AD7274100802E64AD /* HighlightedSnippet.swift */; };
 		762B3F65978080FE7D26BF4C /* AnnotationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11E9DBFB16DA26DD0659851 /* AnnotationModelTests.swift */; };
 		76B75FF4AC85FDA4239E43DE /* ProviderProfileMigratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7C16F12BA653A217A5439C /* ProviderProfileMigratorTests.swift */; };
+		7778CE2B4527836E7E8B3FD7 /* PDFHighlightTapResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21285A9149B2F11210A9430 /* PDFHighlightTapResolverTests.swift */; };
 		77922030EB933D898ED67C10 /* FoliateViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17013114ADB4797AB48D794 /* FoliateViewBridge.swift */; };
 		77D706EE2E466C650B00C381 /* WebDAVProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B294CBB624E1CE03FEFA40E6 /* WebDAVProviderTests.swift */; };
 		7872FD996BEB1009EFF26413 /* AnnotationEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAE2660201ADC0B4272B9EE /* AnnotationEditSheet.swift */; };
@@ -686,6 +687,7 @@
 		C819E99DEF2A16B032B767B1 /* WebDAVServerProfileEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800ED346D9C0E17741704040 /* WebDAVServerProfileEditSheet.swift */; };
 		C81A31B52218576A75210100 /* TXTFileLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F7059169A9ADC70EE01420E /* TXTFileLoaderTests.swift */; };
 		C81C50DAC16681379E93FC9D /* AIConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A57E82A7221B36240E501FD /* AIConfigurationTests.swift */; };
+		C838192CECBAC53CDF6D2393 /* PDFHighlightTapResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C088F2362AA8867991B4D10B /* PDFHighlightTapResolver.swift */; };
 		C89BA415E1DB53FD1AF65604 /* PDFIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E22141BA785A9A62A4BE9A /* PDFIntegrationTests.swift */; };
 		C8AC5FD914F26F89DA69AA8C /* AIChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206F4BCC7294731E8A3A82DB /* AIChatViewModel.swift */; };
 		C8CAC189EAB663B2A0F7269F /* FoliateStyleMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0928B53225E1D74131620204 /* FoliateStyleMapper.swift */; };
@@ -1524,6 +1526,7 @@
 		C00E5921EA2B5FE88656FED6 /* AnnotationsPanelViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationsPanelViewTests.swift; sourceTree = "<group>"; };
 		C0461A65278F56C6D2271993 /* FoliateHighlightTapResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateHighlightTapResolverTests.swift; sourceTree = "<group>"; };
 		C07FF4DC80918BEE43FF99D4 /* RealDebugBridgeContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealDebugBridgeContextTests.swift; sourceTree = "<group>"; };
+		C088F2362AA8867991B4D10B /* PDFHighlightTapResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFHighlightTapResolver.swift; sourceTree = "<group>"; };
 		C0B1246EC0EE34D326231F60 /* SearchQueryExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryExecutorTests.swift; sourceTree = "<group>"; };
 		C0E2A8F2AD957F6A16BC7C4F /* LazyDownloadFinalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyDownloadFinalizer.swift; sourceTree = "<group>"; };
 		C0E536B950D178C97842DF52 /* EPUBWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBWebViewBridge.swift; sourceTree = "<group>"; };
@@ -1640,6 +1643,7 @@
 		E19A1FE14FDE4829AF0F5913 /* TXTReaderViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTReaderViewModel.swift; sourceTree = "<group>"; };
 		E1C9AB72079AF7B2ACCAB516 /* AIConsentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConsentManager.swift; sourceTree = "<group>"; };
 		E1EF16A1A352B2C6BAE84556 /* UnifiedMDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedMDTests.swift; sourceTree = "<group>"; };
+		E21285A9149B2F11210A9430 /* PDFHighlightTapResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFHighlightTapResolverTests.swift; sourceTree = "<group>"; };
 		E236729BD7E4F24ADA78F24F /* ReaderChromeBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderChromeBar.swift; sourceTree = "<group>"; };
 		E2396FE1BB03C2F3CEFAB8E2 /* AutoPageTurnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPageTurnerTests.swift; sourceTree = "<group>"; };
 		E24D3FC7488318277468A7F0 /* LibraryAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryAccessibilityTests.swift; sourceTree = "<group>"; };
@@ -2146,6 +2150,7 @@
 				CB7EBD49DAE8D5F5BC4C7207 /* PageTurnAnimatorTests.swift */,
 				4B3A240BB6031B14144741FE /* PDFAnnotationBridgeTests.swift */,
 				B849723B3079FB8F3F4A7961 /* PDFHighlightIntegrationTests.swift */,
+				E21285A9149B2F11210A9430 /* PDFHighlightTapResolverTests.swift */,
 				3C39119533D269F76F970FD1 /* PDFPageNavigatorTests.swift */,
 				775CED0704F1D6D39F873FF9 /* PDFProgressTests.swift */,
 				58705D22AE9F6101164D5FA3 /* PDFViewBridgeThemeTests.swift */,
@@ -2516,6 +2521,7 @@
 				E9D4D088D34AA8A5692A991B /* PageTurnAnimator.swift */,
 				A064D62C86857484454D0BE3 /* PDFAnnotationBridge.swift */,
 				8719A34DB441AF9DC6379DC9 /* PDFHighlightRenderer.swift */,
+				C088F2362AA8867991B4D10B /* PDFHighlightTapResolver.swift */,
 				103B5BF35C8DC9FB2BE4998F /* PDFPageNavigator.swift */,
 				425829C48779CD64EB0C5A05 /* PDFPasswordPromptView.swift */,
 				5A54A2C5DE8C1631C04BB2A1 /* PDFProgressHelper.swift */,
@@ -3780,6 +3786,7 @@
 				32C58BAAF2DB529049921D4D /* OPDSParserTests.swift in Sources */,
 				CBF9C34C3E23A55FD82B726D /* PDFAnnotationBridgeTests.swift in Sources */,
 				ED9650F4A937ED6D04E2E416 /* PDFHighlightIntegrationTests.swift in Sources */,
+				7778CE2B4527836E7E8B3FD7 /* PDFHighlightTapResolverTests.swift in Sources */,
 				C89BA415E1DB53FD1AF65604 /* PDFIntegrationTests.swift in Sources */,
 				FD88118ABE86FDFBA67DFF50 /* PDFPageNavigatorTests.swift in Sources */,
 				6B30D9E131580FD96CF77D20 /* PDFProgressTests.swift in Sources */,
@@ -4165,6 +4172,7 @@
 				DB1CB3500F488BBB187E9726 /* OffsetMap.swift in Sources */,
 				8E2E64928835A3533FDE10FA /* PDFAnnotationBridge.swift in Sources */,
 				AD1910F64D226400933FDBA2 /* PDFHighlightRenderer.swift in Sources */,
+				C838192CECBAC53CDF6D2393 /* PDFHighlightTapResolver.swift in Sources */,
 				71397E1DB2920A02C5CEE39E /* PDFPageNavigator.swift in Sources */,
 				50837395A5CDCDFC14CF2B64 /* PDFPasswordPromptView.swift in Sources */,
 				34E5034ADB5725781C9CE5C8 /* PDFProgressHelper.swift in Sources */,
@@ -4498,13 +4506,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 376;
+				CURRENT_PROJECT_VERSION = 377;
 				INFOPLIST_FILE = vreader/SupportingFiles/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.22.24;
+				MARKETING_VERSION = 3.23.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.vreader.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -4648,13 +4656,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 376;
+				CURRENT_PROJECT_VERSION = 377;
 				INFOPLIST_FILE = vreader/SupportingFiles/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.22.24;
+				MARKETING_VERSION = 3.23.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.vreader.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

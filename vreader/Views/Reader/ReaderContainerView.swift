@@ -499,7 +499,8 @@ struct ReaderContainerView: View {
                 fileURL: resolvedFileURL,
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
-                ttsService: ttsService
+                ttsService: ttsService,
+                settingsStore: settingsStore
             )
         case "txt":
             TXTReaderHost(

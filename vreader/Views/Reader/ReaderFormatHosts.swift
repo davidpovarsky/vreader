@@ -54,13 +54,17 @@ struct PDFReaderHost: View {
     let fingerprint: DocumentFingerprint
     let modelContainer: ModelContainer
     let ttsService: TTSService
+    /// Bug #198: settingsStore threaded so the PDF reader can theme the
+    /// PDFView gutter on Light / Sepia / Dark switches. Optional to keep
+    /// previews and ad-hoc test harnesses source-compatible.
+    var settingsStore: ReaderSettingsStore?
 
     @State private var viewModel: PDFReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer, ttsService: ttsService)
+                PDFReaderContainerView(fileURL: fileURL, viewModel: viewModel, modelContainer: modelContainer, ttsService: ttsService, settingsStore: settingsStore)
             } else {
                 ProgressView()
             }

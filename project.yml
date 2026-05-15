@@ -133,8 +133,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vreader.app
-        CURRENT_PROJECT_VERSION: 345
-        MARKETING_VERSION: 3.21.68
+        CURRENT_PROJECT_VERSION: 346
+        MARKETING_VERSION: 3.21.69
     info:
       # XcodeGen writes vreader/SupportingFiles/Info.plist with this content.
       # We need a real Info.plist (not Xcode's auto-generated one) because
@@ -167,6 +167,16 @@ targets:
       testTargets:
         - vreaderTests
         - vreaderUITests
+      # Feature #45 WI-6: named test plans. `All` keeps the no-flag default
+      # (`Cmd+U` / `xcodebuild test`) running the full suite. `Verification`
+      # selects the 25 per-method identifiers under vreaderUITests/Verification/
+      # (one named flag instead of an `-only-testing:` string in every CI/cron
+      # invocation). Membership is checked-in JSON at TestPlans/Verification.xctestplan
+      # and must be kept in sync with the filesystem; Gate 5 parses the JSON.
+      testPlans:
+        - path: TestPlans/All.xctestplan
+          defaultPlan: true
+        - path: TestPlans/Verification.xctestplan
 
   vreaderTests:
     type: bundle.unit-test

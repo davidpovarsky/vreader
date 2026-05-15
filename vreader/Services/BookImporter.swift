@@ -15,6 +15,20 @@
 
 import Foundation
 
+extension Notification.Name {
+    /// Posted by `BookImporter` after a successful import — both new-row and
+    /// duplicate-replace paths. `userInfo` carries `["fingerprintKey": String]`.
+    /// Library views observe this to refresh without polling.
+    ///
+    /// Bug #197: incoming-URL imports via FileURLImportRouter (Feature #59)
+    /// inserted the row but the library view (which uses an imperative
+    /// `loadBooks()` array, not a reactive `@Query`) never observed the
+    /// change. Posting this from the importer gives every import path —
+    /// in-app Files-picker, Share Sheet, future flows — a free refresh
+    /// signal without coupling the router to the view layer.
+    static let bookDidImport = Notification.Name("vreader.import.bookDidImport")
+}
+
 /// Result of a successful import operation.
 struct ImportResult: Sendable, Equatable {
     let fingerprintKey: String
@@ -135,6 +149,17 @@ final class BookImporter: BookImporting, Sendable {
             )
             try await persistence.replaceProvenance(provenance, toBookWithKey: fingerprintKey)
 
+            // Bug #197: duplicate path still surfaces the row so a user who
+            // re-shares an already-imported file sees the library reflect it
+            // (selection, scroll-to-row, or just confirmation that "it's
+            // already there"). The library observer treats this as a refresh
+            // signal, not a row-insertion signal.
+            NotificationCenter.default.post(
+                name: .bookDidImport,
+                object: nil,
+                userInfo: ["fingerprintKey": existing.fingerprintKey]
+            )
+
             // Return persisted metadata. For an identical file (same SHA-256 + size),
             // detectedEncoding and other metadata are unchanged.
             return ImportResult(
@@ -224,6 +249,17 @@ final class BookImporter: BookImporting, Sendable {
 
         // Bug #139: Step 12 (indexing-trigger notification) removed. Lazy
         // indexing on search-open is the actual production path.
+
+        // Bug #197: post the .bookDidImport refresh signal so any library
+        // view (regardless of which entry path triggered the import — in-app
+        // picker, Share Sheet via FileURLImportRouter, future flows) can
+        // reload its book list without polling. Posted AFTER persist so
+        // observers reading from SwiftData see the new row.
+        NotificationCenter.default.post(
+            name: .bookDidImport,
+            object: nil,
+            userInfo: ["fingerprintKey": persisted.fingerprintKey]
+        )
 
         // Step 13: EPUB pre-extraction for instant open (WI-8)
         if persisted.fingerprint.format == .epub {

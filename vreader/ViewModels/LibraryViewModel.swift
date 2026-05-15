@@ -82,6 +82,16 @@ final class LibraryViewModel {
     /// so that failed refreshes don't block retry.
     private var lastRefreshTime: Date?
 
+    /// Bug #197: when a `refresh()` call arrives while another is in flight,
+    /// we set this flag and run one trailing refresh after the current one
+    /// finishes — so a burst of `.bookDidImport` notifications from a
+    /// multi-import (e.g., WebDAV restore inserting several books in quick
+    /// succession) doesn't leave the library stale because the second
+    /// notification arrived during the first refresh's DB fetch and got
+    /// dropped. Only the trailing edge is coalesced; intermediate calls
+    /// don't queue up.
+    private var hasPendingRefresh = false
+
     // MARK: - Init
 
     // Persistence keys for UserDefaults (bug #75)
@@ -130,11 +140,16 @@ final class LibraryViewModel {
     }
 
     /// Refreshes the book list, throttled to prevent rapid consecutive calls.
-    /// Re-entrant calls (while already refreshing) are dropped.
+    /// Re-entrant calls (while already refreshing) are coalesced into one
+    /// trailing refresh — see `hasPendingRefresh` above for the rationale.
     /// - Parameter force: If true, bypasses the throttle (e.g., after navigation back from reader).
     func refresh(force: Bool = false) async {
-        // Re-entrancy guard: if already refreshing, skip.
-        guard !isRefreshing else { return }
+        // Re-entrancy: mark a trailing refresh and bail; the in-flight call
+        // will pick it up after it finishes (bug #197 coalescing).
+        if isRefreshing {
+            hasPendingRefresh = true
+            return
+        }
 
         // Throttle check (skip when force is true)
         if !force, let last = lastRefreshTime,
@@ -145,10 +160,33 @@ final class LibraryViewModel {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        await loadBooks()
-        // Only record refresh time on success to allow retry on failure.
-        if errorMessage == nil {
-            lastRefreshTime = Date()
+        // Drain pending work until quiescent. Each iteration clears
+        // `hasPendingRefresh` BEFORE the fetch so any refresh that arrives
+        // DURING the fetch flips the flag back on, ensuring it isn't lost.
+        // Safety bound (8 iterations) defends against a runaway loop if
+        // an external poster ever fires faster than the fetch can drain;
+        // in practice 1–2 iterations is the normal case.
+        var iterations = 0
+        repeat {
+            hasPendingRefresh = false
+            await loadBooks()
+            if errorMessage == nil {
+                lastRefreshTime = Date()
+            }
+            iterations += 1
+        } while hasPendingRefresh && iterations < 8
+
+        // If the safety bound tripped while pending work was still queued,
+        // don't abandon it — dispatch a follow-up Task that re-enters
+        // `refresh(force:)` after `isRefreshing` has been cleared by the
+        // `defer`. This preserves the invariant "every observed pending
+        // refresh runs at least one fetch after it was observed" even
+        // under sustained notification bursts that exceed the loop bound.
+        if hasPendingRefresh {
+            hasPendingRefresh = false
+            Task { @MainActor [weak self] in
+                await self?.refresh(force: true)
+            }
         }
     }
 

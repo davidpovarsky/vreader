@@ -200,6 +200,15 @@ struct LibraryView: View {
             .onReceive(NotificationCenter.default.publisher(for: .bookFileStateDidChange)) { _ in
                 Task { await viewModel.refresh(force: true) }
             }
+            // Bug #197: BookImporter posts `.bookDidImport` after every import
+            // (new + duplicate). The in-app Files-picker path already calls
+            // `loadBooks()` directly so this is redundant there, but the
+            // Share Sheet / system-Open-in path (FileURLImportRouter,
+            // Feature #59 WI-2) does not — that path previously left the
+            // library out-of-sync until next cold launch. Wrapped in a
+            // ViewModifier because adding it inline pushed the body past
+            // the Swift type-checker's complexity limit.
+            .modifier(BookDidImportRefresher(viewModel: viewModel))
             #if DEBUG
             // Feature #44 DebugBridge — vreader-debug://open posts this so
             // automated tests can navigate to a specific book without
@@ -764,5 +773,19 @@ struct LibraryView: View {
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.clearError() } }
         )
+    }
+}
+
+/// Bug #197: observer for `.bookDidImport`, force-refreshing the library
+/// view's books array. Lives as a separate ViewModifier so the parent body's
+/// `.onReceive` chain stays under the Swift type-checker's complexity ceiling.
+private struct BookDidImportRefresher: ViewModifier {
+    let viewModel: LibraryViewModel
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .bookDidImport)) { _ in
+                Task { await viewModel.refresh(force: true) }
+            }
     }
 }

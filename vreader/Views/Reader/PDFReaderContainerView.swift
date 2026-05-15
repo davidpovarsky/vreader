@@ -85,7 +85,11 @@ struct PDFReaderContainerView: View {
                 pendingHighlightId: pendingHighlightId,
                 searchHighlightText: searchHighlightText,
                 highlightRenderer: highlightRenderer,
-                theme: settingsStore?.theme
+                theme: settingsStore?.theme,
+                highlightActionPresenter: UIKitHighlightActionPresenter(),
+                onHighlightTapAction: { [highlightCoordinator] action, id in
+                    await highlightCoordinator?.handleTapAction(action, highlightID: id)
+                }
             )
             .ignoresSafeArea(edges: .bottom)
             .accessibilityIdentifier("pdfReaderContent")

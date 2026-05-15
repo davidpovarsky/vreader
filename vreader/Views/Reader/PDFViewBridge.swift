@@ -47,6 +47,16 @@ struct PDFViewBridge: UIViewRepresentable {
     /// rendered by PDFKit from the source PDF (white for typical text PDFs);
     /// inverting page colors in dark mode is a separate feature.
     var theme: ReaderTheme?
+    /// Feature #53 WI-6: optional inline-menu presenter. When non-nil + a
+    /// highlight tap resolves, `handleTap` presents the menu anchored to
+    /// the tapped annotation's bounds. When nil, the bridge still posts
+    /// `.readerHighlightTapped` (any observer can react), but no menu
+    /// appears — keeps source compatibility for preview/test harnesses.
+    var highlightActionPresenter: (any HighlightActionPresenting)?
+    /// Feature #53 WI-6: callback invoked after the user picks an action
+    /// from the inline menu. The container routes this through
+    /// `HighlightCoordinator.handleTapAction` to persist the change.
+    var onHighlightTapAction: ((HighlightTapAction, UUID) async -> Void)?
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -68,6 +78,9 @@ struct PDFViewBridge: UIViewRepresentable {
 
         context.coordinator.pdfView = pdfView
         context.coordinator.viewModel = viewModel
+        context.coordinator.highlightRenderer = highlightRenderer
+        context.coordinator.highlightActionPresenter = highlightActionPresenter
+        context.coordinator.onHighlightTapAction = onHighlightTapAction
 
         // Tap gesture for toolbar toggle (bug #32 — same pattern as TXT #21)
         let tapGesture = UITapGestureRecognizer(
@@ -110,6 +123,15 @@ struct PDFViewBridge: UIViewRepresentable {
             theme: theme,
             lastAppliedTheme: context.coordinator.lastAppliedTheme
         )
+
+        // Feature #53 WI-6: re-bind coordinator state on every update.
+        // `highlightCoordinator` is initialized later in PDFReaderContainerView's
+        // async `.task`, so the closure that captures it from makeUIView would
+        // see nil forever. Matches the TXT/EPUB pattern (TXTTextViewBridge:176,
+        // EPUBWebViewBridge:234) for the same reason.
+        context.coordinator.highlightRenderer = highlightRenderer
+        context.coordinator.highlightActionPresenter = highlightActionPresenter
+        context.coordinator.onHighlightTapAction = onHighlightTapAction
 
         // Handle password retry: if attempt ID changed, try unlocking
         if let password,
@@ -310,6 +332,17 @@ struct PDFViewBridge: UIViewRepresentable {
         /// Bug #198: tracks the last applied reader theme so updateUIView only
         /// re-applies `applyThemeBackground` when the user actually switched.
         var lastAppliedTheme: ReaderTheme?
+        /// Feature #53 WI-6: weak reference to the renderer that owns the
+        /// `[UUID: [PDFAnnotation]]` map. handleTap consults this to detect
+        /// taps on highlight annotations and post `.readerHighlightTapped`
+        /// before falling through to the chrome-toggle path.
+        weak var highlightRenderer: PDFHighlightRenderer?
+        /// Feature #53 WI-6: inline-menu presenter, injected from
+        /// PDFReaderContainerView. nil means notification-only mode.
+        var highlightActionPresenter: (any HighlightActionPresenting)?
+        /// Feature #53 WI-6: action callback, routed through
+        /// HighlightCoordinator by the container.
+        var onHighlightTapAction: ((HighlightTapAction, UUID) async -> Void)?
         /// Cancellable work item for the selection auto-clear timer (Issue 7).
         /// Stored so a new search highlight can cancel the previous timer, preventing
         /// a stale timer from clearing the wrong selection.
@@ -391,6 +424,57 @@ struct PDFViewBridge: UIViewRepresentable {
             if let pdfView, pdfView.currentSelection != nil {
                 return
             }
+
+            // Feature #53 WI-6: check whether the tap hit an existing
+            // highlight annotation before falling through to the chrome-
+            // toggle path. If it did, post `.readerHighlightTapped` with
+            // the highlight's UUID + the annotation's bounds in PDFView
+            // coords for popover anchoring, and DO NOT also fire
+            // `.readerContentTapped` (which would toggle chrome and steal
+            // focus from the inline-menu that the tap is supposed to open).
+            if let pdfView,
+               let renderer = highlightRenderer,
+               !renderer.annotationMap.isEmpty {
+                let location = gesture.location(in: pdfView)
+                if let page = pdfView.page(for: location, nearest: false) {
+                    let pagePoint = pdfView.convert(location, to: page)
+                    if let highlightID = PDFHighlightTapResolver.resolveHighlightID(
+                        atPagePoint: pagePoint,
+                        onPage: page,
+                        annotationMap: renderer.annotationMap
+                    ) {
+                        // Compute screen rect for popover anchoring: pick
+                        // the first annotation whose bounds contain the
+                        // tap, convert its bounds to PDFView coords.
+                        var sourceRect: CGRect = .zero
+                        if let annotations = renderer.annotationMap[highlightID],
+                           let hit = annotations.first(where: { $0.page === page && $0.bounds.contains(pagePoint) }) {
+                            sourceRect = pdfView.convert(hit.bounds, from: page)
+                        }
+                        let event = ReaderHighlightTapEvent(
+                            highlightID: highlightID,
+                            sourceRect: sourceRect
+                        )
+                        NotificationCenter.default.post(
+                            name: .readerHighlightTapped, object: event
+                        )
+                        // Present the inline menu (Delete Highlight) when
+                        // a presenter is wired. nil presenter keeps the
+                        // notification-only mode for previews/test harnesses.
+                        if let presenter = highlightActionPresenter,
+                           let onAction = onHighlightTapAction {
+                            presenter.present(for: event, in: pdfView) { action in
+                                guard let action else { return }
+                                Task { @MainActor in
+                                    await onAction(action, highlightID)
+                                }
+                            }
+                        }
+                        return
+                    }
+                }
+            }
+
             NotificationCenter.default.post(name: .readerContentTapped, object: nil)
         }
 

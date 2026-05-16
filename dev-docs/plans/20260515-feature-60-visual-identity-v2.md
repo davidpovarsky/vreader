@@ -213,7 +213,8 @@ audit log + version bump per rule 40.
 
 | WI | Tier | What ships | Est PR size |
 |----|------|-----------|---------|
-| WI-1 | Foundational | Bundle Source Serif 4 + Inter fonts in `vreader/Resources/Fonts/`. Add `ReaderTypography` registry. Extend `ReaderFontFamily` with `.sourceSerif4` and `.inter`. **No view change** — dormant infra. Tests: registry load, fontDescriptor availability, fallback chain. | ~6 files, ~250 LOC (font binary excluded) |
+| WI-1a | Foundational | `ReaderTypography` registry + extend `ReaderFontFamily` with `.sourceSerif4` / `.inter`. **No view change** — dormant infra. Tests: registry load, fontDescriptor availability, fallback chain. | ~6 files, ~250 LOC |
+| WI-1b | Foundational — **DEFERRED (manual-ops)** | Bundle the actual Source Serif 4 + Inter `.otf` binaries into `vreader/Resources/Fonts/` + `UIAppFonts` registration in the Info.plist. **Deferred 2026-05-16**: requires fetching external font assets + verifying their licenses (both are SIL OFL, but the OFL files must be vendored and the verification recorded) — out of cron-iteration scope (a cron session cannot safely fetch external binaries or make a licensing call). A human picks this up. Until WI-1b lands, `ReaderTypography.body(for:)` falls back to system fonts on device, so typography device-verification (WI-5 Gate 5a, Foliate font bundling, the final Gate 5b acceptance pass) cannot truly confirm "Source Serif 4 renders" — those verifications are gated on WI-1b. Tracked as GH #774. | font binaries (~180–320 KB) + Info.plist |
 | WI-2 | Foundational | Add `ReaderThemeV2` enum + 9-token surface. Migration alias on `ReaderTheme` so existing persisted choices still decode. **No view change** — dormant infra. Tests: token round-trip, isDark predicate, migration alias, accent contrast against ink (WCAG AA per theme). | ~4 files, ~300 LOC |
 | WI-3 | Foundational | Add `AccentColor`, `NamedHighlightColor`, `SelectionPopoverAction` types as UI-domain enums. **Additive only** (Codex Gate 2 finding): does NOT change the existing `Highlight.color` / `HighlightRecord.color` / backup DTO / export-import `String` schema. `NamedHighlightColor` raw values are semantic names; hex is a derived computed property. `SelectionPopoverAction` is `Equatable + Sendable` (NOT Codable — it's local-dispatch only, not persisted). `AccentColor` is a token-only struct with three named stops (light/warm-dark/photo). **No view change** — dormant infra. Tests: exhaustive switch, raw-value-is-semantic-name, derived-hex round-trip, compatibility (existing color strings remain storable + decodable to nil for unknown values), `from(storageString:)` round-trip. | ~3 files (4 if `NamedHighlightColor.swift` split out), ~150 LOC |
 | WI-4 | Behavioral | EPUB theme injection switches to `ReaderThemeV2`. `epubOverrideCSS` emits five-theme CSS + new token names. Existing EPUB books re-render with new visual tokens. Migration path: existing `epubTheme: .light/.sepia/.dark` continues to decode and maps to `.paper/.sepia/.dark`. Photo theme injects a `body { background-image: url(...) }` rule. Tests: CSS string assertions per theme + per-theme accent contrast. Device verify (Gate 5a): open mini-epub3 fixture per theme, confirm visually. | ~3 files, ~250 LOC |
@@ -680,3 +681,20 @@ category 2 (PLANNED feature with plan doc → Gate 3).
   The note's §4 defers the Book Details sheet contents to a
   follow-up issue. **WI-6b is no longer `BLOCKED: needs-design` —
   it may now enter Gate 3.** GH #760 resolved + closed.
+- 2026-05-16 v8: **WI-1 split into WI-1a + WI-1b; WI-1b deferred as a
+  manual-ops step.** WI-1a (the `ReaderTypography` registry +
+  `ReaderFontFamily` `.sourceSerif4` / `.inter` cases — pure code,
+  dormant infra) is the cron-implementable half. WI-1b — vendoring
+  the actual Source Serif 4 + Inter `.otf` binaries into
+  `vreader/Resources/Fonts/` and registering them under `UIAppFonts`
+  — is **deferred**: it requires fetching external font assets and
+  verifying their licenses (both fonts are SIL OFL; the OFL text
+  must be vendored alongside and the verification recorded), which a
+  cron session cannot safely do (no external-binary fetch, no
+  licensing judgement). A human performs WI-1b. **Downstream gate**:
+  until WI-1b lands, `ReaderTypography.body(for:)` falls back to
+  system fonts on device — so the typography legs of WI-5's Gate 5a
+  device-verify, the Foliate font-bundling slice (Risk (c)), and the
+  final Gate 5b acceptance pass cannot confirm "Source Serif 4
+  renders". Those verifications are now explicitly gated on WI-1b.
+  Tracked as GH #774.

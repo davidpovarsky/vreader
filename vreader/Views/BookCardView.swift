@@ -1,13 +1,21 @@
 // Purpose: Grid card view for a book in the library.
-// Shows cover placeholder, format badge, title, author, and reading time.
+// Shows the generative cover (spine + page-edge accents), Source Serif 4
+// title, and author — re-skinned for feature #60 visual identity v2.
 //
 // Key decisions:
-// - Uses system fonts for Dynamic Type support.
-// - Accessibility label uses AccessibilityFormatters for VoiceOver-friendly expanded text.
-// - Cover placeholder uses format-specific colors.
-// - Reading time label omitted for zero reading time.
+// - Visual tokens (palette, layout constants, serif title face) come
+//   from `LibraryCardTokens` — the design spec has one home.
+// - Title uses Source Serif 4 via `ReaderTypography`; author uses the
+//   warm-taupe sub-text token. Reading-time / speed metadata rows are
+//   omitted in the v2 design — the card is cover + title + author only.
+// - Cover carries the design's spine shadow + page-edge highlight so
+//   plain format-color placeholders read as physical book objects.
+// - Accessibility label uses AccessibilityFormatters for VoiceOver-
+//   friendly expanded text; exposed as a testing surface so the WI-8
+//   contract tests can pin it without inspecting SwiftUI internals.
 //
-// @coordinates-with: AccessibilityFormatters.swift, LibraryBookItem.swift, CustomCoverStore.swift
+// @coordinates-with: AccessibilityFormatters.swift, LibraryBookItem.swift,
+//   CustomCoverStore.swift, LibraryCardTokens.swift
 
 import SwiftUI
 
@@ -18,60 +26,68 @@ struct BookCardView: View {
     var coverVersion: Int = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: LibraryCardTokens.cardStackSpacing) {
             // Cover: fixed 2:3 ratio container — uniform card height in grid
-            CoverContainerView(
+            BookCoverArtView(
                 image: customCoverImage,
                 coverColor: coverColor,
                 formatIcon: formatIcon,
-                formatBadge: book.formatBadge
+                formatBadge: book.formatBadge,
+                cornerRadius: LibraryCardTokens.cardCoverCornerRadius
             )
+            // Per-book reading-progress accents (feature #60 WI-8) —
+            // the in-cover strip while reading, the checkmark when done.
+            .overlay { progressStrip }
+            .overlay(alignment: .topTrailing) { finishedBadge }
 
-            // Title
+            // Title — Source Serif 4, 2-line clamp
             Text(book.title)
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(LibraryCardTokens.serifTitleFont(
+                    size: LibraryCardTokens.cardTitleFontSize
+                ))
+                .fontWeight(.semibold)
                 .lineLimit(2)
-                .foregroundStyle(.primary)
+                .foregroundStyle(LibraryCardTokens.ink)
 
             // Author
             if let author = book.author {
                 Text(author)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: LibraryCardTokens.cardAuthorFontSize))
+                    .foregroundStyle(LibraryCardTokens.subText)
                     .lineLimit(1)
             }
 
-            // Reading time (omitted for zero)
-            if let readingTime = book.formattedReadingTime {
-                Text(readingTime)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Speed
-            if let speed = book.formattedSpeed {
-                Text(speed)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            // Bug #177: pushes content to the top so shorter cards (fewer
-            // metadata rows) align top-edges with taller cards in the same
-            // LazyVGrid row — SwiftUI's default is vertical centering, which
-            // makes covers in the same row sit at different y-positions.
+            // Bug #177: pushes content to the top so shorter cards align
+            // top-edges with taller cards in the same LazyVGrid row —
+            // SwiftUI's default is vertical centering.
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("Double tap to open")
+        .accessibilityHint(accessibilityHint)
+    }
+
+    // MARK: - Testing surface
+
+    /// Exposed so the WI-8 contract tests can assert the accessibility
+    /// contract without inspecting opaque SwiftUI modifier state.
+    var accessibilityLabelForTesting: String { accessibilityLabel }
+    var accessibilityHintForTesting: String { accessibilityHint }
+
+    /// Exposed so the WI-8 contract tests can assert which progress
+    /// state the card derives — the strip / checkmark are otherwise
+    /// opaque SwiftUI overlays.
+    var progressStateForTesting: LibraryBookItem.ReadingProgressState {
+        book.readingProgressState
     }
 
     // MARK: - Private
 
-    /// Loads the custom cover for this book (if any). `coverVersion` dependency
-    /// ensures SwiftUI re-evaluates when covers change.
+    private let accessibilityHint = "Double tap to open"
+
+    /// Loads the custom cover for this book (if any). `coverVersion`
+    /// dependency ensures SwiftUI re-evaluates when covers change.
     private var customCoverImage: UIImage? {
         _ = coverVersion // force re-evaluation when version changes
         return CustomCoverStore.loadCover(for: book.fingerprintKey)
@@ -97,60 +113,60 @@ struct BookCardView: View {
             readingTimeSeconds: book.totalReadingSeconds
         )
     }
-}
 
-/// Fixed 2:3 aspect ratio cover container.
-/// `Color.clear` drives layout — guarantees identical height for every card
-/// regardless of image dimensions. Image is in `.overlay` (not `.background`)
-/// so it never participates in layout sizing. `.clipped()` trims any
-/// scaledToFill overflow.
-private struct CoverContainerView: View {
-    let image: UIImage?
-    let coverColor: Color
-    let formatIcon: String
-    let formatBadge: String
+    // MARK: - Reading-progress accents (feature #60 WI-8)
 
-    var body: some View {
-        Color(white: 0.92)
-            .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .overlay {
-                GeometryReader { geo in
-                    if let image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
-                    } else {
-                        coverColor
-                    }
+    /// In-cover progress strip — design `GridView`: a thin bar inset
+    /// from the cover's bottom edge, shown only while the book is
+    /// partially read. The fill spans `fraction` of the track width.
+    ///
+    /// The `GeometryReader` spans the whole cover (it is the overlay
+    /// content); the strip's width and position are computed inside
+    /// the measured space, so the 6pt horizontal inset and 4pt bottom
+    /// inset never depend on outer-`padding` proposal order.
+    @ViewBuilder
+    private var progressStrip: some View {
+        if case .inProgress(let fraction) = book.readingProgressState {
+            GeometryReader { geo in
+                let inset = LibraryCardTokens.coverProgressStripInset
+                let height = LibraryCardTokens.coverProgressStripHeight
+                let radius = LibraryCardTokens.coverProgressStripCornerRadius
+                let trackWidth = max(0, geo.size.width - inset * 2)
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(LibraryCardTokens.coverProgressTrack)
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(LibraryCardTokens.coverProgressFill)
+                        .frame(width: trackWidth * CGFloat(fraction))
                 }
+                .frame(width: trackWidth, height: height)
+                .position(
+                    x: geo.size.width / 2,
+                    y: geo.size.height - height / 2
+                        - LibraryCardTokens.coverProgressStripBottomInset
+                )
             }
-            .overlay {
-                if image == nil {
-                    VStack(spacing: 4) {
-                        Image(systemName: formatIcon)
-                            .font(.system(size: 32))
-                            .foregroundStyle(.white.opacity(0.8))
-                        Text(formatBadge)
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
+        }
+    }
+
+    /// Finished checkmark — design `GridView`: a white disc with a
+    /// green check inset from the cover's top-trailing corner, shown
+    /// only when the book is fully read.
+    @ViewBuilder
+    private var finishedBadge: some View {
+        if book.readingProgressState == .finished {
+            Circle()
+                .fill(LibraryCardTokens.coverFinishedBadgeFill)
+                .frame(
+                    width: LibraryCardTokens.finishedBadgeSize,
+                    height: LibraryCardTokens.finishedBadgeSize
+                )
+                .overlay {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(LibraryCardTokens.finished)
                 }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                // Bug #107: bump stroke opacity 0.2 → 0.35 so covers
-                // with white/light edges visibly delineate against the
-                // white library-grid background. The previous 0.2 was
-                // effectively invisible on white, making AZW3 covers
-                // like 被讨厌的勇气 look like they had top padding.
-                // Stays subtle (still 0.5pt) so darker covers don't
-                // get a heavy outline.
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.gray.opacity(0.35), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+                .padding(LibraryCardTokens.finishedBadgeInset)
+        }
     }
 }

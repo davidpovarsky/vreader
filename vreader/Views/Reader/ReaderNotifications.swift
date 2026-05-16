@@ -107,10 +107,35 @@ extension Notification.Name {
     /// waiting for the next book reopen. `userInfo` carries
     /// `["cfi": String, "color": String, "fingerprintKey": String]`.
     static let foliateRequestAnnotationJSCreate = Notification.Name("vreader.foliateRequestAnnotationJSCreate")
+
+    /// Bug #207 / GH #765: posted by `FoliateSpikeView.Coordinator`
+    /// when the Foliate-js bundle finishes attaching a section's
+    /// SVG overlay (`create-overlay` JS event from foliate-host.js).
+    /// The overlay is now ready to accept `readerAPI.addAnnotation`
+    /// calls for that section's CFIs. `FoliateSpikeView+Restore`
+    /// observes this, filters by `fingerprintKey`, queries persistence
+    /// for saved highlights, and fans them out as per-CFI
+    /// `.foliateRequestAnnotationJSCreate` events the Coordinator's
+    /// existing observer evaluates. `userInfo` carries
+    /// `["sectionIndex": Int, "fingerprintKey": String]`. Without
+    /// this round-trip, saved AZW3/MOBI highlights persist in
+    /// SwiftData but never re-paint on book reopen — the data
+    /// layer is correct, only the visual restore fails.
+    static let foliateOverlayReadyForSection = Notification.Name("vreader.foliateOverlayReadyForSection")
+
+    /// Feature #60 WI-7c1: posted by a reader bridge when the user
+    /// finishes a long-press selection. The
+    /// `SelectionPopoverPresenterModifier` observes this and presents
+    /// `SelectionPopoverView` (WI-7a) as a SwiftUI sheet; actions
+    /// route through `SelectionPopoverActionRouter` (WI-7b). The
+    /// notification's `object` is the `TextSelectionInfo` payload.
+    /// Bridges should suppress their legacy `UIMenu` when they post
+    /// this (the swap lands per-bridge in WI-7c2..7c5).
+    static let readerSelectionPopoverRequested = Notification.Name("vreader.readerSelectionPopoverRequested")
 }
 
 /// Carries text selection info from bridges to container views via NotificationCenter.
-struct TextSelectionInfo {
+struct TextSelectionInfo: Equatable, Sendable {
     let selectedText: String
     let startUTF16: Int
     let endUTF16: Int

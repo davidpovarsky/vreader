@@ -17,7 +17,7 @@ VReader is an iOS e-book reader built with SwiftUI + SwiftData. It supports TXT,
     ┌─────▼──────────┐    ┌──────▼──────────────────┐
     │  LibraryView    │    │  ReaderContainerView     │
     │  LibraryViewModel│   │  (format dispatcher)     │
-    │  PreferenceStore │   │  ReaderChromeBar (overlay)│
+    │  PreferenceStore │   │  ReaderTopChrome (overlay)│
     └─────────────────┘   └──────┬───────────────────┘
                                  │
         ┌────────┬───────────┬───┴────┬─────────┐
@@ -54,7 +54,12 @@ VReader is an iOS e-book reader built with SwiftUI + SwiftData. It supports TXT,
 
 #### Chrome
 
-`ReaderChromeBar.swift` — custom overlay toolbar (not system nav bar). Floats on top of content, no safe area impact. Buttons: back, search, bookmark, annotations, AI, TTS, settings.
+Reader chrome (Feature #60 WI-6b — visual-identity-v2) is two custom overlays, floating on top of content with no safe-area impact:
+
+- `ReaderTopChrome.swift` — top bar: `← Library | Title | Search Bookmark More`. Composed once in `ReaderContainerView`, format-agnostic.
+- `ReaderBottomChrome.swift` — bottom bar: progress scrubber + position labels + a Contents/Notes/Display/AI toolbar. Composed per paginated format (TXT/MD/EPUB/PDF), each passing its own seek closure; the toolbar posts `.readerOpen*` notifications that `ReaderContainerView` observes. Foliate (AZW3/MOBI) keeps its own bottom overlay.
+
+Slot/button identity lives in `ReaderChromeButton.swift` (`ReaderTopChromeSlot` / `ReaderBottomChromeButton`).
 
 #### Format Hosts (`ReaderFormatHosts.swift`)
 
@@ -182,6 +187,10 @@ All cross-component communication uses NotificationCenter:
 | `.searchHighlightClear`        | nil                  | SearchViewModel → Bridges                               |
 | `.readerPreviousPage`          | nil                  | TapZoneOverlay → Container                              |
 | `.readerNextPage`              | nil                  | TapZoneOverlay → Container                              |
+| `.readerOpenContents`          | nil                  | `ReaderBottomChrome` toolbar → ReaderContainerView (Feature #60 WI-6b — opens annotations panel on the Contents tab) |
+| `.readerOpenNotes`             | nil                  | `ReaderBottomChrome` toolbar → ReaderContainerView (Feature #60 WI-6b — opens annotations panel on the Highlights tab) |
+| `.readerOpenDisplay`           | nil                  | `ReaderBottomChrome` toolbar → ReaderContainerView (Feature #60 WI-6b — opens reader settings) |
+| `.readerOpenAI`                | nil                  | `ReaderBottomChrome` toolbar → ReaderContainerView (Feature #60 WI-6b — opens the AI assistant when configured) |
 | `.epubFootnoteDetected`        | footnote ref         | EPUB bridge → Container (footnote popup)                |
 | `.bookFileStateDidChange`      | `["fingerprintKey","state"]` | LazyDownloadCoordinator (reconcile) → LibraryView (refresh row, feature #47) |
 | `.libraryRowTappedWhileNotLocal` | `["fingerprintKey","fileState"]` | LibraryView → BookDownloadSheet (future, #47 WI-6) |

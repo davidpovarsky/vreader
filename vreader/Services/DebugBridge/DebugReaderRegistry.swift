@@ -127,7 +127,9 @@ final class DebugReaderRegistry {
         expectedReaderToken = token
     }
 
-    /// Test seam — the currently-expected token (or nil).
+    /// Test seam — the currently-expected token (or nil). Also read by
+    /// `DebugReaderRegistry+Settle.swift`'s stale-write guard (the same
+    /// module; `private` would hide it from that extension file).
     var expectedReaderTokenForTests: UUID? { expectedReaderToken }
 
     /// Bug #126: weak side-channel ref to the active EPUB webview, paired
@@ -229,6 +231,27 @@ final class DebugReaderRegistry {
     }
     private var waiters: [String: [Waiter]] = [:]
 
+    /// Bug #141: render-settled state, keyed by `(fingerprintKey, token)`.
+    /// `markReaderSettled` records a key here and resumes any settle
+    /// waiters; `awaitReaderSettled` fast-paths when its key is present.
+    /// Stored here (extensions can't add stored properties) but the
+    /// settle methods live in `DebugReaderRegistry+Settle.swift`.
+    /// `internal` so the extension can read/mutate it.
+    struct SettleKey: Hashable {
+        let fingerprintKey: String
+        let token: UUID
+    }
+    var settledKeys: Set<SettleKey> = []
+
+    /// Bug #141: per-`SettleKey` waiters added by `awaitReaderSettled`.
+    /// Each carries a UUID token so a timeout removes its OWN waiter, not
+    /// a first-match — same race protection as the `awaitReader` `Waiter`.
+    struct SettleWaiter {
+        let token: UUID
+        let continuation: CheckedContinuation<Void, Error>
+    }
+    var settleWaiters: [SettleKey: [SettleWaiter]] = [:]
+
     private init() {}
 
     /// The active reader, if any.
@@ -254,6 +277,21 @@ final class DebugReaderRegistry {
     /// No-op if a different probe is now active (e.g., a quick switch
     /// between readers where unregister fires after a new register).
     func unregister(_ reader: DebugReaderProbe) {
+        // Bug #141 (Codex Medium): settle state is keyed by
+        // `(fingerprintKey, token)`, not by probe identity. When reader A
+        // is replaced by reader B for the SAME book before A's
+        // `onDisappear` fires, `activeReader === reader` is false for A,
+        // so the block below is skipped — and A's pending settle waiters
+        // would leak until timeout. Clear the outgoing probe's settle
+        // state UNCONDITIONALLY here, preserving only the currently-
+        // expected token's state (that token belongs to the incoming
+        // reader B; A's own token never equals it). When A IS still the
+        // active reader (normal close, nothing replaced it), the
+        // `if` block below clears everything for the key anyway.
+        clearSettleState(
+            forFingerprintKey: reader.fingerprintKey,
+            preservingToken: expectedReaderToken
+        )
         if activeReader === reader as AnyObject {
             activeReader = nil
             // Bug #142: drop the expected reader token in lockstep with
@@ -279,6 +317,14 @@ final class DebugReaderRegistry {
                 activeFoliateWebViewToken = nil
             }
             #endif
+            // Bug #141: the leaving probe IS the active reader and
+            // nothing replaced it — clear ALL render-settled state +
+            // pending settle waiters for its key (no token preserved).
+            // A settled flag from an outgoing reader must not fast-path a
+            // freshly-mounted reader on the same key; pending waiters are
+            // resumed with timeout so
+            // an in-flight `settle` doesn't hang past the reader's life.
+            clearSettleState(forFingerprintKey: reader.fingerprintKey)
         }
     }
 
@@ -302,6 +348,17 @@ final class DebugReaderRegistry {
                 waiter.continuation.resume(
                     throwing: DebugReaderRegistryError.awaitReaderTimeout(fingerprintKey: key)
                 )
+            }
+        }
+        // Bug #141: drop all render-settled state + resume every pending
+        // settle waiter with a timeout error (mirrors the awaitReader
+        // waiter teardown above).
+        settledKeys = []
+        let pendingSettle = settleWaiters
+        settleWaiters = [:]
+        for (_, bucket) in pendingSettle {
+            for waiter in bucket {
+                waiter.continuation.resume(throwing: DebugReaderProbeError.settleTimeout)
             }
         }
     }

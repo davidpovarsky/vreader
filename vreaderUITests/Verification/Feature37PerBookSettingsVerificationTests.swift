@@ -6,6 +6,12 @@
 //
 // Seed: .books (two or more fixture books needed for isolation test).
 //
+// The per-book "Custom settings for this book" Section is at the bottom of
+// ReaderSettingsPanel; SwiftUI Form sections are lazy-rendered, so the toggle
+// is not in the accessibility tree until scrolled into view. Both methods
+// reveal it via `revealPerBookToggle(in:)` — a bounded swipe-up loop mirroring
+// Feature31AutoPageTurnVerificationTests (Bug #204 / GH #746).
+//
 // @coordinates-with: PerBookSettingsStore.swift, ReaderSettingsPanel.swift,
 //   VerificationSettingsHelper.swift
 
@@ -49,6 +55,55 @@ final class Feature37PerBookSettingsVerificationTests: XCTestCase {
         ).firstMatch
     }
 
+    /// Brings the "Custom settings for this book" toggle into the accessibility
+    /// tree by swiping up within the settings panel.
+    ///
+    /// Bug #204 (GH #746): `perBookSection` sits at the BOTTOM of
+    /// `ReaderSettingsPanel` (after typography, themes, layout, tap zones,
+    /// custom background, auto page turn, etc.). SwiftUI Form sections are
+    /// lazy-rendered — a section below the fold is NOT in the accessibility
+    /// tree until scrolled into view. Both Feature37 methods previously called
+    /// `toggle.waitForExistence(timeout: 5)` with no prior swipe-up, so the
+    /// lazy-loaded toggle was never surfaced and the methods always XCTSkip'd.
+    ///
+    /// This mirrors the proven section-finder loop in
+    /// `Feature31AutoPageTurnVerificationTests` (and Bug #196 / PR #588's
+    /// 10-retry budget). The per-book `Section` has NO header `staticText`
+    /// — the only stable anchor with the `"Custom settings for this book"`
+    /// label is the `Toggle`'s switch itself, so this loop keys on the
+    /// switch element directly rather than a sibling section header.
+    ///
+    /// The initial `waitForExistence(timeout: 2)` lets the panel populate
+    /// before the swipe-up loop fires — issuing `panel.swipeUp()` too early
+    /// (before the panel's lazy section rendering completes) can desync with
+    /// content loading and leave the toggle unfound.
+    ///
+    /// Like Feature31's loop, this runs a second bounded swipe-up budget once
+    /// the switch is in the tree: a `Toggle` row can enter the accessibility
+    /// tree while still clipped at the bottom edge, so existence alone does
+    /// not guarantee the control is tappable. The post-discovery loop scrolls
+    /// until the switch is hittable (callers tap it).
+    ///
+    /// - Parameter panel: The settings panel element to scroll within.
+    /// - Returns: The per-book toggle element. Callers should still check
+    ///   `.exists` / `.waitForExistence` and XCTSkip as a genuine last resort.
+    @discardableResult
+    private func revealPerBookToggle(in panel: XCUIElement) -> XCUIElement {
+        let toggle = perBookToggle()
+        if !toggle.waitForExistence(timeout: 2) {
+            for _ in 0..<10 {
+                if toggle.exists { break }
+                panel.swipeUp()
+            }
+        }
+        // The switch can be in the tree but clipped at the bottom edge.
+        // Scroll until it is hittable, mirroring Feature31's 10-retry budget.
+        for _ in 0..<10 where toggle.exists && !toggle.isHittable {
+            panel.swipeUp()
+        }
+        return toggle
+    }
+
     // MARK: - Feature #37 Verification
 
     /// Verifies that enabling per-book settings for book A does not affect book B:
@@ -68,8 +123,10 @@ final class Feature37PerBookSettingsVerificationTests: XCTestCase {
         let panel = settingsHelper.openReaderSettings()
         XCTAssertTrue(panel.exists, "Settings panel should be present")
 
-        // 4. Find and enable per-book toggle
-        let toggle = perBookToggle()
+        // 4. Find and enable per-book toggle. The per-book section is below
+        //    the settings-panel fold (lazy-rendered) — swipe up to surface
+        //    it before asserting existence (Bug #204 / GH #746).
+        let toggle = revealPerBookToggle(in: panel)
         guard toggle.waitForExistence(timeout: 5) else {
             throw XCTSkip("Per-book toggle not found — feature #37 UI may have changed")
         }
@@ -105,14 +162,17 @@ final class Feature37PerBookSettingsVerificationTests: XCTestCase {
         let panel2 = settingsHelper.openReaderSettings()
         XCTAssertTrue(panel2.exists)
 
-        // 9. Per-book toggle should be OFF for this book (isolation)
-        let toggle2 = perBookToggle()
-        if toggle2.waitForExistence(timeout: 3) {
-            XCTAssertEqual(
-                toggle2.value as? String, "0",
-                "Per-book toggle should be OFF for a different book (settings are isolated)"
-            )
+        // 9. Per-book toggle should be OFF for this book (isolation).
+        //    Swipe up again — this is a fresh settings panel for the second
+        //    book, so the per-book section is below the fold once more.
+        let toggle2 = revealPerBookToggle(in: panel2)
+        guard toggle2.waitForExistence(timeout: 3) else {
+            throw XCTSkip("Per-book toggle not found on the second book's settings panel")
         }
+        XCTAssertEqual(
+            toggle2.value as? String, "0",
+            "Per-book toggle should be OFF for a different book (settings are isolated)"
+        )
         settingsHelper.closeReaderSettings()
     }
 
@@ -132,7 +192,9 @@ final class Feature37PerBookSettingsVerificationTests: XCTestCase {
         let panel = settingsHelper.openReaderSettings()
         XCTAssertTrue(panel.exists)
 
-        let toggle = perBookToggle()
+        // The per-book section is below the settings-panel fold
+        // (lazy-rendered) — swipe up to surface it (Bug #204 / GH #746).
+        let toggle = revealPerBookToggle(in: panel)
         guard toggle.waitForExistence(timeout: 5) else {
             throw XCTSkip("Per-book toggle not found")
         }
@@ -160,14 +222,17 @@ final class Feature37PerBookSettingsVerificationTests: XCTestCase {
         let panel2 = settingsHelper.openReaderSettings()
         XCTAssertTrue(panel2.exists)
 
-        // 6. Per-book toggle should still be ON
-        let toggle2 = perBookToggle()
-        if toggle2.waitForExistence(timeout: 5) {
-            XCTAssertEqual(
-                toggle2.value as? String, "1",
-                "Per-book toggle should remain ON after reopening the same book"
-            )
+        // 6. Per-book toggle should still be ON. Swipe up again — reopening
+        //    the book gives a fresh settings panel with the per-book section
+        //    below the fold once more.
+        let toggle2 = revealPerBookToggle(in: panel2)
+        guard toggle2.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Per-book toggle not found after reopening the book")
         }
+        XCTAssertEqual(
+            toggle2.value as? String, "1",
+            "Per-book toggle should remain ON after reopening the same book"
+        )
 
         settingsHelper.closeReaderSettings()
     }

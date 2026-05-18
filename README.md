@@ -21,7 +21,7 @@ VReader's v2 visual identity — a reading-focused design system with a Source S
   <tr>
     <td align="center">Library</td>
     <td align="center">Reading</td>
-    <td align="center">Display settings</td>
+    <td align="center">Settings</td>
   </tr>
 </table>
 
@@ -208,7 +208,7 @@ Shared rules for all AI agents live in ``:
 
 ## Status
 
-Active development. See [features](docs/features.md) (40 done) and [bugs](docs/bugs.md) (150 fixed) for current state.
+Active development. See [features](docs/features.md) (52 done) and [bugs](docs/bugs.md) (211 fixed) for current state.
 
 ## License
 

@@ -26,6 +26,12 @@ struct FoliateSpikeView: View {
     /// `.readerHighlightTapped` still fires from WI-5 so other observers
     /// (annotations panel, etc.) react.
     var highlightActionPresenter: (any HighlightActionPresenting)?
+    /// Feature #57: set in `makeCoordinator()` so the parent
+    /// (`ReaderContainerView`) can request whole-book TTS text
+    /// extraction once the book is ready. Optional → preview/test call
+    /// sites stay source-compatible (same pattern as `fingerprintKey`,
+    /// `readerToken`, `settingsStore`, `highlightActionPresenter`).
+    var coordinatorBox: FoliateCoordinatorBox?
 
     @State private var isBookReady = false
     @State private var bookTitle = ""
@@ -39,6 +45,7 @@ struct FoliateSpikeView: View {
                 fingerprintKey: fingerprintKey,
                 readerToken: readerToken,
                 layoutFlow: FoliateLayoutFlowMapper.layoutFlow(for: settingsStore?.epubLayout),
+                coordinatorBox: coordinatorBox,
                 onBookReady: { title in
                     isBookReady = true
                     bookTitle = title
@@ -104,6 +111,10 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
     /// (the store is `@Observable @MainActor`), so this value reaches
     /// `updateUIView` as soon as the user toggles reading mode.
     let layoutFlow: String
+    /// Feature #57: parent-owned handle; `makeCoordinator()` assigns the
+    /// live Coordinator into it so the TTS path can call
+    /// `extractPlainText()`.
+    let coordinatorBox: FoliateCoordinatorBox?
     let onBookReady: @MainActor (String) -> Void
     let onError: @MainActor (String) -> Void
 
@@ -117,6 +128,10 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
         #if DEBUG
         coord.readerToken = readerToken
         #endif
+        // Feature #57: hand the live Coordinator to the parent so
+        // `ReaderContainerView`'s TTS path can request whole-book text
+        // extraction once the book has rendered.
+        coordinatorBox?.coordinator = coord
         return coord
     }
 
@@ -549,6 +564,88 @@ extension FoliateSpikeView {
             })(); void 0;
             """
             webView?.evaluateJavaScript(js) { _, _ in }
+        }
+
+        // MARK: - Feature #57: TTS text extraction
+
+        /// Feature #57: the async-function body run by
+        /// `extractPlainText()`. A fixed string literal — no
+        /// interpolation, no injection surface. `callAsyncJavaScript`
+        /// treats this as an async function body and awaits the
+        /// returned value, so a bare `return await …` resolves the
+        /// `readerAPI.extractPlainText()` Promise before the call
+        /// completes. Held as a constant so a unit test can assert it
+        /// without a live WKWebView.
+        static let extractPlainTextScript = "return await readerAPI.extractPlainText();"
+
+        /// Feature #57: upper bound on a single `extractPlainText()`
+        /// call. A malformed Foliate section or a wedged WebKit render
+        /// could leave the JS extraction hung; `callAsyncJavaScript`
+        /// would then suspend forever. The timeout races the JS call
+        /// and returns `nil` on expiry so a TTS caller can never wedge.
+        static let extractPlainTextTimeout: Duration = .seconds(12)
+
+        /// Feature #57: extract the rendered book's whole-book plain
+        /// text for TTS by calling the `foliate-host.js`
+        /// `readerAPI.extractPlainText()` helper (a section-walk over
+        /// `view.book.sections[].createDocument()`). Returns `nil` if
+        /// the webView is gone, the book has not finished rendering,
+        /// the JS errored, or the call exceeds `extractPlainTextTimeout`.
+        ///
+        /// `@MainActor` — `WKWebView.callAsyncJavaScript` requires the
+        /// main actor. The Coordinator is used on the main actor in
+        /// practice (`handleMessage` is `@MainActor`; the notification
+        /// observers hop via `MainActor.assumeIsolated`), but `webView`
+        /// is not statically isolated, so this method carries its own
+        /// explicit `@MainActor` and is the single main-actor entry for
+        /// the production text touch.
+        ///
+        /// `callAsyncJavaScript` (not `evaluateJavaScript`) is used
+        /// deliberately: `evaluateJavaScript`'s completion fires when an
+        /// async expression *creates* its Promise, not when the Promise
+        /// resolves (see the `book-ready` handler's comment above).
+        /// `callAsyncJavaScript` runs the body as an async function and
+        /// awaits its return value, so the resolved whole-book `String`
+        /// is delivered. The `as? String` coercion maps a JS error /
+        /// `NSNull` / any non-String result to `nil`.
+        ///
+        /// The JS call is wrapped in a `@MainActor` child `Task` raced
+        /// against a timeout `Task`; whichever finishes first wins and
+        /// the loser is cancelled. A cancelled `callAsyncJavaScript`
+        /// throws, which the `try?` maps to `nil` — so a wedged
+        /// extraction frees the caller after `extractPlainTextTimeout`.
+        @MainActor
+        func extractPlainText() async -> String? {
+            guard isBookReady, let webView else { return nil }
+            let jsTask = Task { @MainActor [webView] () -> String? in
+                let raw = try? await webView.callAsyncJavaScript(
+                    Coordinator.extractPlainTextScript,
+                    arguments: [:],
+                    in: nil,
+                    contentWorld: .page
+                )
+                return raw as? String
+            }
+            let timeoutTask = Task {
+                try? await Task.sleep(for: Coordinator.extractPlainTextTimeout)
+                return true
+            }
+            // Race: await the JS result, but if the timeout fires
+            // first, cancel the JS task (its `callAsyncJavaScript`
+            // throws → `try?` → nil) and return nil.
+            return await withTaskGroup(of: String?.self) { group in
+                group.addTask { await jsTask.value }
+                group.addTask {
+                    _ = await timeoutTask.value
+                    jsTask.cancel()
+                    return nil
+                }
+                let result = await group.next() ?? nil
+                timeoutTask.cancel()
+                jsTask.cancel()
+                group.cancelAll()
+                return result
+            }
         }
     }
 }

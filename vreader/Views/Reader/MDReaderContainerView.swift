@@ -118,10 +118,21 @@ struct MDReaderContainerView: View {
                 // leading-heading restyle pick up the active theme. MD has
                 // no live theme re-render path — these colors apply on the
                 // next open of the file (see MDReaderViewModel.open).
+                // Feature #54 WI-7: fetch the enabled content replacement
+                // rules scoped to this book and forward them so the MD
+                // render pipeline applies them to the source text before
+                // parsing. Replaces the retired Unified-mode replacement-
+                // rule path. Like Chinese conversion, a mid-book rule
+                // change re-applies only on the next open.
+                let rules = await MDReplacementRuleFetcher.rules(
+                    container: modelContainer,
+                    bookKey: viewModel.bookFingerprintKey
+                )
                 await viewModel.open(
                     url: fileURL,
                     renderConfig: settingsStore?.mdRenderConfig ?? .default,
-                    chineseConversion: settingsStore?.chineseConversion ?? .none
+                    chineseConversion: settingsStore?.chineseConversion ?? .none,
+                    replacementRules: rules
                 )
             }
             initialRestoreOffset = viewModel.currentOffsetUTF16
@@ -379,5 +390,6 @@ struct MDReaderContainerView: View {
             viewModel.updateScrollPosition(charOffsetUTF16: offset)
         }
     }
+
 }
 #endif

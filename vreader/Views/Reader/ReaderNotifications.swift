@@ -78,21 +78,45 @@ extension Notification.Name {
     static let readerOpenNotes = Notification.Name("vreader.readerOpenNotes")
     static let readerOpenDisplay = Notification.Name("vreader.readerOpenDisplay")
     static let readerOpenAI = Notification.Name("vreader.readerOpenAI")
-    /// Feature #60 WI-6c: posted by the reader More-menu popover
-    /// (`ReaderMorePopover`) when the user taps one of its five rows.
+    /// Feature #60 WI-6c / Feature #56 WI-8: posted by the reader
+    /// More-menu popover (`ReaderMorePopover`) when the user taps a row.
     /// `ReaderContainerView` observes these and runs the matching
     /// action. Posting (rather than threading closures through the
     /// shared `ReaderTopChrome` and per-format hosts) keeps the
     /// popover composable in one place. Each maps 1:1 from a
-    /// `ReaderMoreMenuRow` case via `ReaderMoreMenuRow.notification`.
+    /// `ReaderMoreMenuRow` case via `ReaderMoreMenuRow.notification`
+    /// — the declared row set may grow over time (WI-8 added two
+    /// rows; WI-15 may rename one); the inverse `init?(notification:)`
+    /// is the single source of truth for the round-trip.
     ///
     /// `.readerMoreToggleAutoTurn` flips `ReaderSettingsStore.autoPageTurn`
     /// (the only row with real backing state — the design draws it as
     /// a toggle). `.readerMoreBookDetails` opens the reader Book Details
-    /// sheet (`BookDetailsSheet`, feature #61). The design's Bilingual
-    /// row is deferred (GH #790) — no notification for it.
+    /// sheet (`BookDetailsSheet`, feature #61).
+    ///
+    /// Feature #56 WI-8 — the bilingual row returns (formerly deferred
+    /// under GH #790): `.readerMoreBilingual` is posted from the
+    /// bilingual row; host containers route it to the
+    /// `BilingualReadingViewModel.setEnabled(...)` toggle, except in
+    /// the `.unavailable` state where the host routes to AI Settings.
+    /// `.readerMoreReTranslateChapter` is posted from the conditional
+    /// re-translate row (design §#864); the host presents
+    /// `ReTranslatePickerSheet`. The re-translate row is only visible
+    /// when bilingual mode is on for the book.
     static let readerMoreReadAloud = Notification.Name("vreader.readerMoreReadAloud")
     static let readerMoreToggleAutoTurn = Notification.Name("vreader.readerMoreToggleAutoTurn")
+    static let readerMoreBilingual = Notification.Name("vreader.readerMoreBilingual")
+    static let readerMoreReTranslateChapter = Notification.Name("vreader.readerMoreReTranslateChapter")
+    /// Feature #56 WI-14 (declared in WI-8 per plan): posted by
+    /// `BookTranslationCoordinator` whenever a global-book-translation
+    /// run advances. A reader open on a book being translated observes
+    /// this to drive its `ReaderTranslateBanner` (progress / cancel).
+    /// `userInfo` carries `["fingerprintKey": String, "completed": Int,
+    /// "total": Int]`. Defined here so the contract is stable when
+    /// WI-14 lands the producer and reader-side consumer.
+    static let readerBookTranslationProgressDidChange = Notification.Name(
+        "vreader.reader.bookTranslationProgressDidChange"
+    )
     static let readerMoreBookDetails = Notification.Name("vreader.readerMoreBookDetails")
     static let readerMoreShareBook = Notification.Name("vreader.readerMoreShareBook")
     static let readerMoreExportAnnotations = Notification.Name("vreader.readerMoreExportAnnotations")

@@ -33,6 +33,39 @@ struct FoliateSpikeView: View {
     @State private var errorMessage: String?
     @Environment(\.modelContext) private var modelContext
 
+    /// Feature #70 WI-4: the default unified font size used when no
+    /// `settingsStore` is available (previews / tests). Matches
+    /// `TypographySettings`'s default.
+    static let defaultUnifiedFontSize: CGFloat = 18
+
+    /// Feature #70 WI-4: builds the Foliate-js `setStyles` CSS for AZW3/MOBI
+    /// — first-time font-size wiring for the live spike path. The body font
+    /// size routes through the calibrator's `.foliate` target (rounded +
+    /// clamped to `8...72` by `calibratedFoliateSize`) so AZW3/MOBI renders
+    /// at a size perceptually consistent with TXT (the calibration anchor) at
+    /// the same slider value; the line height rides with it.
+    ///
+    /// Theme colors / font-family are deliberately NOT wired here — the spike
+    /// never themed those and AZW3/MOBI theme-color parity is a separate gap
+    /// (see the feature #70 plan's "files OUT of scope"). The CSS sets
+    /// `font-size` + `line-height` only.
+    ///
+    /// A `nil` store falls back to the documented default unified size (18)
+    /// so previews / tests never crash. Extracted as a pure static helper so
+    /// the WI-4 CSS-construction seam is directly unit-testable.
+    static func themeCSS(for store: ReaderSettingsStore?) -> String? {
+        let unified = store?.typography.fontSize ?? defaultUnifiedFontSize
+        let lineHeight = Double(store?.typography.lineSpacing ?? 1.4)
+        let calibrator = store?.calibrator ?? FontSizeCalibrator()
+        return FoliateStyleMapper.themeCSS(
+            fontSize: calibrator.calibratedFoliateSize(forUnified: unified),
+            lineHeight: lineHeight,
+            fontFamily: nil,
+            textColor: nil,
+            backgroundColor: nil
+        )
+    }
+
     var body: some View {
         ZStack {
             FoliateSpikeWebView(
@@ -40,6 +73,7 @@ struct FoliateSpikeView: View {
                 fingerprintKey: fingerprintKey,
                 readerToken: readerToken,
                 layoutFlow: FoliateLayoutFlowMapper.layoutFlow(for: settingsStore?.epubLayout),
+                themeCSS: Self.themeCSS(for: settingsStore),
                 coordinatorBox: coordinatorBox,
                 onBookReady: { title in
                     isBookReady = true
@@ -115,6 +149,13 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
     /// (the store is `@Observable @MainActor`), so this value reaches
     /// `updateUIView` as soon as the user toggles reading mode.
     let layoutFlow: String
+    /// Feature #70 WI-4: the calibrated Foliate `setStyles` CSS
+    /// (`font-size` + `line-height`). SwiftUI re-evaluates `body` when
+    /// `settingsStore.typography` changes (@Observable), so a font-size
+    /// slider change reaches `updateUIView` and `updateUIView`'s themeCSS
+    /// branch pushes it via `readerAPI.setStyles`. `nil` only when the spike
+    /// has no `settingsStore` (previews / tests).
+    let themeCSS: String?
     /// Feature #57: parent-owned handle; `makeCoordinator()` assigns the
     /// live Coordinator into it so the TTS path can call
     /// `extractPlainText()`.
@@ -125,6 +166,7 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
     func makeCoordinator() -> FoliateSpikeView.Coordinator {
         let coord = FoliateSpikeView.Coordinator(
             initialLayoutFlow: layoutFlow,
+            initialThemeCSS: themeCSS,
             onBookReady: onBookReady,
             onError: onError
         )
@@ -215,28 +257,67 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Bug #189: live-toggle reading mode. SwiftUI re-evaluates body when
-        // `settingsStore.epubLayout` changes (@Observable). We compare against
-        // the coordinator's last-applied value to avoid redundant JS calls.
+        // SwiftUI re-evaluates `body` when `settingsStore` changes
+        // (@Observable) — `epubLayout` for reading mode (bug #189),
+        // `typography` for font size (feature #70 WI-4). Both reach here.
+        //
+        // Feature #70 WI-4 — control flow MUST diff layout and theme
+        // INDEPENDENTLY, with NO early return. A font-size-only slider change
+        // leaves `layoutFlow` unchanged; a `guard currentLayoutFlow !=
+        // safeFlow else { return }` (the pre-WI-4 shape) would dead-code the
+        // `themeCSS` branch and the slider would still be a no-op. Mirrors
+        // `FoliateViewBridge.updateUIView`'s two-if-branch shape.
         let coordinator = context.coordinator
         let safeFlow = FoliateJSEscaper.sanitizeFlow(layoutFlow)
-        guard coordinator.currentLayoutFlow != safeFlow else { return }
-        coordinator.currentLayoutFlow = safeFlow
-        uiView.scrollView.isScrollEnabled = (safeFlow == "scrolled")
-        // Always stash the latest preference into the JS-side global. The
-        // book-ready iife reads this AFTER its `await readerAPI.init({})`
-        // resolves, so a toggle that lands while init is still in flight
-        // is captured (it queues behind init's outer call, runs at the
-        // await yield, and is picked up when init resumes). Once
-        // `isBookReady` is true we ALSO call setLayout directly so the
-        // user sees the change immediately rather than waiting for the
-        // next open.
-        let stash = "window.__vreaderTargetFlow = '\(safeFlow)';"
-        if coordinator.isBookReady {
-            let js = "\(stash) readerAPI.setLayout({flow: '\(safeFlow)'});"
-            uiView.evaluateJavaScript(js, completionHandler: nil)
-        } else {
-            uiView.evaluateJavaScript(stash, completionHandler: nil)
+
+        // --- Layout-flow branch (bug #189 live-toggle reading mode) ---
+        if coordinator.currentLayoutFlow != safeFlow {
+            coordinator.currentLayoutFlow = safeFlow
+            uiView.scrollView.isScrollEnabled = (safeFlow == "scrolled")
+            // Always stash the latest preference into the JS-side global. The
+            // book-ready iife reads this AFTER its `await readerAPI.init({})`
+            // resolves, so a toggle that lands while init is still in flight
+            // is captured. Once `isBookReady` is true we ALSO call setLayout
+            // directly so the user sees the change immediately.
+            let stash = "window.__vreaderTargetFlow = '\(safeFlow)';"
+            if coordinator.isBookReady {
+                let js = "\(stash) readerAPI.setLayout({flow: '\(safeFlow)'});"
+                uiView.evaluateJavaScript(js, completionHandler: nil)
+            } else {
+                uiView.evaluateJavaScript(stash, completionHandler: nil)
+            }
+        }
+
+        // --- Theme-CSS branch (feature #70 WI-4 font-size wiring) ---
+        // Diffed independently of layout so a font-size-only change fires.
+        if coordinator.currentThemeCSS != themeCSS {
+            coordinator.currentThemeCSS = themeCSS
+            // ALWAYS stash the latest calibrated CSS into a JS-side global,
+            // exactly like the layout branch stashes `window.__vreaderTargetFlow`.
+            //
+            // Why the global (Gate-4 audit Medium fix): `setStyles` is a no-op
+            // before `readerAPI.init({})` resolves, so the pre-ready push must
+            // be deferred to the `book-ready` iife. But that iife snapshots
+            // its JS *before* `await readerAPI.init({})`; a font-size change
+            // landing during the init window would otherwise be lost — the
+            // iife would apply the stale snapshot, and no later `updateUIView`
+            // diff fires because `currentThemeCSS` already equals the newest
+            // value. Stashing into a JS-side global the iife reads AFTER its
+            // `await` closes that race: a mid-init change updates the global,
+            // and the resuming iife picks up the freshest value.
+            if let css = themeCSS {
+                let escaped = FoliateJSEscaper.escapeForJSString(css)
+                let stash = "window.__vreaderTargetThemeCSS = '\(escaped)';"
+                if coordinator.isBookReady {
+                    // Ready → stash AND apply immediately.
+                    let js = "\(stash) \(Coordinator.setStylesJS(forCSS: css))"
+                    uiView.evaluateJavaScript(js, completionHandler: nil)
+                } else {
+                    // Pre-ready → stash only; the `book-ready` iife applies it
+                    // post-init, reading the freshest stashed value.
+                    uiView.evaluateJavaScript(stash, completionHandler: nil)
+                }
+            }
         }
     }
 }
@@ -254,6 +335,13 @@ extension FoliateSpikeView {
         /// (live-toggle). Sanitized via `FoliateJSEscaper.sanitizeFlow` at
         /// write time so JS interpolation is safe.
         var currentLayoutFlow: String
+        /// Feature #70 WI-4: the last Foliate `setStyles` CSS applied to
+        /// `readerAPI`. `updateUIView` diffs the incoming `themeCSS` against
+        /// this and pushes `setStyles` only on a change — mirrors
+        /// `currentLayoutFlow`. The `book-ready` handler also seeds the
+        /// initial value (pre-ready belt-and-braces) so the first calibrated
+        /// size lands even if no slider change ever fires.
+        var currentThemeCSS: String?
         /// True once `readerAPI.init({})` has been issued (book-ready handler).
         /// `updateUIView` checks this before pushing `setLayout` because the
         /// JS-side renderer isn't attached until after init.
@@ -301,9 +389,14 @@ extension FoliateSpikeView {
         nonisolated(unsafe) private var foliateJSCreateToken: NSObjectProtocol?
 
         init(initialLayoutFlow: String,
+             initialThemeCSS: String? = nil,
              onBookReady: @escaping @MainActor (String) -> Void,
              onError: @escaping @MainActor (String) -> Void) {
             self.currentLayoutFlow = FoliateJSEscaper.sanitizeFlow(initialLayoutFlow)
+            // Feature #70 WI-4: seed the theme CSS so the `book-ready` handler
+            // can apply the initial calibrated font size post-`init` even if
+            // no slider change ever fires (pre-ready belt-and-braces).
+            self.currentThemeCSS = initialThemeCSS
             self.onBookReady = onBookReady
             self.onError = onError
             super.init()
@@ -397,14 +490,42 @@ extension FoliateSpikeView {
                     // during the awaited init yields at the `await`, queued
                     // stash JS updates `window.__vreaderTargetFlow`, and
                     // the iife reads the freshest value when init resumes.
+                    //
+                    // Feature #70 WI-4: the iife ALSO applies the calibrated
+                    // `setStyles` CSS after init resolves, reading the SAME
+                    // kind of JS-side global (`window.__vreaderTargetThemeCSS`).
+                    // `setStyles` is a no-op before `readerAPI.init({})` — so
+                    // `updateUIView`'s pre-ready themeCSS branch only stashes
+                    // into that global; this post-init apply reads it. Reading
+                    // the global AFTER the `await` (not snapshotting Swift's
+                    // `currentThemeCSS` before) closes the Gate-4-audit race:
+                    // a font-size change landing mid-init updates the global
+                    // and the resuming iife picks up the freshest value. The
+                    // CSS is `FoliateJSEscaper.escapeForJSString`-escaped
+                    // (rule 50 bridge safety).
                     let initialFlow = currentLayoutFlow
+                    let initialThemeCSSSeed: String
+                    if let css = currentThemeCSS {
+                        let escaped = FoliateJSEscaper.escapeForJSString(css)
+                        initialThemeCSSSeed = """
+                        if (typeof window.__vreaderTargetThemeCSS !== 'string') {
+                            window.__vreaderTargetThemeCSS = '\(escaped)';
+                        }
+                        """
+                    } else {
+                        initialThemeCSSSeed = ""
+                    }
                     let js = """
                     (async () => {
                         if (typeof window.__vreaderTargetFlow !== 'string') {
                             window.__vreaderTargetFlow = '\(initialFlow)';
                         }
+                        \(initialThemeCSSSeed)
                         await readerAPI.init({});
                         readerAPI.setLayout({flow: window.__vreaderTargetFlow});
+                        if (typeof window.__vreaderTargetThemeCSS === 'string') {
+                            readerAPI.setStyles(window.__vreaderTargetThemeCSS);
+                        }
                         post('layout-ready', {});
                     })();
                     """
@@ -418,6 +539,22 @@ extension FoliateSpikeView {
                 // `updateUIView` could push `setLayout` against a not-yet
                 // attached renderer.
                 isBookReady = true
+                // Feature #70 WI-4 (Gate-4 round-2 audit fix): reconcile the
+                // theme CSS exactly at the ready transition. The book-ready
+                // iife reads `window.__vreaderTargetThemeCSS` right after its
+                // `await readerAPI.init({})`; a font-size change landing in
+                // the narrow window between that read and this `isBookReady`
+                // flip would otherwise be lost — `updateUIView` still took
+                // the pre-ready (stash-only) branch, and no later SwiftUI
+                // diff is guaranteed because `currentThemeCSS` already holds
+                // the newest value. Force one `setStyles` of the freshest
+                // `currentThemeCSS` here so the latest calibrated size always
+                // lands. `setStyles` is idempotent, so a re-apply of the same
+                // CSS the iife already pushed is harmless.
+                if let css = currentThemeCSS {
+                    webView?.evaluateJavaScript(
+                        Coordinator.setStylesJS(forCSS: css), completionHandler: nil)
+                }
 
             case "tap":
                 // Bug #108: forward center-tap to the chrome-toggle
@@ -579,6 +716,19 @@ extension FoliateSpikeView {
             })(); void 0;
             """
             webView?.evaluateJavaScript(js) { _, _ in }
+        }
+
+        // MARK: - Feature #70 WI-4: setStyles JS
+
+        /// Feature #70 WI-4: builds the `readerAPI.setStyles('<css>')` JS
+        /// call, with the CSS escaped via `FoliateJSEscaper.escapeForJSString`
+        /// (rule 50 bridge safety — the CSS could in principle contain a
+        /// single-quote or backslash that would break out of the JS string
+        /// literal). Pure + static so a unit test can assert the escaping
+        /// without a live WKWebView.
+        static func setStylesJS(forCSS css: String) -> String {
+            let escaped = FoliateJSEscaper.escapeForJSString(css)
+            return "readerAPI.setStyles('\(escaped)');"
         }
 
         // MARK: - Feature #57: TTS text extraction

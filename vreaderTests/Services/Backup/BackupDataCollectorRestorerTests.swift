@@ -236,6 +236,60 @@ struct BackupCollectorRestorerSuite {
         #expect(defaultsB.string(forKey: "someUnrelatedAppKey") == nil)
     }
 
+    /// Feature #54 WI-5: `readerReadingMode` is no longer in
+    /// `BackupSettingsKeys.all` — new backups stop snapshotting the
+    /// retired key.
+    @Test func settingsKeys_doNotIncludeRetiredReadingModeKey() {
+        #expect(
+            !BackupSettingsKeys.all.contains("readerReadingMode"),
+            "feature #54 WI-5 removed `readerReadingMode` from BackupSettingsKeys.all"
+        )
+    }
+
+    /// Feature #54 WI-5: restoring an OLD backup whose settings section
+    /// still carries `readerReadingMode` must not crash. `restoreSettings`
+    /// iterates whatever `defaults` dictionary the archive captured (it is
+    /// NOT filtered against the current `BackupSettingsKeys.all`), so the
+    /// orphan key faithfully lands in UserDefaults. The next launch's
+    /// `ReadingModeMigration.run` is what clears it (covered by
+    /// `ReadingModeMigrationTests`).
+    ///
+    /// The fixture is hand-built as a pre-#54 `BackupSettingsEnvelope`
+    /// rather than produced by the current collector: WI-5 removed
+    /// `readerReadingMode` from `BackupSettingsKeys.all`, so `collectSettings()`
+    /// can no longer emit it — only a hand-crafted old payload exercises
+    /// the stale-key restore path.
+    @Test func settingsRestore_oldBackupWithReadingMode_doesNotCrash() async throws {
+        let defaultsB = makeIsolatedDefaults(label: "oldRMB")
+
+        // Pre-#54 archive: `defaults` includes the retired `readerReadingMode`
+        // key alongside a current key. Built directly, not via the collector.
+        let oldEnvelope = BackupSettingsEnvelope(
+            schemaVersion: 1,
+            defaults: [
+                "readerTheme": .string("dark"),
+                "readerReadingMode": .string("unified"),
+            ]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(oldEnvelope)
+
+        let persistence = try makePersistence()
+        let restorer = BackupDataRestorer(
+            persistence: persistence,
+            defaults: defaultsB,
+            perBookSettingsBaseURL: try makeTempDir(label: "old-rm")
+        )
+        // Must not throw — restoreSettings replays every key the archive holds.
+        try await restorer.restoreSettings(from: data)
+        #expect(defaultsB.string(forKey: "readerTheme") == "dark")
+        // The restorer does not drop the retired key — it writes through what
+        // the old archive carried. `ReadingModeMigration` (run at next launch)
+        // is the component that removes it; the restore step just tolerates it.
+        #expect(defaultsB.string(forKey: "readerReadingMode") == "unified")
+    }
+
     // MARK: - Annotations (highlights / bookmarks / notes)
 
     @Test func annotationsRoundTrip() async throws {
@@ -555,8 +609,7 @@ struct BackupCollectorRestorerSuite {
             fontName: "serif",
             lineSpacing: 1.8,
             letterSpacing: nil,
-            themeName: "sepia",
-            readingMode: nil
+            themeName: "sepia"
         )
         try PerBookSettingsStore.save(override, for: key, baseURL: perBookDirA)
 
@@ -581,7 +634,6 @@ struct BackupCollectorRestorerSuite {
         #expect(restored?.fontName == "serif")
         #expect(restored?.lineSpacing == 1.8)
         #expect(restored?.themeName == "sepia")
-        #expect(restored?.readingMode == nil)
     }
 
     // MARK: - Replacement Rules

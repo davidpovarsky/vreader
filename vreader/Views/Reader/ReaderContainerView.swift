@@ -516,6 +516,16 @@ struct ReaderContainerView: View {
                 handleDebugBridgeSearchCommand(query: query, index: index)
             }
         ))
+        // Bug #237 — DebugBridge highlight-driver observer lives in the
+        // TXT and MD format hosts, NOT here. Format hosts have the source
+        // text + chapter index they need to build canonical Locators via
+        // `LocatorFactory`, and they own a `HighlightCoordinator`. Wiring
+        // the observer here would mean any EPUB/PDF/AZW3 reader receiving
+        // a stray `vreader-debug://highlight` URL would persist a
+        // TXT-shaped highlight against its own book — invisible because
+        // EPUB/PDF require an anchor, and a dedupe mismatch (canonicalHash
+        // includes textQuote/context). See TXTReaderContainerView and
+        // MDReaderContainerView for the per-format observer wiring.
         #endif
         // PERF: Single deferred .task for all non-critical setup.
         // Per-book settings + TOC prep deferred to avoid contending with the

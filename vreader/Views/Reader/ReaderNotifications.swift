@@ -186,6 +186,51 @@ extension Notification.Name {
     /// layer is correct, only the visual restore fails.
     static let foliateOverlayReadyForSection = Notification.Name("vreader.foliateOverlayReadyForSection")
 
+    /// Feature #56 WI-11: posted by `FoliateSpikeView.Coordinator`
+    /// after parsing a `bilingualEnumerate` script-message payload.
+    /// Carries `userInfo = ["blocks": [BilingualBlock], "fingerprintKey": String]`.
+    /// The observer in `FoliateBilingualContainerView` resolves the
+    /// current unit via the bilingual VM and dispatches both the
+    /// translation prefetch and (if a cached translation exists)
+    /// the inject JS through the `foliateRequestBilingualEvalJS`
+    /// observer. Filtered by `fingerprintKey` so concurrent
+    /// AZW3/MOBI readers do not cross-fire.
+    static let foliateBilingualBlocksEnumerated = Notification.Name("vreader.foliateBilingualBlocksEnumerated")
+
+    /// Feature #56 WI-11: posted by the bilingual container to ask
+    /// the live `FoliateSpikeView.Coordinator` to evaluate a JS
+    /// payload (enumerate / inject / clear). Carries
+    /// `userInfo = ["js": String, "fingerprintKey": String]`. The
+    /// Coordinator's observer evaluates the JS against its live
+    /// `WKWebView`. Mirrors the
+    /// `.foliateRequestAnnotationJSCreate` /
+    /// `.foliateRequestAnnotationJSDelete` pattern so the seam
+    /// stays consistent across the highlight + bilingual surfaces.
+    /// Filtered by `fingerprintKey` so concurrent AZW3/MOBI
+    /// readers do not cross-fire.
+    static let foliateRequestBilingualEvalJS = Notification.Name("vreader.foliateRequestBilingualEvalJS")
+
+    /// Feature #56 WI-11: posted by `FoliateSpikeView.Coordinator`
+    /// when Foliate-js fires a `section-load` event (a new section
+    /// has been rendered into the DOM). Carries
+    /// `userInfo = ["sectionIndex": Int, "fingerprintKey": String]`.
+    /// The bilingual container observes this to refresh its
+    /// enumerate payload against the freshly-loaded section.
+    /// Filtered by `fingerprintKey` so concurrent AZW3/MOBI
+    /// readers do not cross-fire.
+    static let foliateSectionLoaded = Notification.Name("vreader.foliateSectionLoaded")
+
+    /// Feature #56 WI-11 (Gate-4 audit H1): posted by
+    /// `FoliateSpikeView.Coordinator` on every `relocate` event so
+    /// the bilingual container can update its current-section
+    /// tracking even when the position change does not load a new
+    /// section (page turn within an already-loaded section in
+    /// paginated mode). Carries
+    /// `userInfo = ["sectionIndex": Int, "tocHref": String?,
+    ///              "fingerprintKey": String]`. Filtered by
+    /// `fingerprintKey`.
+    static let foliateRelocated = Notification.Name("vreader.foliateRelocated")
+
     /// Feature #60 WI-7c1: posted by a reader bridge when the user
     /// finishes a long-press selection. The
     /// `SelectionPopoverPresenterModifier` observes this and presents

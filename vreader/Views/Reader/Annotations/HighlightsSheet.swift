@@ -19,12 +19,18 @@
 //
 // The export flow lives in `HighlightsSheet+Export.swift`; the
 // count/stream helpers + DEBUG hooks in `HighlightsSheet+Support.swift`.
+// Bug #249 / GH #1080 — the per-card delete affordance (the trailing ⋯ menu,
+// the inline confirm strip, the left-swipe drawer) is driven by the
+// SHEET-owned `rowState` (`NotesRowState`); its actions + card composition
+// live in `HighlightsSheet+Delete.swift`.
 //
 // @coordinates-with: HighlightsSheet+Export.swift, HighlightsSheet+Support.swift,
-//   HighlightAnnotationCard.swift, AnnotationStreamBuilder.swift,
+//   HighlightsSheet+Delete.swift, HighlightAnnotationCard.swift,
+//   StandaloneNoteCard.swift, NotesRowState.swift, NotesActionMenu.swift,
+//   NotesDeleteConfirm.swift, NotesDeleteRow.swift, AnnotationStreamBuilder.swift,
 //   AnnotationsEmptyStateView.swift, ReaderSheetChrome.swift,
 //   HighlightListViewModel.swift, AnnotationListViewModel.swift,
-//   `dev-docs/designs/vreader-fidelity-v1/project/vreader-notes-unified.jsx`
+//   `dev-docs/designs/vreader-fidelity-v1/project/vreader-notes-delete.jsx`
 
 import SwiftUI
 import SwiftData
@@ -47,6 +53,10 @@ struct HighlightsSheet: View {
     @State var highlightVM: HighlightListViewModel?
     @State var annotationVM: AnnotationListViewModel?
     @State var didLoad = false
+    /// Bug #249 — the single per-row interaction state for the delete
+    /// affordance. SHEET-owned so at most one row is non-default at a time
+    /// (the `vreader-notes-delete.jsx` `HighlightsSheetV4` invariant).
+    @State var rowState: NotesRowState = .resting
     // Export flow state — driven by `HighlightsSheet+Export.swift`.
     @State var isShowingExportShare = false
     @State var exportedFileURL: URL?
@@ -239,25 +249,24 @@ struct HighlightsSheet: View {
         }
     }
 
+    /// One stream row, wrapped in its delete-affordance chrome
+    /// (`NotesDeleteRow`). The card-building helpers live in
+    /// `HighlightsSheet+Delete.swift`.
     @ViewBuilder
-    private func card(for item: AnnotationStreamItem) -> some View {
-        switch item {
-        case .highlight(let record):
-            HighlightCardV3(
-                theme: theme,
-                highlight: record,
-                metaLabel: metaLabel(for: record.locator),
-                onJump: { onNavigate($0); onDismiss() }
-            )
-            .accessibilityIdentifier("highlightCard-\(record.highlightId)")
-        case .standalone(let record):
-            StandaloneNoteCard(
-                theme: theme,
-                note: record,
-                metaLabel: metaLabel(for: record.locator),
-                onJump: { onNavigate($0); onDismiss() }
-            )
-            .accessibilityIdentifier("standaloneNoteCard-\(record.annotationId)")
+    func card(for item: AnnotationStreamItem) -> some View {
+        let phase = rowState.phase(for: item.id)
+        NotesDeleteRow(
+            theme: theme,
+            kind: actionKind(for: item),
+            phase: phase,
+            onMore: { openMenu(for: item.id) },
+            onEdit: { edit(item) },
+            onCopy: { copy(item) },
+            onDelete: { beginDeleteConfirmation(for: item.id) },
+            onRevealSwipe: { revealSwipe(for: item.id) },
+            onDismiss: { dismissRowState() }
+        ) {
+            cardContent(for: item, phase: phase)
         }
     }
 }

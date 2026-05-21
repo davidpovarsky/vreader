@@ -1,19 +1,23 @@
-// Purpose: Feature #62 WI-4 — the two annotation card views for
-// `HighlightsSheet`'s unified card stream.
+// Purpose: Feature #62 WI-4 — `HighlightCardV3` (the passage card) for
+// `HighlightsSheet`'s unified card stream, plus the shared `HighlightSwatch`
+// colour map and `AnnotationCardDateFormatter`.
 //
-// The committed #860 design (`vreader-notes-unified.jsx`) renders two
-// card kinds: `HighlightCardV3` (the passage card — a quoted highlight
-// with an optional note block, visually identical to the v2 design) and
-// `StandaloneNoteCard` (NEW — the note body is the hero; no quoted
-// passage; a `Standalone` pill + a dashed accent rule distinguish it).
-// `HighlightsSheet` switches on `AnnotationStreamItem` to pick the card.
+// The committed #860 design (`vreader-notes-unified.jsx`) renders two card
+// kinds: `HighlightCardV3` here (a quoted highlight with an optional note
+// block, visually identical to the v2 design) and `StandaloneNoteCard` (the
+// note body is the hero), which lives in `StandaloneNoteCard.swift` (split
+// for the ~300-line guideline). `HighlightsSheet` switches on
+// `AnnotationStreamItem` to pick the card.
 //
-// Both take a `ReaderThemeV2` and an `onJump` closure (the card `onJump`
-// only navigates to the locator — editing a highlight's note is
-// `HighlightActionPopover`'s job, feature #64).
+// The card `onJump` navigates to the locator — editing a highlight's note is
+// `HighlightActionPopover`'s job (feature #64). Bug #249 / GH #1080 added the
+// optional `metaTrailing` (the ⋯ button) + `bodyOverride` (the confirm strip
+// / error chip) slots; both default to empty so the resting layout is
+// unchanged.
 //
-// @coordinates-with: HighlightsSheet.swift, AnnotationStreamItem.swift,
-//   ReaderThemeV2.swift, HighlightRecord.swift, AnnotationRecord.swift,
+// @coordinates-with: HighlightsSheet.swift, StandaloneNoteCard.swift,
+//   HighlightsSheet+Delete.swift, AnnotationStreamItem.swift,
+//   ReaderThemeV2.swift, HighlightRecord.swift,
 //   `dev-docs/designs/vreader-fidelity-v1/project/vreader-notes-unified.jsx`
 
 import SwiftUI
@@ -58,23 +62,50 @@ enum HighlightSwatch {
 /// The passage card — a colour-swatch meta row, a serif-italic quoted
 /// passage with a 2pt solid colour left-rule, and (when the highlight
 /// carries a non-empty note) a note block beneath. JSX `HighlightCardV3`.
-struct HighlightCardV3: View {
+///
+/// Bug #249 — `metaTrailing` is an optional accessory rendered inline AFTER
+/// the date in the meta row (the design's trailing `⋯` button). It defaults
+/// to an empty view, so the resting layout is unchanged when no accessory is
+/// supplied.
+struct HighlightCardV3<MetaTrailing: View, BodyOverride: View>: View {
     let theme: ReaderThemeV2
     let highlight: HighlightRecord
     /// Meta sub-line — `chapter · p. N` — pre-composed by `HighlightsSheet`.
     let metaLabel: String
     let onJump: (Locator) -> Void
+    /// Optional trailing accessory in the meta row (the ⋯ button).
+    let metaTrailing: () -> MetaTrailing
+    /// Body replacement — when `usesBodyOverride` is true, this replaces the
+    /// passage + note region (Bug #249's confirm strip / error chip). The
+    /// meta row stays so the user sees WHICH row they are acting on.
+    let bodyOverride: () -> BodyOverride
+    /// Whether `bodyOverride` is active. An explicit flag (not a static-type
+    /// check) because the supplied closure is always a `_ConditionalContent`
+    /// wrapper, never literally `EmptyView`.
+    let usesBodyOverride: Bool
+    /// Whether tapping the row navigates. The sheet sets this `false` while a
+    /// non-default interaction (menu / confirm / swipe) owns the row — the
+    /// design disables jump then (Bug #249).
+    let jumpEnabled: Bool
 
     init(
         theme: ReaderThemeV2,
         highlight: HighlightRecord,
         metaLabel: String = "",
-        onJump: @escaping (Locator) -> Void
+        onJump: @escaping (Locator) -> Void,
+        usesBodyOverride: Bool = false,
+        jumpEnabled: Bool = true,
+        @ViewBuilder metaTrailing: @escaping () -> MetaTrailing = { EmptyView() },
+        @ViewBuilder bodyOverride: @escaping () -> BodyOverride = { EmptyView() }
     ) {
         self.theme = theme
         self.highlight = highlight
         self.metaLabel = metaLabel
         self.onJump = onJump
+        self.usesBodyOverride = usesBodyOverride
+        self.jumpEnabled = jumpEnabled
+        self.metaTrailing = metaTrailing
+        self.bodyOverride = bodyOverride
     }
 
     /// True when the note block is part of the composition — the
@@ -88,24 +119,32 @@ struct HighlightCardV3: View {
 
     private var swatch: Color { HighlightSwatch.color(for: highlight.color) }
 
+    /// Navigate only when jump is enabled (suppressed while a row interaction
+    /// is active, so an outside-tap dismisses rather than navigates).
+    private func tryJump() { if jumpEnabled { onJump(highlight.locator) } }
+
     var body: some View {
-        Button {
-            onJump(highlight.locator)
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                metaRow
+        VStack(alignment: .leading, spacing: 8) {
+            metaRow
+            if usesBodyOverride {
+                bodyOverride()
+            } else {
                 passage
+                    .contentShape(Rectangle())
+                    .onTapGesture { tryJump() }
                 if showsNoteBlock, let note = highlight.note {
                     noteBlock(note)
+                        .contentShape(Rectangle())
+                        .onTapGesture { tryJump() }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 14)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Color(theme.ruleColor)).frame(height: 0.5)
-            }
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(theme.ruleColor)).frame(height: 0.5)
+        }
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
@@ -118,10 +157,13 @@ struct HighlightCardV3: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Color(theme.subColor))
             Spacer(minLength: 0)
-            Text(Self.dateFormatter.string(from: highlight.createdAt))
+            Text(AnnotationCardDateFormatter.medium.string(from: highlight.createdAt))
                 .font(.system(size: 11))
                 .foregroundStyle(Color(theme.subColor))
+            metaTrailing()
         }
+        .contentShape(Rectangle())
+        .onTapGesture { tryJump() }
     }
 
     @ViewBuilder
@@ -153,123 +195,18 @@ struct HighlightCardV3: View {
         .padding(.leading, 14)
     }
 
-    static let dateFormatter: DateFormatter = {
+}
+
+/// The shared medium-date formatter both annotation cards use for the
+/// meta-row date. Non-generic (lives at file scope, not on the now-generic
+/// `HighlightCardV3`) so a single instance is reused across both card kinds
+/// and any specialization (Bug #249 made the cards generic over the trailing
+/// accessory).
+enum AnnotationCardDateFormatter {
+    static let medium: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .none
         return f
     }()
-}
-
-// MARK: - StandaloneNoteCard
-
-/// The standalone-note card — a note-glyph pictogram meta row with a
-/// `Standalone` pill, and the note body as the hero behind a 2pt DASHED
-/// accent left-rule (no colour swatch — no highlight backs it). JSX
-/// `StandaloneNoteCard`.
-struct StandaloneNoteCard: View {
-    let theme: ReaderThemeV2
-    let note: AnnotationRecord
-    /// Meta sub-line — `chapter · p. N` — pre-composed by `HighlightsSheet`.
-    let metaLabel: String
-    let onJump: (Locator) -> Void
-
-    init(
-        theme: ReaderThemeV2,
-        note: AnnotationRecord,
-        metaLabel: String = "",
-        onJump: @escaping (Locator) -> Void
-    ) {
-        self.theme = theme
-        self.note = note
-        self.metaLabel = metaLabel
-        self.onJump = onJump
-    }
-
-    /// Test-only hook — invokes `onJump` with the annotation's locator.
-    func invokeJumpForTesting() { onJump(note.locator) }
-
-    var body: some View {
-        Button {
-            onJump(note.locator)
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                metaRow
-                body_
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 14)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Color(theme.ruleColor)).frame(height: 0.5)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var metaRow: some View {
-        HStack(spacing: 8) {
-            // Standalone pictogram — a small filled note glyph in an
-            // accent-tinted rounded square (no colour swatch).
-            Image(systemName: "note.text")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(Color(theme.accentColor))
-                .frame(width: 12, height: 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(theme.accentColor).opacity(0.13))
-                )
-            Text(metaLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(Color(theme.subColor))
-            Text("Standalone")
-                .font(.system(size: 9.5, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(Color(theme.subColor))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(
-                    Capsule().fill(Color.primary.opacity(theme.isDark ? 0.06 : 0.05))
-                )
-            Spacer(minLength: 0)
-            Text(HighlightCardV3.dateFormatter.string(from: note.createdAt))
-                .font(.system(size: 11))
-                .foregroundStyle(Color(theme.subColor))
-        }
-    }
-
-    @ViewBuilder
-    private var body_: some View {
-        Text(note.content)
-            .font(Font(ReaderTypography.body(for: .sourceSerif4, size: 14.5)))
-            .foregroundStyle(Color(theme.inkColor))
-            .lineSpacing(4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 12)
-            .overlay(alignment: .leading) {
-                // Dashed accent rule — distinguishes a standalone note
-                // from a highlight's solid colour rule. A top-to-bottom
-                // dashed line, 2pt wide.
-                DashedVerticalRule(color: Color(theme.accentColor).opacity(0.53))
-                    .frame(width: 2)
-            }
-    }
-}
-
-// MARK: - Dashed vertical rule
-
-/// A 2pt top-to-bottom dashed line — the standalone-note card's accent
-/// left-rule (the design's `borderLeft: 2px dashed`).
-private struct DashedVerticalRule: View {
-    let color: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            Path { p in
-                p.move(to: CGPoint(x: 1, y: 0))
-                p.addLine(to: CGPoint(x: 1, y: geo.size.height))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
-        }
-    }
 }

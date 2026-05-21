@@ -26,6 +26,10 @@ private final class MockNavigator: PageNavigator {
         guard currentPage < maxPage else { return }
         currentPage += 1
         nextPageCallCount += 1
+        // Mirror BasePageNavigator: fire the delegate on a real page change so
+        // tests can assert the navigator broadcasts page advances the same way
+        // the production navigator does.
+        delegate?.pageNavigator(self, didNavigateToPage: currentPage)
     }
 
     func previousPage() {
@@ -263,5 +267,92 @@ struct AutoPageTurnerTests {
 
         #expect(nav.nextPageCallCount == 0)
         #expect(turner.state == .idle, "Should auto-stop at last page")
+    }
+
+    // MARK: - View-Sync Bridge (Bug #258 / GH #1125)
+
+    /// Bug #258 (GH #1125): the timer's `nextPage()` advances the navigator's
+    /// internal page, but the MD/TXT paged view renders from the explicit
+    /// `currentPage: uiState.pagedCurrentPage` param — synced from
+    /// `nav.currentPage` ONLY in `TextReaderUIState.syncPagedState()`, which
+    /// was called ONLY from the `.readerNextPage` observer that the auto-turn
+    /// timer bypasses. So the page never re-rendered and `snapshot.position`
+    /// stayed flat. The `AutoPageTurnerTests` MockNavigator approach is exactly
+    /// why criterion 4 passed while criterion 5 failed: the suite proved the
+    /// timer FIRES `nextPage()`, but nothing tested that a timer-driven advance
+    /// drives the container's observable view-sync.
+    ///
+    /// The fix: `AutoPageTurner` invokes an `onAdvance` callback after each
+    /// timer-driven `nextPage()`. The container installs it to run the same
+    /// `syncPagedState()` + position update the `.readerNextPage` observer
+    /// does — WITHOUT the observer's `pause()` (posting `.readerNextPage` from
+    /// the timer would immediately pause the turner, halting auto-advance after
+    /// one tick). This test drives a timer-tick and asserts the bridge fires.
+    @Test @MainActor func timerAdvance_invokesOnAdvanceCallback() async throws {
+        let turner = AutoPageTurner()
+        turner.interval = 1.0
+        let nav = MockNavigator()
+        nav.totalPages = 10
+        nav.currentPage = 0
+
+        nonisolated(unsafe) var onAdvanceCount = 0
+        nonisolated(unsafe) var observedPageAtAdvance: Int?
+        turner.onAdvance = {
+            onAdvanceCount += 1
+            observedPageAtAdvance = nav.currentPage
+        }
+
+        turner.start(navigator: nav)
+        try await Task.sleep(for: .milliseconds(1200))
+        turner.stop()
+
+        #expect(onAdvanceCount >= 1,
+                "onAdvance must fire on each timer-driven page turn so the container can re-sync pagedCurrentPage + position")
+        // The callback must fire AFTER nextPage() so the container observes the
+        // already-advanced page (otherwise syncPagedState reads the stale page).
+        #expect(observedPageAtAdvance == nav.currentPage,
+                "onAdvance must run after nextPage() advances the navigator")
+        #expect(nav.currentPage >= 1, "navigator must have advanced")
+    }
+
+    /// The `onAdvance` callback must NOT fire when the timer hits the last page
+    /// (no actual advance happened — `scheduleTimer` stops before `nextPage()`).
+    /// A spurious callback there would re-sync / re-persist position with no
+    /// page change, and worse could mask the auto-stop.
+    @Test @MainActor func timerAtLastPage_doesNotInvokeOnAdvance() async throws {
+        let turner = AutoPageTurner()
+        turner.interval = 1.0
+        let nav = MockNavigator()
+        nav.totalPages = 3
+        nav.currentPage = 2 // already at last page
+
+        nonisolated(unsafe) var onAdvanceCount = 0
+        turner.onAdvance = { onAdvanceCount += 1 }
+
+        turner.start(navigator: nav)
+        try await Task.sleep(for: .milliseconds(1200))
+
+        #expect(onAdvanceCount == 0, "onAdvance must not fire when no page advance occurs")
+        #expect(turner.state == .idle, "Should auto-stop at last page")
+    }
+
+    /// `stop()` must clear the `onAdvance` callback's effect — after stop, no
+    /// further timer ticks fire it. Guards against a stale closure surviving a
+    /// reader teardown and re-syncing a deallocated container.
+    @Test @MainActor func stop_preventsFurtherOnAdvance() async throws {
+        let turner = AutoPageTurner()
+        turner.interval = 1.0
+        let nav = MockNavigator()
+        nav.totalPages = 10
+
+        nonisolated(unsafe) var onAdvanceCount = 0
+        turner.onAdvance = { onAdvanceCount += 1 }
+
+        turner.start(navigator: nav)
+        turner.stop()
+        let countAtStop = onAdvanceCount
+        try await Task.sleep(for: .milliseconds(1500))
+
+        #expect(onAdvanceCount == countAtStop, "no onAdvance after stop")
     }
 }

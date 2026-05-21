@@ -7,8 +7,11 @@
 // - Interval clamped to 1...60 seconds.
 // - Uses Task.sleep for timer to allow clean cancellation.
 // - Auto-stops when navigator reaches last page.
+// - Fires `onAdvance` after each timer-driven page turn so the host can sync
+//   its observable view state + persisted position (Bug #258 / GH #1125).
 //
-// @coordinates-with PageNavigator.swift, BasePageNavigator.swift
+// @coordinates-with PageNavigator.swift, BasePageNavigator.swift,
+//   TextReaderUIState.swift, MDReaderContainerView.swift, TXTReaderContainerView.swift
 
 import Foundation
 
@@ -65,6 +68,28 @@ final class AutoPageTurner {
             }
         }
     }
+
+    /// Invoked on the main actor after each timer-driven `nextPage()` advance.
+    ///
+    /// Bug #258 / GH #1125: the timer advances the navigator's internal page,
+    /// but the MD/TXT paged renderer (`NativeTextPagedView`) renders from the
+    /// explicit `currentPage: uiState.pagedCurrentPage` parameter, which is
+    /// synced from `nav.currentPage` only in `TextReaderUIState.syncPagedState()`
+    /// — previously called only from the `.readerNextPage` observer the timer
+    /// bypasses. The host installs this callback to run that same sync (page
+    /// counter + reading progress + persisted position) on each tick.
+    ///
+    /// It deliberately does NOT post `.readerNextPage`: that observer also calls
+    /// `autoPageTurner?.pause()` (the "manual turn pauses auto-turn" semantics
+    /// from Bug #131), so routing the timer through it would halt auto-advance
+    /// after a single tick. The callback fires only on actual advances — never
+    /// when the timer reaches the last page (where `scheduleTimer` stops before
+    /// calling `nextPage()`).
+    ///
+    /// `@ObservationIgnored` because the closure is wiring, not observable
+    /// reader state — mutating it must not invalidate SwiftUI views.
+    @ObservationIgnored
+    var onAdvance: (@MainActor () -> Void)?
 
     // MARK: - Private
 
@@ -128,6 +153,12 @@ final class AutoPageTurner {
                 }
 
                 nav.nextPage()
+                // Bug #258 / GH #1125: bridge the timer's advance into the
+                // host's observable view state. Fires only after a real
+                // advance (the last-page guard above already returned),
+                // never posts `.readerNextPage` (which would pause the
+                // turner). `self` is still alive here (guarded above).
+                self.onAdvance?()
             }
         }
     }

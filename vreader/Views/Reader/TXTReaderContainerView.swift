@@ -343,6 +343,15 @@ struct TXTReaderContainerView: View {
         // gesture path's full posture. Audit Round-1 High #1 / #2 fix.
         .modifier(debugBridgeHighlightObserverModifier)
         .task {
+            // Bug #258 / GH #1125: install the auto-page-turn position-persist
+            // side-effect before pagination creates the turner, mirroring
+            // MDReaderContainerView. (TXT shares `NativeTextPagedView` with MD;
+            // `FormatCapabilities.autoPageTurn` is MD-only today, but wiring is
+            // symmetric so a future TXT re-enable inherits a working sync.)
+            uiState.onAutoAdvancePersist = { [weak viewModel] offset in
+                guard let offset, let viewModel else { return }
+                viewModel.updateScrollPosition(charOffsetUTF16: offset)
+            }
             // PERF: open already called by TXTReaderHost — skip if content loaded
             if viewModel.textContent == nil && viewModel.currentChapterText == nil {
                 // Bug #180: chaptered TXT in Scroll layout opens as one

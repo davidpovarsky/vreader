@@ -449,6 +449,16 @@ extension FoliateSpikeView {
         /// page-turn / annotation observers; released in `deinit`.
         nonisolated(unsafe) private var foliateSeekFractionToken: NSObjectProtocol?
 
+        /// Bug #262 — observer for `.foliateRequestSeekTarget`. A shared
+        /// TOC / Notes / Highlight row tap (relayed by
+        /// `FoliateBilingualContainerView`) posts a navigation `target`
+        /// (CFI or href, filtered by `fingerprintKey`); this observer
+        /// evaluates `readerAPI.goTo('<escaped>')` against the live
+        /// `WKWebView`. JS is built by `FoliateNavSeek.goToTargetJS`
+        /// (escape + empty guard). Same `.main` queue + `MainActor.assumeIsolated`
+        /// lifecycle as the sibling seek-fraction observer; released in `deinit`.
+        nonisolated(unsafe) private var foliateSeekTargetToken: NSObjectProtocol?
+
         init(initialLayoutFlow: String,
              initialThemeCSS: String? = nil,
              onBookReady: @escaping @MainActor (String) -> Void,
@@ -566,6 +576,27 @@ extension FoliateSpikeView {
                     self.webView?.evaluateJavaScript(js, completionHandler: nil)
                 }
             }
+            // Bug #262 — TOC / Notes / Highlight row-tap navigation. The
+            // bilingual container relays `.readerNavigateToLocator` here as a
+            // resolved `target` (CFI or href). Filtered by `fingerprintKey`
+            // (like the seek-fraction observer) so a stale navigation from an
+            // outgoing reader cannot jump a freshly-opened second reader. The
+            // JS builder escapes the target and no-ops on an empty target.
+            self.foliateSeekTargetToken = NotificationCenter.default.addObserver(
+                forName: .foliateRequestSeekTarget,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self = self,
+                      let info = notification.userInfo,
+                      let target = info["target"] as? String,
+                      let key = info["fingerprintKey"] as? String,
+                      key == self.fingerprintKey,
+                      let js = FoliateNavSeek.goToTargetJS(target) else { return }
+                MainActor.assumeIsolated {
+                    self.webView?.evaluateJavaScript(js, completionHandler: nil)
+                }
+            }
         }
 
         deinit {
@@ -595,6 +626,12 @@ extension FoliateSpikeView {
             if let token = foliateSeekFractionToken {
                 NotificationCenter.default.removeObserver(token)
             }
+            // Bug #262 — release the row-tap navigation observer so a
+            // `goTo` posted after this coordinator deinits cannot evaluate
+            // against an already-released `WKWebView`.
+            if let token = foliateSeekTargetToken {
+                NotificationCenter.default.removeObserver(token)
+            }
         }
 
         func userContentController(_ controller: WKUserContentController,
@@ -620,6 +657,28 @@ extension FoliateSpikeView {
                 if let dict = body as? [String: Any] {
                     let title = dict["title"] as? String ?? "Unknown"
                     onBookReady(title)
+                    // Bug #262 / GH #1136: forward the parsed Foliate-js TOC
+                    // so the live container (`FoliateBilingualContainerView`)
+                    // can build the bottom-chrome Contents list. Pre-fix the
+                    // handler dropped everything but `title` (the
+                    // `onBookReady: (String) -> Void` boundary), leaving the
+                    // AZW3/MOBI Contents sheet permanently empty even when the
+                    // book ships a TOC. `parseBookReady` already parses the
+                    // `toc` tree; we post it on a dedicated, fingerprintKey-
+                    // scoped channel. Empty TOCs are NOT posted so a sparse
+                    // book keeps `TOCSheet`'s genuine "no contents" state.
+                    if let key = self.fingerprintKey,
+                       let info = FoliateMessageParser.parseBookReady(body),
+                       !info.toc.isEmpty {
+                        NotificationCenter.default.post(
+                            name: .foliateBookReadyTOC,
+                            object: nil,
+                            userInfo: [
+                                "toc": info.toc,
+                                "fingerprintKey": key,
+                            ]
+                        )
+                    }
                     // Bug #189: init the renderer, then apply the freshest
                     // reading-mode preference, then post `layout-ready` so
                     // native flips `isBookReady` only AFTER the renderer
@@ -868,6 +927,26 @@ extension FoliateSpikeView {
                         object: nil,
                         userInfo: userInfo
                     )
+                    // Bug #262 / GH #1136: also publish the live reading
+                    // position on the shared `.readerPositionDidChange`
+                    // channel so the AI panel + DebugBridge probe track where
+                    // the AZW3/MOBI reader actually is (parity with the four
+                    // native containers, which all post this on a page turn).
+                    // Pre-fix this was only produced by the DEAD
+                    // `FoliateReaderContainerView`, so the live path never
+                    // updated `ReaderContainerView.currentLocator`. The
+                    // section href (`tocHref`) + `cfi` anchor the locator.
+                    if let locator = FoliateNavSeek.positionLocator(
+                        fingerprintKey: key,
+                        href: parsed.tocHref,
+                        cfi: parsed.cfi,
+                        fraction: parsed.fraction
+                    ) {
+                        NotificationCenter.default.post(
+                            name: .readerPositionDidChange,
+                            object: locator
+                        )
+                    }
                 }
 
             case "bilingualEnumerate":

@@ -424,6 +424,19 @@ struct ReaderContainerView: View {
                 Task { @MainActor in await vm.startObserving() }
             }
         }
+        // Bug #262 / GH #1136: the live AZW3/MOBI Contents source. Folded
+        // into a dedicated `ViewModifier` (not an inline `.onReceive`)
+        // because the body expression is already at SwiftUI's type-inference
+        // ceiling — an inline observer trips "unable to type-check in
+        // reasonable time" (the same constraint the `ReaderReTranslateObserver`
+        // modifier below already works around).
+        .modifier(FoliateTOCAvailableObserver(
+            bookFingerprintKey: book.fingerprintKey,
+            onEntries: { entries in
+                tocEntries = entries
+                tocDidLoad = true
+            }
+        ))
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
             guard let locator = notification.object as? Locator else { return }
             currentLocator = locator

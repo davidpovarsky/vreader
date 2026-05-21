@@ -278,7 +278,8 @@ struct FoliateTOCNavWiringTests {
         let locator = FoliateNavSeek.positionLocator(
             fingerprintKey: key,
             href: "ch04.xhtml",
-            cfi: "epubcfi(/6/8!/4/2)"
+            cfi: "epubcfi(/6/8!/4/2)",
+            fraction: 0.5
         )
         let unwrapped = try! #require(locator)
         #expect(unwrapped.href == "ch04.xhtml")
@@ -293,6 +294,66 @@ struct FoliateTOCNavWiringTests {
             cfi: nil
         )
         #expect(locator == nil)
+    }
+
+    // MARK: - Codex round-1: positionLocator carries the reading fraction
+
+    @Test("positionLocator threads the relocate fraction into progression so AI context tracks AZW3/MOBI position")
+    func positionLocatorCarriesFraction() {
+        // Codex round-1 fix: AIContextExtractor reads locator.progression for
+        // .azw3 (extractByProgression). A nil progression pins AI context to
+        // the start of the book; the relocate fraction must reach it.
+        let key = makeFingerprint().canonicalKey
+        let locator = try! #require(FoliateNavSeek.positionLocator(
+            fingerprintKey: key, href: "ch04.xhtml", cfi: nil, fraction: 0.42))
+        #expect(locator.progression == 0.42,
+                "Bug #262 round-1: the reading fraction must thread into `progression` so AZW3/MOBI AI context is not pinned to 0")
+        #expect(locator.totalProgression == 0.42)
+    }
+
+    @Test("positionLocator clamps an out-of-range fraction and drops a non-finite one")
+    func positionLocatorClampsFraction() {
+        let key = makeFingerprint().canonicalKey
+        let high = try! #require(FoliateNavSeek.positionLocator(
+            fingerprintKey: key, href: nil, cfi: "epubcfi(/6/2)", fraction: 1.7))
+        #expect(high.progression == 1.0, "an over-range fraction clamps to 1.0")
+
+        let nanCase = try! #require(FoliateNavSeek.positionLocator(
+            fingerprintKey: key, href: nil, cfi: "epubcfi(/6/2)", fraction: .nan))
+        #expect(nanCase.progression == nil,
+                "a non-finite fraction is dropped (Locator.validate rejects non-finite progression)")
+    }
+
+    // MARK: - Codex round-1: empty-href TOC nodes don't become dead rows
+
+    @Test("FoliateTOCConverter skips an empty-href parent but keeps its clickable children")
+    func tocConverterSkipsEmptyHrefParent() {
+        // foliate-host.js serializes a missing href as '' — a parent
+        // navigation node with label but no href. Such a node would render a
+        // tappable row whose navigation no-ops (navigationTarget rejects empty
+        // hrefs). The converter must skip the empty-href parent but still emit
+        // its children.
+        let fp = makeFingerprint()
+        let items = [
+            FoliateTOCItem(label: "Part One", href: "", subitems: [
+                FoliateTOCItem(label: "Chapter 1", href: "ch01.xhtml", subitems: []),
+                FoliateTOCItem(label: "Chapter 2", href: "ch02.xhtml", subitems: []),
+            ]),
+        ]
+        let entries = FoliateTOCConverter.convert(items, fingerprint: fp)
+        #expect(entries.count == 2, "the empty-href parent is skipped; both children survive")
+        #expect(entries.map(\.title) == ["Chapter 1", "Chapter 2"])
+        // Every emitted entry must yield a usable navigation target.
+        #expect(entries.allSatisfy { FoliateNavSeek.navigationTarget(for: $0.locator) != nil },
+                "Bug #262 round-1: no emitted TOC row may be a dead (un-navigable) row")
+    }
+
+    @Test("FoliateTOCConverter treats a whitespace-only href like an empty one")
+    func tocConverterSkipsWhitespaceHref() {
+        let fp = makeFingerprint()
+        let items = [FoliateTOCItem(label: "Ghost", href: "   ", subitems: [])]
+        let entries = FoliateTOCConverter.convert(items, fingerprint: fp)
+        #expect(entries.isEmpty, "a whitespace-only href is not a navigable target")
     }
 }
 #endif

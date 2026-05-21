@@ -58,31 +58,44 @@ enum FoliateNavSeek {
     /// Build the position `Locator` the live Foliate container posts on
     /// `.readerPositionDidChange` so the AI panel + DebugBridge probe track
     /// the live reading position. Carries the section href + CFI from the
-    /// relocate payload. Returns `nil` when `fingerprintKey` cannot be
-    /// parsed into a `DocumentFingerprint`.
+    /// relocate payload, plus the reading-progress `fraction` as the
+    /// locator's `progression`.
+    ///
+    /// Bug #262 Codex round-1 fix: `AIContextExtractor` treats `.azw3` like
+    /// EPUB and reads `locator.progression` (`extractByProgression`). Without
+    /// the fraction, progression is nil → the extractor falls back to 0.0 and
+    /// pins AI context to the start of the book. The relocate `fraction`
+    /// (0...1) is exactly the EPUB-style total progression Foliate reports, so
+    /// it threads straight into `progression`. Non-finite / out-of-range
+    /// fractions are dropped (a nil progression is safer than a NaN one —
+    /// `Locator.validate()` rejects non-finite progression).
+    ///
+    /// Returns `nil` when `fingerprintKey` cannot be parsed into a
+    /// `DocumentFingerprint`, or when the resulting locator fails validation.
     static func positionLocator(
         fingerprintKey: String,
         href: String?,
-        cfi: String?
+        cfi: String?,
+        fraction: Double? = nil
     ) -> Locator? {
         guard let fingerprint = DocumentFingerprint(canonicalKey: fingerprintKey) else {
             return nil
         }
         let cleanHref = href?.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanCFI = cfi?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Locator(
+        // Only carry a finite, in-range fraction; clamp to 0...1.
+        let progression: Double?
+        if let f = fraction, f.isFinite {
+            progression = max(0, min(1, f))
+        } else {
+            progression = nil
+        }
+        return Locator.validated(
             bookFingerprint: fingerprint,
             href: (cleanHref?.isEmpty == false) ? cleanHref : nil,
-            progression: nil,
-            totalProgression: nil,
-            cfi: (cleanCFI?.isEmpty == false) ? cleanCFI : nil,
-            page: nil,
-            charOffsetUTF16: nil,
-            charRangeStartUTF16: nil,
-            charRangeEndUTF16: nil,
-            textQuote: nil,
-            textContextBefore: nil,
-            textContextAfter: nil
+            progression: progression,
+            totalProgression: progression,
+            cfi: (cleanCFI?.isEmpty == false) ? cleanCFI : nil
         )
     }
 }

@@ -939,7 +939,8 @@ extension FoliateSpikeView {
                     if let locator = FoliateNavSeek.positionLocator(
                         fingerprintKey: key,
                         href: parsed.tocHref,
-                        cfi: parsed.cfi
+                        cfi: parsed.cfi,
+                        fraction: parsed.fraction
                     ) {
                         NotificationCenter.default.post(
                             name: .readerPositionDidChange,

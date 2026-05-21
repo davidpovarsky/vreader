@@ -42,10 +42,18 @@ enum FoliateTOCConverter {
     ) {
         for item in items {
             let trimmedLabel = item.label.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedLabel.isEmpty {
+            // Bug #262 Codex round-1 fix: foliate-host.js serializes a missing
+            // href as '' (serializeTOC: `href: item.href ?? ''`). An empty
+            // href produces a tappable TOC row whose navigation no-ops
+            // (`FoliateNavSeek.navigationTarget` rejects empty/whitespace
+            // hrefs). Skip emitting an entry for an empty-href node, but STILL
+            // recurse into its subitems so clickable children of a
+            // non-navigable parent (a common TOC shape) remain visible.
+            let trimmedHref = item.href.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedLabel.isEmpty, !trimmedHref.isEmpty {
                 if let locator = LocatorFactory.epub(
                     fingerprint: fingerprint,
-                    href: item.href,
+                    href: trimmedHref,
                     progression: 0.0
                 ) {
                     entries.append(TOCEntry(

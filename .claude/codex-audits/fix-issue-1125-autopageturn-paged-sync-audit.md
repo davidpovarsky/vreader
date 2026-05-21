@@ -1,3 +1,11 @@
+---
+branch: fix/issue-1125-autopageturn-paged-sync
+threadId: 019e4aec-a931-7b42-8967-eb056608a37b
+rounds: 1
+final_verdict: ship-as-is
+date: 2026-05-21
+---
+
 # Codex Audit — Bug #258 / GH #1125 (auto-page-turn paged view sync)
 
 - **Branch**: `fix/issue-1125-autopageturn-paged-sync`

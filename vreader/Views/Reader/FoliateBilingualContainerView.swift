@@ -219,6 +219,53 @@ struct FoliateBilingualContainerView: View {
                   key == fingerprintKey else { return }
             handleRelocated(notification.userInfo)
         }
+        // Bug #262 / GH #1136: the live AZW3/MOBI Contents source. The spike
+        // forwards the parsed `book-ready` TOC here; we convert the tree to
+        // flat `[TOCEntry]` and relay it up to `ReaderContainerView` so the
+        // bottom-chrome Contents button (Bug #260) lists chapters. The
+        // file-based `ReaderTOCFactory.buildTOC` has no Foliate parser, so
+        // this live event is the only AZW3/MOBI TOC source.
+        .onReceive(
+            NotificationCenter.default.publisher(for: .foliateBookReadyTOC)
+        ) { notification in
+            guard let key = notification.userInfo?["fingerprintKey"] as? String,
+                  key == fingerprintKey,
+                  let items = notification.userInfo?["toc"] as? [FoliateTOCItem],
+                  !items.isEmpty,
+                  let fingerprint = DocumentFingerprint(canonicalKey: fingerprintKey)
+            else { return }
+            let entries = FoliateTOCConverter.convert(items, fingerprint: fingerprint)
+            guard !entries.isEmpty else { return }
+            NotificationCenter.default.post(
+                name: .foliateTOCAvailable,
+                object: nil,
+                userInfo: [
+                    "entries": entries,
+                    "fingerprintKey": fingerprintKey,
+                ]
+            )
+        }
+        // Bug #262 / GH #1136: relay a shared TOC / Notes / Highlight row tap
+        // into AZW3/MOBI content navigation. The shared sheets post
+        // `.readerNavigateToLocator` (object: Locator); we resolve the
+        // Foliate-js navigation target (CFI preferred, else the EPUB-style
+        // href TOC entries carry) and forward it on the dedicated
+        // `.foliateRequestSeekTarget` channel the spike coordinator observes.
+        .onReceive(
+            NotificationCenter.default.publisher(for: .readerNavigateToLocator)
+        ) { notification in
+            guard let locator = notification.object as? Locator,
+                  let target = FoliateNavSeek.navigationTarget(for: locator)
+            else { return }
+            NotificationCenter.default.post(
+                name: .foliateRequestSeekTarget,
+                object: nil,
+                userInfo: [
+                    "target": target,
+                    "fingerprintKey": fingerprintKey,
+                ]
+            )
+        }
         // Bug #239 — paged-mode side-tap → page-turn for AZW3/MOBI.
         // `ReaderTapZoneRouter` (fed by the foliate-host.js content-tap
         // handler in `FoliateSpikeView`) posts `.readerNextPage` /

@@ -279,6 +279,39 @@ extension Notification.Name {
     /// do not cross-fire.
     static let foliateRequestSeekFraction = Notification.Name("vreader.foliateRequestSeekFraction")
 
+    /// Bug #262 / GH #1136: posted by `FoliateSpikeView.Coordinator`
+    /// on `book-ready` when the parsed Foliate-js `toc` is non-empty.
+    /// Carries `userInfo = ["toc": [FoliateTOCItem], "fingerprintKey": String]`.
+    /// `FoliateBilingualContainerView` observes it, converts the tree via
+    /// `FoliateTOCConverter`, and feeds `ReaderContainerView.tocEntries`
+    /// (the live AZW3/MOBI Contents source — the file-based
+    /// `ReaderTOCFactory.buildTOC` has no Foliate parser, so the TOC only
+    /// exists in the live WebView's book-ready payload). Filtered by
+    /// `fingerprintKey` so concurrent readers do not cross-fire. Not posted
+    /// for an empty TOC, so `TOCSheet`'s genuine "no contents" state is
+    /// preserved for sparse books.
+    static let foliateBookReadyTOC = Notification.Name("vreader.foliateBookReadyTOC")
+
+    /// Bug #262 / GH #1136: posted by `FoliateBilingualContainerView`
+    /// converting `.foliateBookReadyTOC` into flat `[TOCEntry]`. Carries
+    /// `userInfo = ["entries": [TOCEntry], "fingerprintKey": String]`.
+    /// `ReaderContainerView` observes it and assigns `tocEntries` so the
+    /// bottom-chrome Contents button (Bug #260) finally lists chapters for
+    /// AZW3/MOBI. Filtered by `fingerprintKey`.
+    static let foliateTOCAvailable = Notification.Name("vreader.foliateTOCAvailable")
+
+    /// Bug #262 / GH #1136: posted by `FoliateBilingualContainerView` when
+    /// a shared TOC / Notes / Highlight row tap fires `.readerNavigateToLocator`
+    /// for an AZW3/MOBI book. Carries
+    /// `userInfo = ["target": String, "fingerprintKey": String]` where
+    /// `target` is the locator's CFI (preferred) or EPUB-style href.
+    /// `FoliateSpikeView.Coordinator` observes it and evaluates
+    /// `readerAPI.goTo('<escaped>')` against its live `WKWebView`. A
+    /// dedicated channel (mirrors `.foliateRequestSeekFraction`) so the
+    /// row-tap navigation path is self-documenting. Filtered by
+    /// `fingerprintKey` so concurrent AZW3/MOBI readers do not cross-fire.
+    static let foliateRequestSeekTarget = Notification.Name("vreader.foliateRequestSeekTarget")
+
     /// Feature #60 WI-7c1: posted by a reader bridge when the user
     /// finishes a long-press selection. The
     /// `SelectionPopoverPresenterModifier` observes this and presents

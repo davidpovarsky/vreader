@@ -154,6 +154,15 @@ struct MDReaderContainerView: View {
         // Audit Round-1 High #1 / #2 fix.
         .modifier(debugBridgeHighlightObserverModifier)
         .task {
+            // Bug #258 / GH #1125: install the auto-page-turn position-persist
+            // side-effect before pagination creates the turner. When the timer
+            // advances a page, `TextReaderUIState` re-syncs `pagedCurrentPage`
+            // then runs this to persist the new offset — the same persist the
+            // `.readerNextPage` observer does, minus its `pause()`.
+            uiState.onAutoAdvancePersist = { [weak viewModel] offset in
+                guard let offset, let viewModel else { return }
+                viewModel.updateScrollPosition(charOffsetUTF16: offset)
+            }
             // PERF: open already called by MDReaderHost
             if viewModel.renderedText == nil {
                 // Bug #178 / GH #606: forward chineseConversion so the

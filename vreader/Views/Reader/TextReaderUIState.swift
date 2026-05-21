@@ -69,6 +69,15 @@ final class TextReaderUIState: ReaderNotificationHandlerStateProtocol {
     var pagedCurrentPage: Int = 0
     /// Auto page turner instance (B10). Created when autoPageTurn is enabled.
     var autoPageTurner: AutoPageTurner?
+    /// Side-effect run after the auto-page-turn timer advances a page and the
+    /// page counter has been re-synced (Bug #258 / GH #1125). The container
+    /// installs this once in its body-level `.task` to persist the new position
+    /// (`viewModel.updateScrollPosition`), which `TextReaderUIState` cannot do
+    /// itself because the view model lives in the container. The Int is the
+    /// current page's UTF-16 char offset (nil if unavailable). Marked
+    /// `@ObservationIgnored` — it is wiring, not observable reader state.
+    @ObservationIgnored
+    var onAutoAdvancePersist: ((Int?) -> Void)?
 
     // MARK: - Pagination Helpers
 
@@ -148,6 +157,19 @@ final class TextReaderUIState: ReaderNotificationHandlerStateProtocol {
 
         let turner = autoPageTurner ?? AutoPageTurner()
         turner.interval = interval
+        // Bug #258 / GH #1125: bridge each timer-driven advance into the
+        // observable view state. Without this, the timer mutated only the
+        // navigator's internal page — `pagedCurrentPage` (which drives the
+        // renderer's explicit `currentPage` param) never updated, so the page
+        // never re-rendered and `snapshot.position` stayed flat. We sync here
+        // instead of posting `.readerNextPage` because that observer also
+        // pauses the turner (Bug #131's manual-turn semantics), which would
+        // halt auto-advance after one tick.
+        turner.onAdvance = { [weak self] in
+            guard let self else { return }
+            let offset = self.syncPagedState()
+            self.onAutoAdvancePersist?(offset)
+        }
         turner.start(navigator: nav)
         autoPageTurner = turner
     }

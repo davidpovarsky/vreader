@@ -269,10 +269,43 @@ struct FoliateStyleMapperTests {
         // or braces in the sanitized output. Words like "display" may survive as harmless
         // text trapped inside the quoted font-family value.
         //
-        // Count the number of CSS rule blocks — there should be exactly 2
-        // (font-size + line-height, font-family), not 3+ if injection succeeded.
-        let ruleCount = css.components(separatedBy: "!important").count - 1
-        #expect(ruleCount == 3, "Should have exactly 3 !important rules (font-size, line-height, font-family), not more from injection")
+        // Security invariant (robust to future legitimate rule additions —
+        // Gate-4 audit Low): assert the injection did NOT break out of the
+        // quoted font-family value, WITHOUT coupling to the exact number of
+        // rule blocks the mapper emits. The safety comes from `escapeForCSS`
+        // stripping `" ' \ ; { } \n \r`, so:
+        //  (a) the font-family declaration is still emitted (sanitized), and
+        //  (b) the malicious `}` that would close the font-family rule and
+        //      `{` that would open the injected `body { display: none }` block
+        //      are gone — so no `body { display` / `.x {` block can appear.
+        #expect(
+            css.contains("font-family:"),
+            "The font-family rule must still be emitted with the sanitized value"
+        )
+        // The injected payload's WORDS (`display`, `none`, `body`) survive only
+        // as inert text inside the quoted font-family value — that is the
+        // documented harmless behavior, so we do NOT assert their absence.
+        // What must NOT appear is the STRUCTURAL breakout: a `}` closing the
+        // font-family rule followed by a new selector `{`. `escapeForCSS`
+        // strips both braces and the `;`, so no `} body {` / `}.x{` can form.
+        #expect(
+            !css.contains("} body {") && !css.contains("}body{"),
+            "Injection must not break out into a new `body` rule block"
+        )
+        #expect(
+            !css.contains("} .x {") && !css.contains("}.x{"),
+            "Injection must not break out into the trailing `.x` rule block"
+        )
+        // The number of `{` equals the number of `}` — every rule block the
+        // mapper opens, it closes; the injection's unbalanced brace was
+        // stripped, so the structure stays balanced regardless of how many
+        // legitimate rules the mapper emits.
+        let openBraces = css.filter { $0 == "{" }.count
+        let closeBraces = css.filter { $0 == "}" }.count
+        #expect(
+            openBraces == closeBraces,
+            "Brace structure must stay balanced — injection added no unbalanced brace (open=\(openBraces), close=\(closeBraces))"
+        )
     }
 
     // MARK: - layoutJS: Flow Sanitization

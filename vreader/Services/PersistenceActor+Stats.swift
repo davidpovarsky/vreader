@@ -193,7 +193,15 @@ extension PersistenceActor {
         let context = ModelContext(modelContainer)
         let duration = max(1, secondsPerSession)
         for startedAt in bandStarts {
-            let endedAt = startedAt.addingTimeInterval(Double(duration))
+            // Clamp endedAt to `now` so a seeded session never extends into the
+            // future. This matters for the today band near midnight: its
+            // startedAt is `startOfDay + elapsed/2`, so `startedAt + duration`
+            // can exceed `now` for runs within ~`2 * duration` of midnight,
+            // producing a future per-book lastReadAt. durationSeconds stays the
+            // requested value (so per-window totals are exact); only the
+            // displayed [startedAt, endedAt] interval is clamped. (Round-2
+            // audit fix.)
+            let endedAt = min(startedAt.addingTimeInterval(Double(duration)), now)
             let session = ReadingSession(
                 bookFingerprint: bookFingerprint,
                 startedAt: startedAt,

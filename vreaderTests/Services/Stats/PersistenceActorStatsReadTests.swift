@@ -175,9 +175,10 @@ struct PersistenceActorStatsReadTests {
 
         func total(_ w: ReadingStatsWindow) -> Int { snap.total(for: w).totalSeconds }
 
-        // Bands: now-1h, now-3d, now-15d, now-60d, now-120d, now-300d.
-        // Rolling windows nest, so cumulative totals are exact multiples of s:
-        #expect(total(.today) == 1 * s)      // now-1h only (same calendar day)
+        // Bands: today (midpoint of elapsed day), now-3d, now-15d, now-60d,
+        // now-120d, now-300d. Rolling windows nest, so cumulative totals are
+        // exact multiples of s:
+        #expect(total(.today) == 1 * s)      // today band only (inside the calendar day)
         #expect(total(.last7Days) == 2 * s)  // + now-3d
         #expect(total(.last30Days) == 3 * s) // + now-15d
         #expect(total(.last90Days) == 4 * s) // + now-60d
@@ -230,14 +231,19 @@ struct PersistenceActorStatsReadTests {
         // local midnight, a fixed `now − 1h` anchor would slip into yesterday
         // and the "today" window would render 0. The midpoint-of-elapsed-day
         // anchor must keep the today session inside [startOfDay, now).
+        //
+        // Round-2 audit fix: 00:10 is chosen so the today session's nominal
+        // [startedAt, startedAt+600s] interval (00:05 → 00:15) would extend
+        // PAST `now` (00:10). endedAt must be clamped to now so no seeded
+        // session shows a future lastReadAt.
         let container = try makeContainer()
         let actor = PersistenceActor(modelContainer: container)
         let fp = fingerprint("midnight-edge")
 
-        // 2026-06-15 00:30:00 UTC — 30 minutes after midnight.
+        // 2026-06-15 00:10:00 UTC — 10 minutes after midnight.
         var comps = DateComponents()
         comps.year = 2026; comps.month = 6; comps.day = 15
-        comps.hour = 0; comps.minute = 30; comps.second = 0
+        comps.hour = 0; comps.minute = 10; comps.second = 0
         comps.timeZone = TimeZone(identifier: "UTC")!
         let now = Calendar(identifier: .gregorian).date(from: comps)!
 
@@ -245,13 +251,24 @@ struct PersistenceActorStatsReadTests {
             bookFingerprint: fp, secondsPerSession: 600, now: now, calendar: utcCalendar()
         )
 
+        // The today session still buckets into "today" and contributes its full
+        // durationSeconds (totals use the stored int, not the clamped interval).
         let aggregator = ReadingStatsAggregator(
             modelContainer: container, calendarProvider: { [cal = utcCalendar()] in cal }
         )
         let snap = try await aggregator.snapshot(window: .today, sort: .default, now: now)
         #expect(snap.total(for: .today).totalSeconds == 600,
-                "the today session must count even 30 min after midnight")
+                "the today session must count even 10 min after midnight")
         #expect(snap.total(for: .today).sessionCount == 1)
+
+        // No seeded session may show a future endedAt (would surface as a
+        // future per-book lastReadAt + skew last-read sorting).
+        let sessions = try await actor.fetchAllReadingSessions()
+        #expect(sessions.allSatisfy { ($0.endedAt ?? $0.startedAt) <= now },
+                "endedAt must be clamped to now near midnight")
+        let row = try #require(snap.perBook.first { $0.bookFingerprintKey == fp.canonicalKey })
+        let lastRead = try #require(row.lastReadAt)
+        #expect(lastRead <= now, "per-book lastReadAt must not be in the future")
     }
 
     @Test func seedSyntheticReadingSessions_recomputesReadingStatsForBook() async throws {

@@ -58,10 +58,14 @@ protocol DebugBridgeContext {
     /// Bug #253 — present a reader sheet from outside the chrome so its
     /// rendered content becomes CU-free verifiable via `snapshot` + `eval`.
     /// The handler posts `.debugBridgePresentSheet`; the active reader's
-    /// observer maps the `(sheet, tab)` to the SAME `@State` / route the
-    /// chrome buttons set (no parallel presentation logic). If no reader is
-    /// loaded, the action is a no-op (matches `tts` / `search` / `highlight`).
-    func present(sheet: DebugCommand.SheetKind, tab: String?) async throws
+    /// observer maps the `(sheet, tab, detent)` to the SAME `@State` / route
+    /// the chrome buttons set (no parallel presentation logic). `detent`
+    /// (Bug #256) is `ai`-only and, when supplied, sets the SAME
+    /// `presentationDetents(selection:)` binding a user drag reaches — so the
+    /// Translate-tab below-fold result card becomes CU-free capturable. If no
+    /// reader is loaded, the action is a no-op (matches `tts` / `search` /
+    /// `highlight`).
+    func present(sheet: DebugCommand.SheetKind, tab: String?, detent: DebugCommand.SheetDetent?) async throws
     /// Bug #255 — fire an AI action on the *presented* AI sheet from outside
     /// the chrome so the AI-response-card render states become CU-free
     /// verifiable via `snapshot` + `eval`. The handler posts
@@ -204,8 +208,8 @@ final class DebugBridge {
             try await context.highlight(startUTF16: start, endUTF16: end, color: color)
         case .provider(let action):
             try await context.provider(action: action)
-        case .present(let sheet, let tab):
-            try await context.present(sheet: sheet, tab: tab)
+        case .present(let sheet, let tab, let detent):
+            try await context.present(sheet: sheet, tab: tab, detent: detent)
         case .aiAction(let action, let scope, let text):
             try await context.aiAction(action: action, scope: scope, text: text)
         case .seedSessions(let bookFingerprintKey, let secondsPerSession):

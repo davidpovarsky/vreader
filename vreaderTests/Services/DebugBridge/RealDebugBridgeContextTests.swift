@@ -1772,21 +1772,54 @@ final class RealDebugBridgeContextTests: XCTestCase {
         let exp = expectation(description: "presentSheet notification posted")
         nonisolated(unsafe) var receivedSheet: String?
         nonisolated(unsafe) var hasTab: Bool = true
+        nonisolated(unsafe) var hasDetent: Bool = true
         let token = NotificationCenter.default.addObserver(
             forName: .debugBridgePresentSheet, object: nil, queue: .main
         ) { notification in
             receivedSheet = notification.userInfo?["sheet"] as? String
             hasTab = notification.userInfo?["tab"] != nil
+            hasDetent = notification.userInfo?["detent"] != nil
             exp.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        try await context.present(sheet: .toc, tab: nil)
+        try await context.present(sheet: .toc, tab: nil, detent: nil)
         await fulfillment(of: [exp], timeout: 2.0)
 
         XCTAssertEqual(receivedSheet, "toc")
         XCTAssertFalse(hasTab,
                        "userInfo must omit 'tab' when nil was passed — lets observers fall back to each sheet's default tab")
+        XCTAssertFalse(hasDetent,
+                       "userInfo must omit 'detent' when nil was passed — leaves the default presentation (.medium) untouched")
+    }
+
+    @MainActor
+    func test_present_postsPresentSheetNotificationWithDetent() async throws {
+        // Bug #256 — when `detent` is supplied, it reaches the reader-host
+        // observer in `userInfo` as the rawValue so the observer sets the
+        // matching `presentationDetents(selection:)` binding.
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+
+        let exp = expectation(description: "presentSheet notification posted with detent")
+        nonisolated(unsafe) var receivedSheet: String?
+        nonisolated(unsafe) var receivedTab: String?
+        nonisolated(unsafe) var receivedDetent: String?
+        let token = NotificationCenter.default.addObserver(
+            forName: .debugBridgePresentSheet, object: nil, queue: .main
+        ) { notification in
+            receivedSheet = notification.userInfo?["sheet"] as? String
+            receivedTab = notification.userInfo?["tab"] as? String
+            receivedDetent = notification.userInfo?["detent"] as? String
+            exp.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        try await context.present(sheet: .ai, tab: "translate", detent: .large)
+        await fulfillment(of: [exp], timeout: 2.0)
+
+        XCTAssertEqual(receivedSheet, "ai")
+        XCTAssertEqual(receivedTab, "translate")
+        XCTAssertEqual(receivedDetent, "large")
     }
 
     @MainActor
@@ -1805,7 +1838,7 @@ final class RealDebugBridgeContextTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        try await context.present(sheet: .ai, tab: "translate")
+        try await context.present(sheet: .ai, tab: "translate", detent: nil)
         await fulfillment(of: [exp], timeout: 2.0)
 
         XCTAssertEqual(receivedSheet, "ai")
@@ -1826,7 +1859,7 @@ final class RealDebugBridgeContextTests: XCTestCase {
                 receivedSheet = notification.userInfo?["sheet"] as? String
                 exp.fulfill()
             }
-            try await context.present(sheet: kind, tab: nil)
+            try await context.present(sheet: kind, tab: nil, detent: nil)
             await fulfillment(of: [exp], timeout: 2.0)
             NotificationCenter.default.removeObserver(token)
             XCTAssertEqual(receivedSheet, kind.rawValue)

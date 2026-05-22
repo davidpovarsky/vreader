@@ -119,6 +119,15 @@ extension Notification.Name {
     ///   the sheet's vocabulary. Present only when the bridge command included
     ///   the `tab=` parameter; observers fall back to each sheet's default tab
     ///   when absent.
+    /// - `"detent"`: String? — optional sheet detent (Bug #256), one of
+    ///   `DebugCommand.SheetDetent`'s rawValues (`medium` / `large`),
+    ///   validated by the parser. `ai`-only (the parser rejects it on every
+    ///   other sheet). Present only when the bridge command included the
+    ///   `detent=` parameter; the observer sets the AI sheet's
+    ///   `presentationDetents(_:selection:)` binding to it (the SAME binding a
+    ///   user drag reaches) so the Translate-tab below-`.medium`-fold result
+    ///   card (`translationResultCard`) becomes CU-free capturable. Absent →
+    ///   the observer resets the binding to the default `.medium`.
     static let debugBridgePresentSheet = Notification.Name("vreader.debugBridge.presentSheet")
 
     /// Posted by RealDebugBridgeContext.aiAction to fire an AI action on the

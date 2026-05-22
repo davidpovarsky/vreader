@@ -1160,32 +1160,32 @@ final class DebugCommandTests: XCTestCase {
     func test_parse_presentTOC_returnsPresentTOCNoTab() throws {
         let url = URL(string: "vreader-debug://present?sheet=toc")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .toc, tab: nil))
+        XCTAssertEqual(cmd, .present(sheet: .toc, tab: nil, detent: nil))
     }
 
     func test_parse_presentTOCWithContentsTab_returnsContentsTab() throws {
         let url = URL(string: "vreader-debug://present?sheet=toc&tab=contents")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .toc, tab: "contents"))
+        XCTAssertEqual(cmd, .present(sheet: .toc, tab: "contents", detent: nil))
     }
 
     func test_parse_presentTOCWithBookmarksTab_returnsBookmarksTab() throws {
         let url = URL(string: "vreader-debug://present?sheet=toc&tab=bookmarks")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .toc, tab: "bookmarks"))
+        XCTAssertEqual(cmd, .present(sheet: .toc, tab: "bookmarks", detent: nil))
     }
 
     func test_parse_presentHighlights_returnsPresentHighlightsNoTab() throws {
         let url = URL(string: "vreader-debug://present?sheet=highlights")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .highlights, tab: nil))
+        XCTAssertEqual(cmd, .present(sheet: .highlights, tab: nil, detent: nil))
     }
 
     func test_parse_presentHighlightsWithFilters_returnsFilter() throws {
         for filter in ["all", "highlights", "notes", "bookmarks"] {
             let url = URL(string: "vreader-debug://present?sheet=highlights&tab=\(filter)")!
             let cmd = try DebugCommand.parse(url)
-            XCTAssertEqual(cmd, .present(sheet: .highlights, tab: filter),
+            XCTAssertEqual(cmd, .present(sheet: .highlights, tab: filter, detent: nil),
                            "highlights filter \(filter) must parse")
         }
     }
@@ -1193,20 +1193,20 @@ final class DebugCommandTests: XCTestCase {
     func test_parse_presentAI_returnsPresentAINoTab() throws {
         let url = URL(string: "vreader-debug://present?sheet=ai")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .ai, tab: nil))
+        XCTAssertEqual(cmd, .present(sheet: .ai, tab: nil, detent: nil))
     }
 
     func test_parse_presentAIWithSummarizeTab_returnsSummarize() throws {
         let url = URL(string: "vreader-debug://present?sheet=ai&tab=summarize")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .ai, tab: "summarize"))
+        XCTAssertEqual(cmd, .present(sheet: .ai, tab: "summarize", detent: nil))
     }
 
     func test_parse_presentAIWithAllTabs_returnsTab() throws {
         for tab in ["summarize", "translate", "chat"] {
             let url = URL(string: "vreader-debug://present?sheet=ai&tab=\(tab)")!
             let cmd = try DebugCommand.parse(url)
-            XCTAssertEqual(cmd, .present(sheet: .ai, tab: tab),
+            XCTAssertEqual(cmd, .present(sheet: .ai, tab: tab, detent: nil),
                            "AI tab \(tab) must parse")
         }
     }
@@ -1214,13 +1214,13 @@ final class DebugCommandTests: XCTestCase {
     func test_parse_presentSettings_returnsPresentSettings() throws {
         let url = URL(string: "vreader-debug://present?sheet=settings")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .settings, tab: nil))
+        XCTAssertEqual(cmd, .present(sheet: .settings, tab: nil, detent: nil))
     }
 
     func test_parse_presentBookmarks_returnsPresentBookmarks() throws {
         let url = URL(string: "vreader-debug://present?sheet=bookmarks")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .bookmarks, tab: nil))
+        XCTAssertEqual(cmd, .present(sheet: .bookmarks, tab: nil, detent: nil))
     }
 
     func test_parse_presentAllSheetKinds_accepted() throws {
@@ -1229,12 +1229,13 @@ final class DebugCommandTests: XCTestCase {
         for sheetRaw in ["toc", "highlights", "ai", "settings", "bookmarks"] {
             let url = URL(string: "vreader-debug://present?sheet=\(sheetRaw)")!
             let cmd = try DebugCommand.parse(url)
-            guard case .present(let kind, let tab) = cmd else {
+            guard case .present(let kind, let tab, let detent) = cmd else {
                 XCTFail("expected .present, got \(cmd) for sheet=\(sheetRaw)")
                 continue
             }
             XCTAssertEqual(kind.rawValue, sheetRaw)
             XCTAssertNil(tab)
+            XCTAssertNil(detent)
         }
     }
 
@@ -1345,10 +1346,147 @@ final class DebugCommandTests: XCTestCase {
         }
     }
 
+    // MARK: - present `detent` (Bug #256 — reveal below-fold AI-sheet content)
+
+    // `detent` exposes the larger sheet detent CU-free so the Translate-tab
+    // `.complete` result card (`translationResultCard`), which renders below
+    // the `.medium` fold beneath the tall ORIGINAL card, becomes capturable
+    // via `simctl io screenshot` / `eval`. Only the AI sheet uses
+    // `presentationDetents`, so `detent` is rejected on every other sheet —
+    // same posture as the `tab` rejection on settings/bookmarks.
+
+    func test_parse_presentAIDetentLarge_returnsLargeDetent() throws {
+        let url = URL(string: "vreader-debug://present?sheet=ai&detent=large")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(cmd, .present(sheet: .ai, tab: nil, detent: .large))
+    }
+
+    func test_parse_presentAIDetentMedium_returnsMediumDetent() throws {
+        let url = URL(string: "vreader-debug://present?sheet=ai&detent=medium")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(cmd, .present(sheet: .ai, tab: nil, detent: .medium))
+    }
+
+    func test_parse_presentAITabAndDetent_returnsBoth() throws {
+        let url = URL(string: "vreader-debug://present?sheet=ai&tab=translate&detent=large")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(cmd, .present(sheet: .ai, tab: "translate", detent: .large))
+    }
+
+    func test_parse_presentAINoDetent_returnsNilDetent() throws {
+        // No `detent` leaves the default presentation (`.medium`) — the binding
+        // is only driven when the param is explicitly present.
+        let url = URL(string: "vreader-debug://present?sheet=ai")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(cmd, .present(sheet: .ai, tab: nil, detent: nil))
+    }
+
+    func test_parse_presentAIDetentUnknown_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://present?sheet=ai&detent=full")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentAIDetentEmpty_throwsInvalidParam() {
+        // An explicit empty `detent=` is a caller bug — reject rather than
+        // treat as "no detent" (mirrors `tab=`/`color=` empty-value rejection).
+        let url = URL(string: "vreader-debug://present?sheet=ai&detent=")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentTOCWithDetent_throwsInvalidParam() {
+        // Only the AI sheet uses presentationDetents; `detent` on toc is a
+        // caller bug — reject so a typo surfaces rather than silently no-op.
+        let url = URL(string: "vreader-debug://present?sheet=toc&detent=large")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentHighlightsWithDetent_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://present?sheet=highlights&detent=large")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentSettingsWithDetent_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://present?sheet=settings&detent=large")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentBookmarksWithDetent_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://present?sheet=bookmarks&detent=large")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentDetentRejectedForEverySheetExceptAI() throws {
+        // Exhaustive: only `ai` honors `detent`; every other SheetKind rejects
+        // it (matches `SheetKind.supportsDetent`). Guards against a future
+        // SheetKind silently gaining a detent it has no `presentationDetents`
+        // for.
+        for sheetRaw in ["toc", "highlights", "settings", "bookmarks"] {
+            let url = URL(string: "vreader-debug://present?sheet=\(sheetRaw)&detent=large")!
+            XCTAssertThrowsError(try DebugCommand.parse(url),
+                                 "detent must be rejected for sheet=\(sheetRaw)") { error in
+                guard case DebugCommandError.invalidParam(let name, _) = error else {
+                    XCTFail("expected invalidParam for sheet=\(sheetRaw), got \(error)")
+                    return
+                }
+                XCTAssertEqual(name, "detent")
+            }
+        }
+        // `ai` accepts it.
+        let aiURL = URL(string: "vreader-debug://present?sheet=ai&detent=large")!
+        XCTAssertEqual(try DebugCommand.parse(aiURL), .present(sheet: .ai, tab: nil, detent: .large))
+    }
+
+    func test_parse_presentDuplicateDetent_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://present?sheet=ai&detent=medium&detent=large")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
     func test_parse_presentTrailingSlash_parses() throws {
         let url = URL(string: "vreader-debug://present/?sheet=toc")!
         let cmd = try DebugCommand.parse(url)
-        XCTAssertEqual(cmd, .present(sheet: .toc, tab: nil))
+        XCTAssertEqual(cmd, .present(sheet: .toc, tab: nil, detent: nil))
     }
 
     func test_parse_presentDeepPath_throwsUnknownCommand() {

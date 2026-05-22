@@ -137,7 +137,7 @@ final class DebugBridgeTests: XCTestCase {
 
         await bridge.handle(URL(string: "vreader-debug://present?sheet=toc")!)
 
-        XCTAssertEqual(context.calls, [.present(sheet: .toc, tab: nil)])
+        XCTAssertEqual(context.calls, [.present(sheet: .toc, tab: nil, detent: nil)])
     }
 
     @MainActor
@@ -147,7 +147,19 @@ final class DebugBridgeTests: XCTestCase {
 
         await bridge.handle(URL(string: "vreader-debug://present?sheet=ai&tab=summarize")!)
 
-        XCTAssertEqual(context.calls, [.present(sheet: .ai, tab: "summarize")])
+        XCTAssertEqual(context.calls, [.present(sheet: .ai, tab: "summarize", detent: nil)])
+    }
+
+    @MainActor
+    func test_handle_presentAIDetentLargeURL_callsPresentHandlerWithDetent() async {
+        // Bug #256 — the `detent` param threads through the dispatch into the
+        // handler so the AI sheet's larger detent is reachable CU-free.
+        let context = RecordingDebugBridgeContext()
+        let bridge = DebugBridge(context: context)
+
+        await bridge.handle(URL(string: "vreader-debug://present?sheet=ai&tab=translate&detent=large")!)
+
+        XCTAssertEqual(context.calls, [.present(sheet: .ai, tab: "translate", detent: .large)])
     }
 
     @MainActor
@@ -330,8 +342,8 @@ final class SlowDebugBridgeContext: DebugBridgeContext {
     func provider(action: DebugCommand.ProviderAction) async throws {
         await record("provider:\(actionTag(action))")
     }
-    func present(sheet: DebugCommand.SheetKind, tab: String?) async throws {
-        await record("present:\(sheet.rawValue):\(tab ?? "nil")")
+    func present(sheet: DebugCommand.SheetKind, tab: String?, detent: DebugCommand.SheetDetent?) async throws {
+        await record("present:\(sheet.rawValue):\(tab ?? "nil"):\(detent?.rawValue ?? "nil")")
     }
     func aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?) async throws {
         await record("ai:\(action.rawValue):\(scope?.rawValue ?? "nil"):\(text ?? "nil")")
@@ -368,7 +380,7 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
         case search(query: String, index: Int?)
         case highlight(startUTF16: Int, endUTF16: Int, color: String?)
         case provider(action: DebugCommand.ProviderAction)
-        case present(sheet: DebugCommand.SheetKind, tab: String?)
+        case present(sheet: DebugCommand.SheetKind, tab: String?, detent: DebugCommand.SheetDetent?)
         case aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?)
         case seedReadingSessions(bookFingerprintKey: String, secondsPerSession: Int)
     }
@@ -400,8 +412,8 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
     func provider(action: DebugCommand.ProviderAction) async throws {
         calls.append(.provider(action: action))
     }
-    func present(sheet: DebugCommand.SheetKind, tab: String?) async throws {
-        calls.append(.present(sheet: sheet, tab: tab))
+    func present(sheet: DebugCommand.SheetKind, tab: String?, detent: DebugCommand.SheetDetent?) async throws {
+        calls.append(.present(sheet: sheet, tab: tab, detent: detent))
     }
     func aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?) async throws {
         calls.append(.aiAction(action: action, scope: scope, text: text))

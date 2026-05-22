@@ -56,17 +56,23 @@ import Foundation
 ///   too. Idempotent — removing an unknown name is a no-op.
 /// - `provider?action=clear` — wipe every profile + every per-profile
 ///   Keychain entry + clear active selection. Idempotent.
-/// - `present?sheet=<toc|highlights|ai|settings|bookmarks>[&tab=<...>]`
+/// - `present?sheet=<toc|highlights|ai|settings|bookmarks>[&tab=<...>][&detent=<medium|large>]`
 ///   — present a reader sheet so its rendered content becomes CU-free
 ///   verifiable via `snapshot` + `eval` (Bug #253 verification harness).
 ///   The handler posts `.debugBridgePresentSheet`; the reader-host
-///   observer maps `(sheet, tab)` to the SAME `@State` / route the chrome
-///   buttons set, so the harness drives the real presentation path. The
+///   observer maps `(sheet, tab, detent)` to the SAME `@State` / route the
+///   chrome buttons set, so the harness drives the real presentation path. The
 ///   optional `tab` selects a sub-tab: `toc` → `contents`/`bookmarks`;
 ///   `highlights` → `all`/`highlights`/`notes`/`bookmarks`; `ai` →
 ///   `summarize`/`translate`/`chat`. `settings` and `bookmarks` take no
-///   `tab` (`bookmarks` is itself the `TOCSheet` Bookmarks tab). No-op
-///   when no reader is presented (mirrors `tts` / `search` / `highlight`).
+///   `tab` (`bookmarks` is itself the `TOCSheet` Bookmarks tab). The optional
+///   `detent` (Bug #256) is `ai`-only — `detent=large` exposes the larger AI
+///   sheet detent so the Translate-tab `.complete` result card
+///   (`translationResultCard`), which renders below the `.medium` fold beneath
+///   the tall ORIGINAL card, becomes capturable without a drag/scroll gesture;
+///   it sets the SAME `presentationDetents(selection:)` binding a user drag
+///   reaches. Rejected on non-`ai` sheets (they declare no `presentationDetents`).
+///   No-op when no reader is presented (mirrors `tts` / `search` / `highlight`).
 /// - `ai?action=<summarize|chat|translate>[&scope=<section|chapter|book>][&text=<...>]`
 ///   — fire the AI action the *presented* AI sheet exposes (Bug #255
 ///   verification harness). `present?sheet=ai` opens the panel; this fires
@@ -106,7 +112,7 @@ enum DebugCommand: Equatable {
     case search(query: String, index: Int?)
     case highlight(startUTF16: Int, endUTF16: Int, color: String?)
     case provider(action: ProviderAction)
-    case present(sheet: SheetKind, tab: String?)
+    case present(sheet: SheetKind, tab: String?, detent: SheetDetent?)
     case aiAction(action: AIActionKind, scope: SummaryScope?, text: String?)
     case seedSessions(bookFingerprintKey: String, secondsPerSession: Int)
 
@@ -191,6 +197,39 @@ enum DebugCommand: Equatable {
             case .bookmarks:  return nil
             }
         }
+
+        /// Whether this sheet honors a `detent` parameter. Only the AI sheet
+        /// (`AIReaderPanel`) declares `presentationDetents`; the others use a
+        /// single default-height presentation, so a `detent` on them is a
+        /// caller bug the parser rejects (Bug #256). Kept on `SheetKind` so the
+        /// parser stays free of View-layer presentation imports.
+        var supportsDetent: Bool {
+            switch self {
+            case .ai:                                   return true
+            case .toc, .highlights, .settings, .bookmarks:
+                return false
+            }
+        }
+    }
+
+    /// Which sheet detent the `present` command requests (Bug #256 —
+    /// verification harness below-fold reveal). Only the AI sheet honors this
+    /// (it declares `presentationDetents([.medium, .large])`). On the Translate
+    /// tab the tall auto-extracted ORIGINAL card fills the visible `.medium`
+    /// area, pushing `TranslationResultCard` (`.complete` result, a11y id
+    /// `translationResultCard`) below the fold; `detent=large` exposes the
+    /// larger detent so `simctl io screenshot` / `eval` can capture the result
+    /// card without a drag/scroll gesture (CU-free). The handler posts the
+    /// rawValue in `.debugBridgePresentSheet`'s `userInfo`; the reader-host
+    /// observer maps it to the SAME `presentationDetents(selection:)` binding a
+    /// user drag reaches — no parallel presentation logic. Absent → the default
+    /// `.medium` presentation is left untouched.
+    ///
+    /// Kept local (mirroring `ThemeMode` / `SheetKind`) so this file stays a
+    /// pure value-type parser with no SwiftUI `PresentationDetent` import.
+    enum SheetDetent: String, Equatable, CaseIterable {
+        case medium
+        case large
     }
 
     /// Discriminated action carried by `provider`. `add` carries every
@@ -550,7 +589,37 @@ extension DebugCommand {
             } else {
                 tab = nil
             }
-            return .present(sheet: sheet, tab: tab)
+            // Bug #256: optional `detent` (AI sheet only). Reject it on sheets
+            // that don't declare `presentationDetents` so a typo surfaces
+            // rather than silently no-op (same posture as the `tab` rejection
+            // on settings/bookmarks). Empty `detent=` is a caller bug.
+            let detent: SheetDetent?
+            if let rawDetent = params["detent"] {
+                guard sheet.supportsDetent else {
+                    throw DebugCommandError.invalidParam(
+                        "detent",
+                        reason: "sheet '\(sheetRaw)' takes no detent parameter (only 'ai' supports detents)"
+                    )
+                }
+                guard !rawDetent.isEmpty else {
+                    let valid = SheetDetent.allCases.map(\.rawValue).joined(separator: "|")
+                    throw DebugCommandError.invalidParam(
+                        "detent",
+                        reason: "expected \(valid), got empty value"
+                    )
+                }
+                guard let parsedDetent = SheetDetent(rawValue: rawDetent) else {
+                    let valid = SheetDetent.allCases.map(\.rawValue).joined(separator: "|")
+                    throw DebugCommandError.invalidParam(
+                        "detent",
+                        reason: "expected \(valid), got \(rawDetent)"
+                    )
+                }
+                detent = parsedDetent
+            } else {
+                detent = nil
+            }
+            return .present(sheet: sheet, tab: tab, detent: detent)
 
         case "ai":
             // Bug #255: verification harness AI-action driver. Extracted to a

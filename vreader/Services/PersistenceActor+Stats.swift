@@ -5,6 +5,8 @@
 // - Upserts ReadingStats: creates if missing, updates if exists.
 // - Recomputes all aggregate fields from sessions (idempotent).
 // - Called after session end so library sorting by reading time/last read works.
+// - DEBUG-only seedSyntheticReadingSessions inserts a deterministic session
+//   spread for the Bug #263 verification harness — see the #if DEBUG block.
 //
 // @coordinates-with: PersistenceActor.swift, ReadingStats.swift, ReadingSession.swift
 
@@ -106,3 +108,85 @@ extension PersistenceActor {
         return records
     }
 }
+
+#if DEBUG
+
+extension PersistenceActor {
+
+    /// Bug #263 — verification harness reading-session seeder.
+    ///
+    /// Inserts a deterministic spread of synthetic `ReadingSession` rows for
+    /// `bookFingerprint` so the reading dashboard (Feature #58) renders
+    /// non-zero per-window totals CU-free. Rows are inserted through the same
+    /// `ModelContext`/`ReadingSession` path the production
+    /// `SwiftDataSessionStore.saveSession` uses, so the dashboard aggregator
+    /// reads them through its normal SwiftData query — there is no parallel
+    /// persistence path. After inserting, refreshes the book's `ReadingStats`
+    /// aggregate so the Library list's reading-time sort also reflects the
+    /// seeded sessions (parity with the reader-close path).
+    ///
+    /// One session is inserted per bounded time band, anchored relative to
+    /// `now`: `now − {1h, 3d, 15d, 60d, 120d, 300d}`. Because the dashboard's
+    /// windows nest (today ⊂ 7d ⊂ 30d ⊂ 90d ⊂ 180d ⊂ allTime), this yields
+    /// strictly-increasing cumulative per-window totals — exactly what makes
+    /// Feature #58 criterion (b) "all windows render correct (differing)
+    /// totals" verifiable. Each session is a closed `[startedAt, endedAt]`
+    /// interval lasting `secondsPerSession`, so the per-book table's last-read
+    /// column also has data.
+    ///
+    /// - Parameters:
+    ///   - bookFingerprint: the book the synthetic sessions attach to. Need
+    ///     not have a `Book` row (an orphan key surfaces as the dashboard's
+    ///     "(deleted)" row).
+    ///   - secondsPerSession: each session's `durationSeconds` (caller has
+    ///     validated ≥ 1).
+    ///   - now: the reference instant the bands anchor against — injectable so
+    ///     tests assert exact per-window totals deterministically. Defaults to
+    ///     `Date()` for the production URL path.
+    /// - Returns: the number of sessions inserted (always the band count).
+    @discardableResult
+    func seedSyntheticReadingSessions(
+        bookFingerprint: DocumentFingerprint,
+        secondsPerSession: Int,
+        now: Date = Date()
+    ) async throws -> Int {
+        // Offsets in seconds before `now`, one per dashboard window band. The
+        // 300d band intentionally lands deep enough to populate the rolling
+        // 180d window's superset (and, depending on the date, the YTD "Year"
+        // and always the "All" windows).
+        let bandOffsetsSeconds: [Double] = [
+            3_600,           // now − 1h    → today (+ every wider window)
+            3 * 86_400,      // now − 3d    → 7d   (+ wider)
+            15 * 86_400,     // now − 15d   → 30d  (+ wider)
+            60 * 86_400,     // now − 60d   → 90d  (+ wider)
+            120 * 86_400,    // now − 120d  → 180d (+ wider)
+            300 * 86_400,    // now − 300d  → year/all
+        ]
+
+        let context = ModelContext(modelContainer)
+        let duration = max(1, secondsPerSession)
+        for offset in bandOffsetsSeconds {
+            let startedAt = now.addingTimeInterval(-offset)
+            let endedAt = startedAt.addingTimeInterval(Double(duration))
+            let session = ReadingSession(
+                bookFingerprint: bookFingerprint,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationSeconds: duration,
+                deviceId: "debug-seed"
+            )
+            context.insert(session)
+        }
+        try context.save()
+
+        // Refresh the per-book ReadingStats aggregate (Library sort parity).
+        try await recomputeStats(
+            bookFingerprintKey: bookFingerprint.canonicalKey,
+            bookFingerprint: bookFingerprint
+        )
+
+        return bandOffsetsSeconds.count
+    }
+}
+
+#endif

@@ -33,8 +33,14 @@ enum DebugPresentSheetEffect: Equatable {
     /// Present the AI assistant panel (`AIReaderPanel`) on the given initial
     /// tab — i.e. set `aiInitialTab` + `showAIPanel = true`. The observer
     /// gates this on `resolvedAICoordinator.isAIAvailable` (matches the
-    /// chrome's AI gate).
-    case ai(initialTab: AIReaderTab)
+    /// chrome's AI gate). `detent` (Bug #256) is the optional requested sheet
+    /// detent — when non-nil the observer sets the `presentationDetents(selection:)`
+    /// binding to it (the SAME binding a user drag reaches), so the Translate-tab
+    /// below-fold result card becomes CU-free capturable; nil leaves the default
+    /// `.medium` presentation untouched. Carried as the parser's pure
+    /// `DebugCommand.SheetDetent` (not SwiftUI's `PresentationDetent`) so this
+    /// effect type stays Foundation-only — the View-layer observer maps it.
+    case ai(initialTab: AIReaderTab, detent: DebugCommand.SheetDetent?)
     /// Present the reader settings panel (`ReaderSettingsPanel`) — i.e. set
     /// `showSettings = true`.
     case settings
@@ -51,14 +57,22 @@ enum DebugPresentSheetEffect: Equatable {
     /// documented default) — an out-of-vocabulary string never reaches this
     /// function. `bookmarks` is a top-level alias for the `TOCSheet` Bookmarks
     /// tab (the "leave the page" navigation surface).
-    static func resolve(sheet: DebugCommand.SheetKind, tab: String?) -> DebugPresentSheetEffect {
+    /// `detent` (Bug #256) is `ai`-only — the parser rejects it on every other
+    /// sheet, so it is always nil here for non-`ai` sheets and the `default`
+    /// argument lets the existing `resolve(sheet:tab:)` call sites compile
+    /// unchanged.
+    static func resolve(
+        sheet: DebugCommand.SheetKind,
+        tab: String?,
+        detent: DebugCommand.SheetDetent? = nil
+    ) -> DebugPresentSheetEffect {
         switch sheet {
         case .toc:
             return .annotations(.toc(initialTab: tocTab(from: tab)))
         case .highlights:
             return .annotations(.highlights(initialFilter: highlightsFilter(from: tab)))
         case .ai:
-            return .ai(initialTab: aiTab(from: tab))
+            return .ai(initialTab: aiTab(from: tab), detent: detent)
         case .settings:
             return .settings
         case .bookmarks:

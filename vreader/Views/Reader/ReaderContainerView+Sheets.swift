@@ -495,8 +495,41 @@ extension ReaderContainerView {
                 theme: settingsStore.theme,
                 initialTab: aiInitialTab
             )
-            .presentationDetents([.medium, .large])
+            .modifier(aiPanelDetentsModifier)
             .presentationDragIndicator(.visible)
         }
+    }
+
+    /// Bug #256 — the AI sheet's detent modifier. In Release this is the
+    /// unchanged `presentationDetents([.medium, .large])` (no programmatic
+    /// selection — the DebugBridge harness is compiled out). In DEBUG it binds
+    /// a `selection` so the `present?sheet=ai&detent=large` command can drive
+    /// the active detent CU-free (SwiftUI cannot programmatically change a
+    /// detent without the `presentationDetents(_:selection:)` overload). The
+    /// presented set (`[.medium, .large]`) and default (`.medium`) are
+    /// identical across both configurations, so the user-facing presentation
+    /// is unchanged. The `#if DEBUG` lives here — not inside an argument list —
+    /// because a preprocessor conditional cannot appear mid-call-argument.
+    private var aiPanelDetentsModifier: AIReaderPanelDetents {
+        #if DEBUG
+        AIReaderPanelDetents(selection: $aiPanelDetent)
+        #else
+        AIReaderPanelDetents()
+        #endif
+    }
+}
+
+/// Bug #256 — the AI sheet's detent set (see `aiPanelDetentsModifier`).
+private struct AIReaderPanelDetents: ViewModifier {
+    #if DEBUG
+    @Binding var selection: PresentationDetent
+    #endif
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content.presentationDetents([.medium, .large], selection: $selection)
+        #else
+        content.presentationDetents([.medium, .large])
+        #endif
     }
 }

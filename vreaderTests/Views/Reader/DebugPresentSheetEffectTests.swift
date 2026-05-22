@@ -54,7 +54,7 @@ final class DebugPresentSheetEffectTests: XCTestCase {
 
     func test_resolve_aiNoTab_defaultsToSummarize() {
         let effect = DebugPresentSheetEffect.resolve(sheet: .ai, tab: nil)
-        XCTAssertEqual(effect, .ai(initialTab: .summarize))
+        XCTAssertEqual(effect, .ai(initialTab: .summarize, detent: nil))
     }
 
     func test_resolve_aiEachTab_routesToTab() {
@@ -65,9 +65,28 @@ final class DebugPresentSheetEffectTests: XCTestCase {
         ]
         for (raw, expected) in cases {
             let effect = DebugPresentSheetEffect.resolve(sheet: .ai, tab: raw)
-            XCTAssertEqual(effect, .ai(initialTab: expected),
+            XCTAssertEqual(effect, .ai(initialTab: expected, detent: nil),
                            "AI tab \(raw) must route to \(expected)")
         }
+    }
+
+    // MARK: - ai detent (Bug #256 — reveal below-fold Translate result card)
+
+    func test_resolve_aiWithLargeDetent_threadsDetentIntoEffect() {
+        let effect = DebugPresentSheetEffect.resolve(sheet: .ai, tab: "translate", detent: .large)
+        XCTAssertEqual(effect, .ai(initialTab: .translate, detent: .large))
+    }
+
+    func test_resolve_aiWithMediumDetent_threadsDetentIntoEffect() {
+        let effect = DebugPresentSheetEffect.resolve(sheet: .ai, tab: "summarize", detent: .medium)
+        XCTAssertEqual(effect, .ai(initialTab: .summarize, detent: .medium))
+    }
+
+    func test_resolve_aiNilDetent_leavesDetentNil() {
+        // No detent → the effect carries nil so the observer leaves the
+        // default presentation (.medium) untouched.
+        let effect = DebugPresentSheetEffect.resolve(sheet: .ai, tab: nil, detent: nil)
+        XCTAssertEqual(effect, .ai(initialTab: .summarize, detent: nil))
     }
 
     // MARK: - settings → showSettings

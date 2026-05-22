@@ -83,6 +83,17 @@ struct ReaderContainerView: View {
     @State var showShareSheet = false
     @State var showAIPanel = false
     @State var aiInitialTab: AIReaderTab = .summarize
+    #if DEBUG
+    /// Bug #256 — the AI sheet's active detent, bound to its
+    /// `presentationDetents(_:selection:)`. DEBUG-only: only the DebugBridge
+    /// `present?sheet=ai&detent=large` command drives it (to reveal the
+    /// below-`.medium`-fold Translate result card CU-free). Defaults to
+    /// `.medium`, so absent the command the sheet presents exactly as the
+    /// Release build does. The binding is created lazily in `aiSheet`; the
+    /// observer resets it to `.medium` on each fresh open so a prior
+    /// `detent=large` doesn't leak into a later default open.
+    @State var aiPanelDetent: PresentationDetent = .medium
+    #endif
     /// Feature #56 WI-14 — the host-owned translate-entire-book view
     /// model + the resolved per-format text provider published by the
     /// active reader container. Set lazily on the first Book Details
@@ -544,8 +555,8 @@ struct ReaderContainerView: View {
         // SwiftUI's type-inference budget. The handler sets the SAME `@State`
         // / `annotationsRoute` the chrome buttons set — no parallel logic.
         .modifier(ReaderDebugBridgePresentObserver(
-            onCommand: { sheet, tab in
-                handleDebugBridgePresentSheet(sheet: sheet, tab: tab)
+            onCommand: { sheet, tab, detent in
+                handleDebugBridgePresentSheet(sheet: sheet, tab: tab, detent: detent)
             }
         ))
         // Bug #237 — DebugBridge highlight-driver observer lives in the

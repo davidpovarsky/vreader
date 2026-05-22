@@ -343,7 +343,17 @@ struct ReaderContainerView: View {
         // `ReaderThemeV2`, so the token is read directly.
         .preferredColorScheme(settingsStore.theme.preferredColorScheme)
         .ignoresSafeArea(edges: .top)
-        .sheet(isPresented: $showAIPanel, onDismiss: { aiInitialTab = .summarize }) { aiSheet }
+        .sheet(isPresented: $showAIPanel, onDismiss: {
+            aiInitialTab = .summarize
+            #if DEBUG
+            // Bug #256: reset the DebugBridge-driven detent to the production
+            // default on dismiss, so a prior `present?sheet=ai&detent=large`
+            // open never carries `.large` into a later default open (toolbar /
+            // selection-translate / readerOpenAITranslate). DEBUG-only — the
+            // binding only exists in DEBUG; Release has no detent state.
+            aiPanelDetent = .medium
+            #endif
+        }) { aiSheet }
         .onReceive(NotificationCenter.default.publisher(for: .readerDefineRequested)) { notification in
             guard let info = notification.object as? TextSelectionInfo else { return }
             if let word = DictionaryLookup.extractWord(from: info.selectedText) {

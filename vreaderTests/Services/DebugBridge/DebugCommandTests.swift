@@ -1440,6 +1440,38 @@ final class DebugCommandTests: XCTestCase {
         }
     }
 
+    func test_parse_presentBookmarksWithDetent_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://present?sheet=bookmarks&detent=large")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "detent")
+        }
+    }
+
+    func test_parse_presentDetentRejectedForEverySheetExceptAI() throws {
+        // Exhaustive: only `ai` honors `detent`; every other SheetKind rejects
+        // it (matches `SheetKind.supportsDetent`). Guards against a future
+        // SheetKind silently gaining a detent it has no `presentationDetents`
+        // for.
+        for sheetRaw in ["toc", "highlights", "settings", "bookmarks"] {
+            let url = URL(string: "vreader-debug://present?sheet=\(sheetRaw)&detent=large")!
+            XCTAssertThrowsError(try DebugCommand.parse(url),
+                                 "detent must be rejected for sheet=\(sheetRaw)") { error in
+                guard case DebugCommandError.invalidParam(let name, _) = error else {
+                    XCTFail("expected invalidParam for sheet=\(sheetRaw), got \(error)")
+                    return
+                }
+                XCTAssertEqual(name, "detent")
+            }
+        }
+        // `ai` accepts it.
+        let aiURL = URL(string: "vreader-debug://present?sheet=ai&detent=large")!
+        XCTAssertEqual(try DebugCommand.parse(aiURL), .present(sheet: .ai, tab: nil, detent: .large))
+    }
+
     func test_parse_presentDuplicateDetent_throwsInvalidParam() {
         let url = URL(string: "vreader-debug://present?sheet=ai&detent=medium&detent=large")!
         XCTAssertThrowsError(try DebugCommand.parse(url)) { error in

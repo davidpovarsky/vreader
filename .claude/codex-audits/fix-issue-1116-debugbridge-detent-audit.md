@@ -1,3 +1,11 @@
+---
+branch: fix/issue-1116-debugbridge-detent
+threadId: 019e4e29-945e-76e0-b7e4-84ee6cfbfa50
+rounds: 2
+final_verdict: ship-as-is
+date: 2026-05-22
+---
+
 # Codex audit — fix/issue-1116-debugbridge-detent (Bug #256 / GH #1116)
 
 DebugBridge `present` command gains an `ai`-only `detent=medium|large` param to

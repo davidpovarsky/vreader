@@ -2262,6 +2262,86 @@ final class RealDebugBridgeContextTests: XCTestCase {
         XCTAssertEqual(profiles.first?.name, "OR")
         XCTAssertNil(bridge.lastError, "successful dispatch must clear lastError")
     }
+
+    // MARK: - seed-sessions (Bug #263 — reading-session seeder)
+
+    @MainActor
+    func test_seedSessions_insertsSessionsIntoRealPersistence() async throws {
+        let key = try await CollectionTestHelper.insertBook(
+            persistence: persistence,
+            title: "Dashboard Book",
+            sha: String(repeating: "d", count: 64)
+        )
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+
+        try await context.seedReadingSessions(bookFingerprintKey: key, secondsPerSession: 600)
+
+        let sessions = try await persistence.fetchAllReadingSessions()
+        XCTAssertEqual(sessions.count, 6, "six bands → six synthetic sessions")
+        XCTAssertTrue(sessions.allSatisfy { $0.bookFingerprintKey == key })
+        XCTAssertTrue(sessions.allSatisfy { $0.durationSeconds == 600 })
+    }
+
+    @MainActor
+    func test_seedSessions_dispatchedViaURL_populatesDashboardData() async throws {
+        let key = try await CollectionTestHelper.insertBook(
+            persistence: persistence,
+            title: "Dashboard Book",
+            sha: String(repeating: "e", count: 64)
+        )
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+        let bridge = DebugBridge(context: context)
+
+        // The fingerprint key contains ':' — percent-encode it for the URL.
+        let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
+        await bridge.handle(URL(string: "vreader-debug://seed-sessions?book=\(encodedKey)")!)
+
+        XCTAssertNil(bridge.lastError, "successful dispatch must clear lastError: \(String(describing: bridge.lastError))")
+        let sessions = try await persistence.fetchAllReadingSessions()
+        XCTAssertEqual(sessions.count, 6)
+        XCTAssertTrue(sessions.allSatisfy { $0.durationSeconds == 600 })
+    }
+
+    @MainActor
+    func test_seedSessions_keyWithNoBookRow_stillSeedsOrphanSessions() async throws {
+        // The harness may seed sessions for a valid canonical key that has no
+        // Book row (deleted-book dashboard state). The handler does not require
+        // a matching Book — it attaches sessions to the supplied key (the
+        // aggregator renders them as a "(deleted)" row). This lets a verify run
+        // drive the deleted-book path. The key must still be a parseable
+        // canonical key (format:sha256:byteCount) — that's what ReadingSession
+        // needs to store a fingerprint.
+        let orphanKey = "txt:" + String(repeating: "f", count: 64) + ":9999"
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+
+        try await context.seedReadingSessions(
+            bookFingerprintKey: orphanKey, secondsPerSession: 300
+        )
+
+        let sessions = try await persistence.fetchAllReadingSessions()
+        XCTAssertEqual(sessions.count, 6)
+        XCTAssertTrue(sessions.allSatisfy { $0.bookFingerprintKey == orphanKey })
+    }
+
+    @MainActor
+    func test_seedSessions_malformedKey_throwsAndSeedsNothing() async throws {
+        // A non-canonical key (not format:sha256:byteCount) can't materialize a
+        // DocumentFingerprint, so the handler fails loudly rather than silently
+        // dropping the seed — the verify run sees the cause via snapshot.lastError.
+        let context = RealDebugBridgeContext(persistence: persistence, importer: importer)
+
+        do {
+            try await context.seedReadingSessions(
+                bookFingerprintKey: "not-a-canonical-key", secondsPerSession: 600
+            )
+            XCTFail("expected an error for a malformed fingerprint key")
+        } catch let DebugBridgeContextError.invalidFingerprintKey(key) {
+            XCTAssertEqual(key, "not-a-canonical-key")
+        }
+
+        let sessions = try await persistence.fetchAllReadingSessions()
+        XCTAssertTrue(sessions.isEmpty, "a malformed key must seed nothing")
+    }
 }
 
 /// Test-only no-op migrator: skips the AIConfiguration legacy lift so the

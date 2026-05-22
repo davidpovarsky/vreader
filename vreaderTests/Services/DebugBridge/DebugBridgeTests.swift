@@ -118,6 +118,19 @@ final class DebugBridgeTests: XCTestCase {
     }
 
     @MainActor
+    func test_handle_seedSessionsURL_callsSeedReadingSessionsHandler() async {
+        let context = RecordingDebugBridgeContext()
+        let bridge = DebugBridge(context: context)
+
+        await bridge.handle(URL(string: "vreader-debug://seed-sessions?book=txt:abc:1&seconds=300")!)
+
+        XCTAssertEqual(
+            context.calls,
+            [.seedReadingSessions(bookFingerprintKey: "txt:abc:1", secondsPerSession: 300)]
+        )
+    }
+
+    @MainActor
     func test_handle_presentSheetURL_callsPresentHandlerWithSheetOnly() async {
         let context = RecordingDebugBridgeContext()
         let bridge = DebugBridge(context: context)
@@ -323,6 +336,9 @@ final class SlowDebugBridgeContext: DebugBridgeContext {
     func aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?) async throws {
         await record("ai:\(action.rawValue):\(scope?.rawValue ?? "nil"):\(text ?? "nil")")
     }
+    func seedReadingSessions(bookFingerprintKey: String, secondsPerSession: Int) async throws {
+        await record("seed-sessions:\(bookFingerprintKey):\(secondsPerSession)")
+    }
 
     private func actionTag(_ action: DebugCommand.ProviderAction) -> String {
         switch action {
@@ -354,6 +370,7 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
         case provider(action: DebugCommand.ProviderAction)
         case present(sheet: DebugCommand.SheetKind, tab: String?)
         case aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?)
+        case seedReadingSessions(bookFingerprintKey: String, secondsPerSession: Int)
     }
 
     private(set) var calls: [Call] = []
@@ -388,6 +405,9 @@ final class RecordingDebugBridgeContext: DebugBridgeContext {
     }
     func aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?) async throws {
         calls.append(.aiAction(action: action, scope: scope, text: text))
+    }
+    func seedReadingSessions(bookFingerprintKey: String, secondsPerSession: Int) async throws {
+        calls.append(.seedReadingSessions(bookFingerprintKey: bookFingerprintKey, secondsPerSession: secondsPerSession))
     }
 }
 

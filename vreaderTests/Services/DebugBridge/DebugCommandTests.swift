@@ -1575,6 +1575,129 @@ final class DebugCommandTests: XCTestCase {
             XCTAssertEqual(name, "action")
         }
     }
+
+    // MARK: - seed-sessions (Bug #263 — verification harness reading-session seeder)
+
+    // Grammar:
+    //   `vreader-debug://seed-sessions?book=<fingerprintKey>[&seconds=<n>]`
+    // Seeds a deterministic spread of synthetic ReadingSession rows so the
+    // reading dashboard (Feature #58) renders non-zero per-window totals
+    // CU-free. `book` is the fingerprint key the sessions attach to; the
+    // optional `seconds` (default 600, ≥1) sets each session's durationSeconds.
+
+    func test_parse_seedSessionsWithBook_defaultsSeconds() throws {
+        let url = URL(string: "vreader-debug://seed-sessions?book=txt:abc:1024")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(
+            cmd,
+            .seedSessions(bookFingerprintKey: "txt:abc:1024", secondsPerSession: 600)
+        )
+    }
+
+    func test_parse_seedSessionsWithSeconds_usesExplicitSeconds() throws {
+        let url = URL(string: "vreader-debug://seed-sessions?book=txt:abc:1024&seconds=900")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(
+            cmd,
+            .seedSessions(bookFingerprintKey: "txt:abc:1024", secondsPerSession: 900)
+        )
+    }
+
+    func test_parse_seedSessionsTrailingSlash_parses() throws {
+        let url = URL(string: "vreader-debug://seed-sessions/?book=epub:xyz:42")!
+        let cmd = try DebugCommand.parse(url)
+        XCTAssertEqual(
+            cmd,
+            .seedSessions(bookFingerprintKey: "epub:xyz:42", secondsPerSession: 600)
+        )
+    }
+
+    func test_parse_seedSessionsMissingBook_throwsMissingParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?seconds=300")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.missingParam(let name) = error else {
+                XCTFail("expected missingParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "book")
+        }
+    }
+
+    func test_parse_seedSessionsEmptyBook_throwsMissingParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?book=")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.missingParam(let name) = error else {
+                XCTFail("expected missingParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "book")
+        }
+    }
+
+    func test_parse_seedSessionsNonIntegerSeconds_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?book=txt:abc:1&seconds=abc")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "seconds")
+        }
+    }
+
+    func test_parse_seedSessionsZeroSeconds_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?book=txt:abc:1&seconds=0")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "seconds")
+        }
+    }
+
+    func test_parse_seedSessionsNegativeSeconds_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?book=txt:abc:1&seconds=-5")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "seconds")
+        }
+    }
+
+    func test_parse_seedSessionsEmptySeconds_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?book=txt:abc:1&seconds=")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "seconds")
+        }
+    }
+
+    func test_parse_seedSessionsDuplicateBook_throwsInvalidParam() {
+        let url = URL(string: "vreader-debug://seed-sessions?book=a&book=b")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.invalidParam(let name, _) = error else {
+                XCTFail("expected invalidParam, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "book")
+        }
+    }
+
+    func test_parse_seedSessionsDeepPath_throwsUnknownCommand() {
+        let url = URL(string: "vreader-debug://seed-sessions/extra?book=a")!
+        XCTAssertThrowsError(try DebugCommand.parse(url)) { error in
+            guard case DebugCommandError.unknownCommand = error else {
+                XCTFail("expected unknownCommand, got \(error)")
+                return
+            }
+        }
+    }
 }
 
 #endif

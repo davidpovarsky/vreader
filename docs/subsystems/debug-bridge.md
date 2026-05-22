@@ -63,6 +63,7 @@ All commands are scheme `vreader-debug://`. Host names the command. Trailing `/`
 | `provider` | `action=add\|remove\|clear` (plus action-specific params, see below) | — | Configure AI provider profiles for autonomous AI-feature verification (Bug #243). `action=add` inserts (or replaces by display name) a `ProviderProfile` in `ProviderProfileStore.shared` and saves its API key to the per-profile Keychain account (`add` requires `name`, `kind=<openAICompatible\|anthropicNative>`, `endpoint=<http(s) URL>`, `apiKey`; optional `model=<id>`, `active=<true\|false>`). Re-running an `add` URL with the same `name` reuses the existing UUID + keychain account — the operation is idempotent so `remove(name:)` always has a deterministic target. `action=remove` deletes the profile with the given display `name` + its keychain entry. `action=clear` wipes every profile + every per-profile keychain entry + the active selection. The handler auto-promotes the first added profile to active (so a single `add` URL leaves the harness in a usable state). All three sub-actions are idempotent and unlock CU-free AI-feature verification (Feature #56 b/d, Feature #65/#69, Bug #93) regardless of CU availability. |
 | `present`  | `sheet=toc\|highlights\|ai\|settings\|bookmarks` | `tab=<...>`            | Present a reader sheet so its rendered content becomes CU-free verifiable via `snapshot` + `eval` (Bug #253). Posts `.debugBridgePresentSheet`; the active reader's observer maps `(sheet, tab)` to the **same** `@State` / `annotationsRoute` the chrome buttons set (no parallel presentation logic), so the harness drives the real presentation path. `sheet=toc` presents `TOCSheet` (Contents/Bookmarks); `sheet=highlights` presents `HighlightsSheet` (All/Highlights/Notes/Bookmarks review); `sheet=ai` presents `AIReaderPanel` (Summarize/Translate/Chat) — gated on `resolvedAICoordinator.isAIAvailable` (configure a provider first via `provider?action=add`), and a `tab=translate` open resets stale Translate-tab state to match the production selectionless-translate path; `sheet=settings` presents the reader settings panel; `sheet=bookmarks` is a top-level alias for the `TOCSheet` Bookmarks tab. The `tab` param selects a sub-tab (see Parameter validation). No-op when no reader is presented (mirrors `tts` / `search` / `highlight`). |
 | `ai`       | `action=summarize\|chat\|translate` | `scope=section\|chapter\|book` (summarize only), `text=<str>` | Fire the AI action the **presented** AI sheet exposes (Bug #255). `present?sheet=ai` opens the panel; this fires the action the chrome buttons trigger, so the **AI-response-card** render states (Summarize `.complete` card, Chat assistant bubble, Translate result card) become CU-free verifiable. Posts `.debugBridgeAIAction`; `AIReaderPanel`'s observer invokes the **same** view-model path the button does — `AISummaryTabView.runSummarize` (incl. its in-flight guard) / `AIChatView.sendCurrentMessage` (incl. the `isLoading` gate) / `TranslationPanel.requestTranslation` — no parallel AI call. `action=summarize` runs the Summarize tab's summary at the selected `scope` over the full book text; `action=chat` sends `text` (the message) on the Chat tab; `action=translate` runs the Translate tab's translation (`text` overrides the target language; absent → the panel's current target). The observer also switches the panel to the action's tab so a follow-up `snapshot` reflects the right surface. No-op when no AI sheet is presented (mirrors `present`). Requires a configured provider (`provider?action=add`) and the AI-availability gate satisfied (which `present?sheet=ai` already enforces). |
+| `seed-sessions` | `book=<fingerprintKey>`        | `seconds=<int>`                       | Seed synthetic `ReadingSession` rows so the reading dashboard (Feature #58) renders non-zero per-window totals CU-free (Bug #263). The dashboard reads `ReadingSession` records, but `seed?fixture=…` seeds only books — so without this the dashboard is always all-zero. Inserts a deterministic **6-session spread** attached to `book`, one per bounded time band (today = midpoint of the elapsed local day; then `now − {3d, 15d, 60d, 120d, 300d}`), each lasting `seconds` (default 600). Because the dashboard windows nest, the per-window totals come out **strictly increasing** (today < 7d < 30d < 90d < 180d < all), so the 7-window render + per-book table + sort all have distinct, deterministic data to assert on. Rows are inserted through the real `PersistenceActor`/`ReadingSession`/`ModelContext` path (the `seedSyntheticReadingSessions` seam — same path as `SwiftDataSessionStore.saveSession`, no parallel store), and the book's `ReadingStats` aggregate is refreshed for Library-sort parity. Every `endedAt` is clamped to `now` (no future `lastReadAt`). **NOT idempotent** — each call adds another 6-session spread, so `reset` first. Unlike `open`/`present`/`ai`, this needs **no** active reader (the dashboard reads persisted state). `book` need not match a live `Book` row — an orphan key surfaces as the dashboard's "(deleted)" row. |
 
 ### Parameter validation
 
@@ -88,6 +89,8 @@ All commands are scheme `vreader-debug://`. Host names the command. Trailing `/`
 - `action` (`ai`): one of `summarize` / `chat` / `translate`. Anything else (or empty) throws `parse.invalidParam: action` (empty throws `parse.missingParam: action`).
 - `scope` (`ai`): summarize-**only** sub-scope — one of `section` / `chapter` / `book`. The URL-friendly `book` maps to `SummaryScope.bookSoFar` (`section` / `chapter` map 1:1); the notification payload + observer carry the `SummaryScope` rawValue (`bookSoFar`). Passing `scope` on `chat` / `translate` throws `parse.invalidParam: scope` (it's meaningless there). Empty / unknown values rejected. Omit to keep the panel's current scope chip (defaults to Section on first open).
 - `text` (`ai`): **required** for `chat` (the message to send — empty throws `parse.missingParam: text`, mirroring the chrome's non-empty `canSend` gate); **optional** for `translate` (overrides the target language, e.g. `text=Spanish`; absent → the rail's pre-selected language). Ignored for `summarize` (the `scope` chip drives the summary). Percent-encode spaces / CJK / `?` before passing — `URLComponents` decodes it back before the parser sees it.
+- `book` (`seed-sessions`): a canonical fingerprint key (`<format>:<sha256>:<byteCount>`, e.g. the value `seed`/`open` log + the dashboard reads). Required and non-empty (empty throws `parse.missingParam: book`). A non-canonical value can't materialize a `DocumentFingerprint`, so the handler throws `bridge.invalidFingerprintKey: <key>` (visible in `snapshot.lastError`) and seeds nothing. Percent-encode the `:` separators before passing (`URLComponents` decodes them back).
+- `seconds` (`seed-sessions`): optional per-session `durationSeconds`; defaults to `600`. Must be a positive integer — empty / non-integer / `< 1` values throw `parse.invalidParam: seconds`. Every seeded session uses this duration, so the per-window totals are exact multiples of it (today = 1×, 7d = 2×, … all = 6×).
 - Duplicate query keys throw `parse.invalidParam: <name>: duplicate parameter`.
 
 ## Driving the bridge from a verification flow
@@ -257,6 +260,55 @@ Key properties:
 - **Unblocks**: Bug #248 (TOC scroll+highlight), Feature #65 (AI sheet
   re-skin), Feature #69 (AI Summarize scope chips), the future Bug #249
   (HighlightsSheet delete).
+
+## Driving reading-dashboard verification (Bug #263)
+
+The reading dashboard (Feature #58) reads `ReadingSession` records, but
+`seed?fixture=…` seeds only books — so the dashboard renders all-zero data
+CU-free until sessions exist. `seed-sessions` fills that gap with a
+deterministic spread:
+
+```bash
+SIM_ID=<udid>
+
+# 1. Clean state + seed a book; capture its fingerprint key.
+xcrun simctl openurl "$SIM_ID" "vreader-debug://reset"
+xcrun simctl openurl "$SIM_ID" "vreader-debug://seed?fixture=war-and-peace"
+
+# The key is logged by `seed` (and is the war-and-peace fixture's stable
+# SHA). Read it back from the SwiftData store if you don't have it:
+STORE="$(xcrun simctl get_app_container "$SIM_ID" com.vreader.app data)/Library/Application Support/default.store"
+KEY=$(sqlite3 "$STORE" "SELECT ZFINGERPRINTKEY FROM ZBOOK LIMIT 1;")
+
+# 2. Seed sessions (percent-encode the ':' separators).
+ENCKEY=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$KEY")
+xcrun simctl openurl "$SIM_ID" "vreader-debug://seed-sessions?book=$ENCKEY"          # 600s/session (default)
+xcrun simctl openurl "$SIM_ID" "vreader-debug://seed-sessions?book=$ENCKEY&seconds=1800"  # or a custom duration
+
+# 3. Assert the seeded rows (the dashboard aggregator reads exactly these):
+sqlite3 "$STORE" "SELECT COUNT(*) FROM ZREADINGSESSION;"   # 6 per seed-sessions call
+sqlite3 "$STORE" "SELECT ZTOTALREADINGSECONDS, ZSESSIONCOUNT FROM ZREADINGSTATS;"  # 3600, 6 (at 600s)
+```
+
+Key properties:
+
+- **Real persistence path**: rows go through the `seedSyntheticReadingSessions`
+  seam on `PersistenceActor` (same `ModelContext`/`ReadingSession` path as
+  `SwiftDataSessionStore.saveSession`), and the book's `ReadingStats` aggregate
+  is refreshed — so both the dashboard (which reads sessions) and the Library
+  reading-time sort (which reads stats) reflect the seed. No parallel store.
+- **Strictly-increasing windows**: the 6 bands nest, so the dashboard's
+  per-window totals are `today < 7d < 30d < 90d < 180d < all` — distinct,
+  deterministic numbers for asserting the 7-window pill bar + per-book table.
+- **Midnight-safe + no future timestamps**: the today band anchors at the
+  midpoint of the elapsed local day (never slips past midnight), and every
+  `endedAt` is clamped to `now`.
+- **No reader needed**: unlike `present` / `ai`, the dashboard reads persisted
+  state, so seeding alone is enough — no book has to be open.
+- **NOT idempotent**: each call adds another 6-session spread, so `reset` first
+  for a clean baseline.
+- **Unblocks**: Feature #58 Gate-5b criteria b (all-7-windows-render), c
+  (per-book table + sort), d (sort persists).
 
 ## Output files
 

@@ -81,6 +81,19 @@ import Foundation
 ///   (optional for `translate`; absent → the panel's current target
 ///   language); ignored for `summarize`. No-op when no AI sheet is
 ///   presented (mirrors `present`).
+/// - `seed-sessions?book=<fingerprintKey>[&seconds=<n>]` — seed a
+///   deterministic spread of synthetic `ReadingSession` rows so the reading
+///   dashboard (Feature #58) renders non-zero per-window totals CU-free
+///   (Bug #263 verification harness). The reading dashboard reads
+///   `ReadingSession` records, but `seed?fixture=…` seeds only books, so the
+///   dashboard otherwise renders all-zero data. The handler inserts one
+///   session per bounded time band (now−1h / 3d / 15d / 60d / 120d / 300d)
+///   attached to `book`, each lasting `seconds` (default 600, must be ≥1).
+///   Because the dashboard windows nest, this produces strictly-increasing
+///   per-window totals (today < 7d < 30d < 90d < 180d < all), so criteria
+///   b (windows render correct totals), c (per-book table renders), and d
+///   (sort persists) become exercisable. `book` need not match a real Book
+///   row — an orphan key surfaces as the dashboard's "(deleted)" row.
 enum DebugCommand: Equatable {
     case reset
     case seed(fixture: String)
@@ -95,6 +108,7 @@ enum DebugCommand: Equatable {
     case provider(action: ProviderAction)
     case present(sheet: SheetKind, tab: String?)
     case aiAction(action: AIActionKind, scope: SummaryScope?, text: String?)
+    case seedSessions(bookFingerprintKey: String, secondsPerSession: Int)
 
     /// Which AI action the `ai` command fires (Bug #255 — verification
     /// harness AI-action driver). The handler posts `.debugBridgeAIAction`;
@@ -542,6 +556,40 @@ extension DebugCommand {
             // Bug #255: verification harness AI-action driver. Extracted to a
             // helper to keep this already-large parser switch readable.
             return try parseAICommand(params)
+
+        case "seed-sessions":
+            // Bug #263: verification harness reading-session seeder. `book` is
+            // the fingerprint key the synthetic sessions attach to (required,
+            // non-empty). `seconds` is each session's durationSeconds (optional;
+            // defaults to 600; must be a positive integer — a zero/negative
+            // duration would seed sessions the aggregator clamps to 0, defeating
+            // the purpose of producing non-zero totals).
+            let book = try requireParam("book", in: params)
+            let secondsPerSession: Int
+            if let rawSeconds = params["seconds"] {
+                guard !rawSeconds.isEmpty else {
+                    throw DebugCommandError.invalidParam(
+                        "seconds",
+                        reason: "expected a positive integer, got empty value"
+                    )
+                }
+                guard let parsed = Int(rawSeconds) else {
+                    throw DebugCommandError.invalidParam(
+                        "seconds",
+                        reason: "expected a positive integer, got \(rawSeconds)"
+                    )
+                }
+                guard parsed >= 1 else {
+                    throw DebugCommandError.invalidParam(
+                        "seconds",
+                        reason: "must be ≥ 1, got \(parsed)"
+                    )
+                }
+                secondsPerSession = parsed
+            } else {
+                secondsPerSession = 600
+            }
+            return .seedSessions(bookFingerprintKey: book, secondsPerSession: secondsPerSession)
 
         default:
             throw DebugCommandError.unknownCommand(host)

@@ -11,11 +11,14 @@
 //
 // Per-command handlers split across extension files for the 300-line LOC
 // guideline (feature #44 acceptance criterion (g)):
-//   - reset, seed, open, theme — this file
+//   - reset, seed, open, theme, tts, search, highlight — this file
 //   - settle — RealDebugBridgeContext+Settle.swift
 //   - snapshot — RealDebugBridgeContext+Snapshot.swift
 //   - eval — RealDebugBridgeContext+Eval.swift
 //   - provider — RealDebugBridgeContext+Provider.swift (Bug #243)
+//   - present — RealDebugBridgeContext+Present.swift (Bug #253)
+//   - aiAction — RealDebugBridgeContext+AIAction.swift (Bug #255)
+//   - seedReadingSessions — RealDebugBridgeContext+SeedSessions.swift (Bug #263)
 
 #if DEBUG
 
@@ -48,6 +51,13 @@ enum DebugBridgeContextError: Error, Equatable {
     /// contract. TXT / MD (offset), PDF (page), and AZW3 (Foliate consumes
     /// CFI directly) all seek; EPUB does not yet.
     case seekUnsupportedForFormat(format: String, position: String)
+    /// Bug #263: the `seed-sessions` `book` value is not a parseable
+    /// canonical fingerprint key (`format:sha256:byteCount`). A
+    /// `ReadingSession` is anchored on a `DocumentFingerprint`, so an
+    /// unparseable key can't materialize one. Fails loudly so a verify run
+    /// sees the cause via `snapshot.lastError` rather than silently seeding
+    /// nothing.
+    case invalidFingerprintKey(String)
 }
 
 /// Production DebugBridgeContext. Each handler is a thin wrapper over
@@ -406,6 +416,8 @@ final class RealDebugBridgeContext: DebugBridgeContext {
             "highlight: posted notification start=\(startUTF16) end=\(endUTF16) color=\(color ?? "nil", privacy: .public)"
         )
     }
+
+    // seed-sessions → RealDebugBridgeContext+SeedSessions.swift (Bug #263)
 }
 
 #endif

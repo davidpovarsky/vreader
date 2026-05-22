@@ -72,6 +72,15 @@ protocol DebugBridgeContext {
     /// override. If no AI sheet is presented, the action is a no-op (matches
     /// `present` / `tts` / `search`).
     func aiAction(action: DebugCommand.AIActionKind, scope: SummaryScope?, text: String?) async throws
+    /// Bug #263 — seed synthetic `ReadingSession` rows so the reading
+    /// dashboard (Feature #58) renders non-zero per-window totals CU-free.
+    /// The handler inserts one session per bounded time band attached to
+    /// `bookFingerprintKey` via the real persistence boundary (so the
+    /// dashboard aggregator reads them through its normal SwiftData query),
+    /// each lasting `secondsPerSession`, then refreshes the book's
+    /// `ReadingStats` aggregate. NOT idempotent — each call ADDS another
+    /// six-session spread (totals grow), so a verify run should `reset` first.
+    func seedReadingSessions(bookFingerprintKey: String, secondsPerSession: Int) async throws
 }
 
 /// Routes parsed `DebugCommand` values to a `DebugBridgeContext`.
@@ -159,6 +168,8 @@ final class DebugBridge {
                 return "bridge.openAwaitReaderTimeout: \(key)"
             case .seekUnsupportedForFormat(let format, let position):
                 return "bridge.seekUnsupportedForFormat: \(format) \(position)"
+            case .invalidFingerprintKey(let key):
+                return "bridge.invalidFingerprintKey: \(key)"
             }
         default:
             return "unknown: \(String(describing: type(of: error)))"
@@ -197,6 +208,11 @@ final class DebugBridge {
             try await context.present(sheet: sheet, tab: tab)
         case .aiAction(let action, let scope, let text):
             try await context.aiAction(action: action, scope: scope, text: text)
+        case .seedSessions(let bookFingerprintKey, let secondsPerSession):
+            try await context.seedReadingSessions(
+                bookFingerprintKey: bookFingerprintKey,
+                secondsPerSession: secondsPerSession
+            )
         }
     }
 }

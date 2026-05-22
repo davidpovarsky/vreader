@@ -78,8 +78,8 @@ protocol DebugBridgeContext {
     /// `bookFingerprintKey` via the real persistence boundary (so the
     /// dashboard aggregator reads them through its normal SwiftData query),
     /// each lasting `secondsPerSession`, then refreshes the book's
-    /// `ReadingStats` aggregate. Idempotent re-runs add another spread (the
-    /// totals grow); a verify run typically `reset`s first.
+    /// `ReadingStats` aggregate. NOT idempotent — each call ADDS another
+    /// six-session spread (totals grow), so a verify run should `reset` first.
     func seedReadingSessions(bookFingerprintKey: String, secondsPerSession: Int) async throws
 }
 

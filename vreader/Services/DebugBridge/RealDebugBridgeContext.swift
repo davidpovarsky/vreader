@@ -11,11 +11,14 @@
 //
 // Per-command handlers split across extension files for the 300-line LOC
 // guideline (feature #44 acceptance criterion (g)):
-//   - reset, seed, open, theme — this file
+//   - reset, seed, open, theme, tts, search, highlight — this file
 //   - settle — RealDebugBridgeContext+Settle.swift
 //   - snapshot — RealDebugBridgeContext+Snapshot.swift
 //   - eval — RealDebugBridgeContext+Eval.swift
 //   - provider — RealDebugBridgeContext+Provider.swift (Bug #243)
+//   - present — RealDebugBridgeContext+Present.swift (Bug #253)
+//   - aiAction — RealDebugBridgeContext+AIAction.swift (Bug #255)
+//   - seedReadingSessions — RealDebugBridgeContext+SeedSessions.swift (Bug #263)
 
 #if DEBUG
 

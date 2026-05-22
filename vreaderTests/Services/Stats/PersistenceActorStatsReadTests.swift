@@ -137,7 +137,7 @@ struct PersistenceActorStatsReadTests {
         let key = fp.canonicalKey
 
         let count = try await actor.seedSyntheticReadingSessions(
-            bookFingerprint: fp, secondsPerSession: 600, now: noonAnchor()
+            bookFingerprint: fp, secondsPerSession: 600, now: noonAnchor(), calendar: utcCalendar()
         )
 
         #expect(count == 6)
@@ -163,7 +163,7 @@ struct PersistenceActorStatsReadTests {
         let s = 600
 
         _ = try await actor.seedSyntheticReadingSessions(
-            bookFingerprint: fp, secondsPerSession: s, now: now
+            bookFingerprint: fp, secondsPerSession: s, now: now, calendar: utcCalendar()
         )
 
         // Drive the SAME container through the real dashboard aggregator with
@@ -214,7 +214,7 @@ struct PersistenceActorStatsReadTests {
         let fp = fingerprint("seeded-900")
 
         _ = try await actor.seedSyntheticReadingSessions(
-            bookFingerprint: fp, secondsPerSession: 900, now: noonAnchor()
+            bookFingerprint: fp, secondsPerSession: 900, now: noonAnchor(), calendar: utcCalendar()
         )
 
         let aggregator = ReadingStatsAggregator(
@@ -223,6 +223,35 @@ struct PersistenceActorStatsReadTests {
         let snap = try await aggregator.snapshot(window: .allTime, sort: .default, now: noonAnchor())
         #expect(snap.total(for: .allTime).totalSeconds == 6 * 900)
         #expect(snap.lifetimeTotalSeconds == 6 * 900)
+    }
+
+    @Test func seedSyntheticReadingSessions_todayBandSurvivesMidnightEdge() async throws {
+        // Round-1 audit fix: when the command runs in the first hour after
+        // local midnight, a fixed `now − 1h` anchor would slip into yesterday
+        // and the "today" window would render 0. The midpoint-of-elapsed-day
+        // anchor must keep the today session inside [startOfDay, now).
+        let container = try makeContainer()
+        let actor = PersistenceActor(modelContainer: container)
+        let fp = fingerprint("midnight-edge")
+
+        // 2026-06-15 00:30:00 UTC — 30 minutes after midnight.
+        var comps = DateComponents()
+        comps.year = 2026; comps.month = 6; comps.day = 15
+        comps.hour = 0; comps.minute = 30; comps.second = 0
+        comps.timeZone = TimeZone(identifier: "UTC")!
+        let now = Calendar(identifier: .gregorian).date(from: comps)!
+
+        _ = try await actor.seedSyntheticReadingSessions(
+            bookFingerprint: fp, secondsPerSession: 600, now: now, calendar: utcCalendar()
+        )
+
+        let aggregator = ReadingStatsAggregator(
+            modelContainer: container, calendarProvider: { [cal = utcCalendar()] in cal }
+        )
+        let snap = try await aggregator.snapshot(window: .today, sort: .default, now: now)
+        #expect(snap.total(for: .today).totalSeconds == 600,
+                "the today session must count even 30 min after midnight")
+        #expect(snap.total(for: .today).sessionCount == 1)
     }
 
     @Test func seedSyntheticReadingSessions_recomputesReadingStatsForBook() async throws {
@@ -235,7 +264,7 @@ struct PersistenceActorStatsReadTests {
         let key = fp.canonicalKey
 
         _ = try await actor.seedSyntheticReadingSessions(
-            bookFingerprint: fp, secondsPerSession: 600, now: noonAnchor()
+            bookFingerprint: fp, secondsPerSession: 600, now: noonAnchor(), calendar: utcCalendar()
         )
 
         let stats = try await actor.fetchAllReadingStats()

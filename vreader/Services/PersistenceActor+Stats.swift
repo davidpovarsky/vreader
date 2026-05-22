@@ -125,14 +125,32 @@ extension PersistenceActor {
     /// aggregate so the Library list's reading-time sort also reflects the
     /// seeded sessions (parity with the reader-close path).
     ///
-    /// One session is inserted per bounded time band, anchored relative to
-    /// `now`: `now − {1h, 3d, 15d, 60d, 120d, 300d}`. Because the dashboard's
-    /// windows nest (today ⊂ 7d ⊂ 30d ⊂ 90d ⊂ 180d ⊂ allTime), this yields
-    /// strictly-increasing cumulative per-window totals — exactly what makes
-    /// Feature #58 criterion (b) "all windows render correct (differing)
-    /// totals" verifiable. Each session is a closed `[startedAt, endedAt]`
-    /// interval lasting `secondsPerSession`, so the per-book table's last-read
-    /// column also has data.
+    /// Six sessions are inserted, one per bounded time band:
+    /// - **today** — anchored at the midpoint of the elapsed local day
+    ///   (`[startOfDay(now), now)`), so it ALWAYS lands inside the "today"
+    ///   window regardless of when the command runs (including the first hour
+    ///   after midnight, where a fixed `now − 1h` offset would slip into
+    ///   yesterday). This is the round-1 audit fix for the midnight edge.
+    /// - **7d / 30d / 90d / 180d** — anchored mid-window at `now − {3d, 15d,
+    ///   60d, 120d}` (fixed rolling offsets that land comfortably inside each
+    ///   rolling window, not on its edge).
+    /// - **year/all** — anchored at `now − 300d`.
+    ///
+    /// Because the dashboard's windows nest (today ⊂ 7d ⊂ 30d ⊂ 90d ⊂ 180d ⊂
+    /// allTime), the cumulative per-window totals are strictly increasing
+    /// (today < 7d < 30d < 90d < 180d < allTime) — exactly what makes Feature
+    /// #58 criterion (b) "all windows render correct (differing) totals"
+    /// verifiable. Each session is a closed `[startedAt, endedAt]` interval
+    /// lasting `secondsPerSession`, so the per-book table's last-read column
+    /// also has data.
+    ///
+    /// Caveat: the "Year" window is calendar-YTD (Jan 1 → now), so the
+    /// now−300d session lands in "Year" only when `now − 300d` is still in the
+    /// current calendar year. Within ~300 days of Jan 1 the "Year" total
+    /// equals the 180d total (5 sessions) rather than 6 — `Year ≥ 180d` and
+    /// `Year ≤ allTime` always hold (the invariants a verify run asserts), but
+    /// the exact "Year" multiple is date-dependent. The other six windows are
+    /// run-time-independent.
     ///
     /// - Parameters:
     ///   - bookFingerprint: the book the synthetic sessions attach to. Need
@@ -143,30 +161,38 @@ extension PersistenceActor {
     ///   - now: the reference instant the bands anchor against — injectable so
     ///     tests assert exact per-window totals deterministically. Defaults to
     ///     `Date()` for the production URL path.
-    /// - Returns: the number of sessions inserted (always the band count).
+    ///   - calendar: resolves the local-start-of-day for the "today" band.
+    ///     Defaults to `.current` (matching the aggregator's default) so the
+    ///     today anchor uses the same day boundary the dashboard does; tests
+    ///     pin a fixed-timezone calendar.
+    /// - Returns: the number of sessions inserted (always 6).
     @discardableResult
     func seedSyntheticReadingSessions(
         bookFingerprint: DocumentFingerprint,
         secondsPerSession: Int,
-        now: Date = Date()
+        now: Date = Date(),
+        calendar: Calendar = .current
     ) async throws -> Int {
-        // Offsets in seconds before `now`, one per dashboard window band. The
-        // 300d band intentionally lands deep enough to populate the rolling
-        // 180d window's superset (and, depending on the date, the YTD "Year"
-        // and always the "All" windows).
-        let bandOffsetsSeconds: [Double] = [
-            3_600,           // now − 1h    → today (+ every wider window)
-            3 * 86_400,      // now − 3d    → 7d   (+ wider)
-            15 * 86_400,     // now − 15d   → 30d  (+ wider)
-            60 * 86_400,     // now − 60d   → 90d  (+ wider)
-            120 * 86_400,    // now − 120d  → 180d (+ wider)
-            300 * 86_400,    // now − 300d  → year/all
+        // The "today" anchor is the midpoint of the elapsed local day, so it is
+        // always strictly inside [startOfDay(now), now) — midnight-edge safe.
+        let startOfToday = calendar.startOfDay(for: now)
+        let todayAnchor = startOfToday.addingTimeInterval(
+            max(1, now.timeIntervalSince(startOfToday) / 2)
+        )
+
+        // Mid-window anchors for the rolling / YTD bands.
+        let bandStarts: [Date] = [
+            todayAnchor,                            // today (+ every wider window)
+            now.addingTimeInterval(-3 * 86_400),    // 7d   (+ wider)
+            now.addingTimeInterval(-15 * 86_400),   // 30d  (+ wider)
+            now.addingTimeInterval(-60 * 86_400),   // 90d  (+ wider)
+            now.addingTimeInterval(-120 * 86_400),  // 180d (+ wider)
+            now.addingTimeInterval(-300 * 86_400),  // year/all
         ]
 
         let context = ModelContext(modelContainer)
         let duration = max(1, secondsPerSession)
-        for offset in bandOffsetsSeconds {
-            let startedAt = now.addingTimeInterval(-offset)
+        for startedAt in bandStarts {
             let endedAt = startedAt.addingTimeInterval(Double(duration))
             let session = ReadingSession(
                 bookFingerprint: bookFingerprint,
@@ -185,7 +211,7 @@ extension PersistenceActor {
             bookFingerprint: bookFingerprint
         )
 
-        return bandOffsetsSeconds.count
+        return bandStarts.count
     }
 }
 

@@ -59,6 +59,11 @@ struct ReadiumEPUBHost: View {
     /// highlight lifecycle (renderer = `highlightAdapter`). Built in `.task`
     /// once a `modelContainer` is available.
     @State private var highlightCoordinator: HighlightCoordinator?
+    /// WI-9a: host-owned navigation sink. Passed into the representable, where
+    /// the coordinator binds its nav methods on `attach`; the host's page-turn /
+    /// jump `.onReceive` observers post into it. Owned here (like
+    /// `highlightAdapter`) so the same instance survives body recomputation.
+    @State private var navCommander = ReadiumNavCommander()
 
     var body: some View {
         Group {
@@ -107,9 +112,28 @@ struct ReadiumEPUBHost: View {
                     // `makeUIViewController`), and detach it on teardown — so the
                     // same adapter the host's coordinator drives for restore /
                     // remove is the one bound to the rendered spine.
-                    highlightAdapter: highlightAdapter
+                    highlightAdapter: highlightAdapter,
+                    navCommander: navCommander
                 )
                 .ignoresSafeArea()
+                // WI-9a: capture the publication's container-relative reading-
+                // order hrefs so the jump observer can resolve a (legacy,
+                // OPF-relative) vreader `Locator` href against them — same
+                // migration concern WI-8 handles for highlight decorations.
+                .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
+                    navCommander.nextPage()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
+                    navCommander.previousPage()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
+                    guard let vLocator = notification.object as? Locator,
+                          let readiumLocator = ReadiumEPUBReaderViewModel.readiumLocator(
+                            fromVReader: vLocator,
+                            spineHrefs: publication.readingOrder.map(\.href)
+                          ) else { return }
+                    navCommander.navigate(to: readiumLocator)
+                }
             case .failed:
                 // Reuse the existing reader's failure messaging (rule 51 — no
                 // new chrome): the same copy the dispatcher shows when a book
@@ -199,242 +223,5 @@ struct ReadiumEPUBHost: View {
         }
     }
 }
-
-/// Bridges the Readium `EPUBNavigatorViewController` into SwiftUI. The
-/// coordinator owns the navigator-delegate callbacks + the DebugBridge
-/// registration. Constructed only once the publication is open (the host gates
-/// on `.ready`).
-private struct ReadiumNavigatorRepresentable: UIViewControllerRepresentable {
-    let publication: Publication
-    let preferences: EPUBPreferences
-    let fingerprintKey: String
-    let readerToken: UUID?
-    /// WI-6: the restored reading position to open at, or nil to open at the
-    /// start. Passed straight into `EPUBNavigatorViewController(initialLocation:)`.
-    let initialLocation: ReadiumShared.Locator?
-    /// Med-2: invoked (on the main actor, deferred past the current render
-    /// pass) when `EPUBNavigatorViewController` init throws, so the host can
-    /// flip to `.failed`. `@MainActor @Sendable` so capturing it into the
-    /// deferral `Task` is clean under `SWIFT_STRICT_CONCURRENCY = complete`
-    /// (Gate-4 round-2 Med).
-    var onNavigatorInitFailure: (@MainActor @Sendable (String) -> Void)?
-    /// WI-6: invoked with the navigator's reported locator on every
-    /// `locationDidChange`, so the host's VM can debounce-save the position.
-    /// `@MainActor @Sendable` so the coordinator can hold it across the
-    /// navigator-delegate boundary under strict concurrency.
-    var onLocationChange: (@MainActor @Sendable (ReadiumShared.Locator) -> Void)?
-    /// WI-8: the host-owned highlight adapter, bound to the navigator in
-    /// `makeUIViewController` and released in `dismantleUIViewController`. The
-    /// adapter is a `DecorableNavigator` client; the host's `HighlightCoordinator`
-    /// drives its restore / apply / remove.
-    let highlightAdapter: ReadiumDecorationHighlightAdapter
-
-    func makeCoordinator() -> ReadiumReaderCoordinator {
-        ReadiumReaderCoordinator(
-            fingerprintKey: fingerprintKey,
-            readerToken: readerToken ?? UUID(),
-            onLocationChange: onLocationChange,
-            highlightAdapter: highlightAdapter
-        )
-    }
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        let config = EPUBNavigatorViewController.Configuration(preferences: preferences)
-        do {
-            let navigator = try EPUBNavigatorViewController(
-                publication: publication,
-                initialLocation: initialLocation,
-                config: config
-            )
-            navigator.delegate = context.coordinator
-            context.coordinator.attach(navigator: navigator)
-            // WI-8: bind the highlight adapter to the same navigator + the
-            // publication's spine hrefs so stored decorations render on the live
-            // spine. The spine hrefs let the adapter resolve a LEGACY stored href
-            // (`chapter1.xhtml`) to Readium's container-relative form
-            // (`OEBPS/chapter1.xhtml`) — without it Readium can't route the
-            // decoration and it silently doesn't render (the migration
-            // href-mismatch). The adapter already holds the restored set (the
-            // host's coordinator called `restoreAll()` before the navigator
-            // mounted), so `attach` re-submits it with resolved hrefs.
-            highlightAdapter.attach(
-                navigator: navigator,
-                spineHrefs: publication.readingOrder.map(\.href)
-            )
-            return navigator
-        } catch {
-            context.coordinator.log.error(
-                "ReadiumEPUB navigator init failed: \(String(describing: error), privacy: .public)"
-            )
-            // Med-2: a representable must return a controller synchronously, so
-            // hand back an empty placeholder and route the failure into host
-            // state on the next main-actor turn (mutating @State synchronously
-            // here would be a "modifying state during view update" violation).
-            // The host then swaps this placeholder for its `.failed` error view.
-            let handler = onNavigatorInitFailure
-            let message = String(describing: error)
-            Task { @MainActor in handler?(message) }
-            return UIViewController()
-        }
-    }
-
-    func updateUIViewController(_ controller: UIViewController, context: Context) {
-        // WI-7: the host body reads `settingsStore.theme` + `.typography` +
-        // `.epubLayout` and recomputes `preferences` on every Display-settings
-        // change, so this re-submit applies the new theme/font/line-height/scroll
-        // to the live navigator without a reopen.
-        if let navigator = controller as? EPUBNavigatorViewController {
-            navigator.submitPreferences(preferences)
-        }
-    }
-
-    /// High (bug #252 lesson): deterministic navigator + registry teardown when
-    /// the representable leaves the hierarchy. The coordinator knows its own
-    /// `(fingerprintKey, token)` — which the host cannot when `readerToken` was
-    /// nil and the coordinator generated its own — so it owns the clear.
-    static func dismantleUIViewController(
-        _ controller: UIViewController,
-        coordinator: ReadiumReaderCoordinator
-    ) {
-        coordinator.detach()
-    }
-}
-
-/// Navigator-delegate + DebugBridge coordinator for the Readium EPUB host.
-/// `final class` (not the SwiftUI view) so it survives view-body recomputation
-/// and can hold the navigator + per-reader token. `@MainActor` because the
-/// navigator and its WebViews are main-actor-isolated (feature #42 Med-4).
-@MainActor
-final class ReadiumReaderCoordinator: NSObject {
-    private let fingerprintKey: String
-    private let readerToken: UUID
-    fileprivate let log = Logger(subsystem: "com.vreader.app", category: "ReadiumEPUB")
-
-    /// Weak — the navigator is owned by the SwiftUI representable's controller
-    /// lifecycle; the coordinator must not keep it alive past the host.
-    private weak var navigator: EPUBNavigatorViewController?
-
-    /// WI-6: forwards `locationDidChange` to the host VM's debounced save.
-    /// Dropped in `detach()` so no stale callback fires after teardown.
-    private var onLocationChange: (@MainActor @Sendable (ReadiumShared.Locator) -> Void)?
-
-    /// WI-8: the highlight adapter bound to this navigator. Detached on teardown
-    /// so no stale decoration apply fires after the host leaves the hierarchy.
-    private let highlightAdapter: ReadiumDecorationHighlightAdapter
-
-    #if DEBUG
-    /// Test seam: when set, `evaluateJavaScriptValue` uses this instead of the
-    /// real navigator's `evaluateJavaScript`, so the JSON-serialization contract
-    /// is unit-testable without a rendered spine WebView. Returns the raw value
-    /// Readium's `Result<Any, Error>.success` would carry (`nil` = JS undefined).
-    var evaluatorForTests: ((String) async -> Any?)?
-    #endif
-
-    init(
-        fingerprintKey: String,
-        readerToken: UUID,
-        onLocationChange: (@MainActor @Sendable (ReadiumShared.Locator) -> Void)? = nil,
-        // Gate-4 round-1 Low: no default — the adapter MUST be the host-owned
-        // instance the `HighlightCoordinator` drives, else `detach()` would clear
-        // a different adapter than the one attached to the navigator. Explicit
-        // param removes that footgun; every call site passes the host's adapter.
-        highlightAdapter: ReadiumDecorationHighlightAdapter
-    ) {
-        self.fingerprintKey = fingerprintKey
-        self.readerToken = readerToken
-        self.onLocationChange = onLocationChange
-        self.highlightAdapter = highlightAdapter
-        super.init()
-    }
-
-    func attach(navigator: EPUBNavigatorViewController) {
-        self.navigator = navigator
-    }
-
-    /// High (bug #252 lesson): host-teardown hook called from the
-    /// representable's `dismantleUIViewController`. Clears this reader's
-    /// DebugBridge registry slot (the slot holds the navigator `weak`, but the
-    /// key/token + settle state otherwise linger until the weak ref nils — a
-    /// reader-switch race in the verify harness; the legacy EPUB/Foliate slots
-    /// get this from `unregister(_:)`, which the Readium host never triggers)
-    /// and drops the navigator delegate + ref so no stale delegate callback
-    /// fires after the host leaves the hierarchy.
-    func detach() {
-        #if DEBUG
-        DebugReaderRegistry.shared.clearActiveReadiumNavigator(
-            for: fingerprintKey, token: readerToken
-        )
-        #endif
-        navigator?.delegate = nil
-        navigator = nil
-        onLocationChange = nil
-        // WI-8: drop the adapter's navigator ref so no stale decoration apply
-        // fires after teardown (mirrors the navigator-weak discipline above).
-        highlightAdapter.detach()
-    }
-}
-
-// MARK: - Navigator delegate
-
-extension ReadiumReaderCoordinator: EPUBNavigatorDelegate {
-    nonisolated func navigator(_ navigator: Navigator, presentError error: NavigatorError) {
-        // Surfaced by Readium for resource-load errors; logged, not fatal.
-        Task { @MainActor in
-            self.log.error("ReadiumEPUB navigator error: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    func navigator(_ navigator: Navigator, locationDidChange locator: ReadiumShared.Locator) {
-        // WI-6: forward the reported locator to the host VM's debounced save so
-        // the reading position persists as the user navigates/scrolls.
-        onLocationChange?(locator)
-        // WI-4 probe wiring: register the active navigator + signal settle the
-        // first time a spine is rendered and a location is reported, so the
-        // DebugBridge eval/settle probes (eval?bridge=epub) reach this host.
-        #if DEBUG
-        // Register the coordinator (not the navigator) — the coordinator is the
-        // `ReadiumNavigatorEvaluating` conformer that holds the navigator + the
-        // JSON-serializing eval seam.
-        DebugReaderRegistry.shared.setActiveReadiumNavigator(
-            self, for: fingerprintKey, token: readerToken
-        )
-        DebugReaderRegistry.shared.markReaderSettled(
-            for: fingerprintKey, token: readerToken
-        )
-        #endif
-    }
-}
-
-#if DEBUG
-// MARK: - DebugBridge eval seam (WI-4)
-
-extension ReadiumReaderCoordinator: ReadiumNavigatorEvaluating {
-    /// Evaluate `script` on the navigator's currently-visible spine HTML and
-    /// JSON-serialize the success value into raw bytes (mirrors the EPUB/Foliate
-    /// `jsEvaluator` contract: `nil`/undefined → `null`, then `JSONSerialization`
-    /// with `.fragmentsAllowed` so scalars/arrays/objects all splat cleanly).
-    func evaluateJavaScriptValue(_ script: String) async throws -> Data {
-        let raw: Any?
-        if let stub = evaluatorForTests {
-            raw = await stub(script)
-        } else {
-            guard let navigator else {
-                throw DebugReaderProbeError.evalUnsupported(format: "epub")
-            }
-            switch await navigator.evaluateJavaScript(script) {
-            case let .success(value):
-                raw = value
-            case let .failure(error):
-                throw error
-            }
-        }
-        let normalized: Any = raw ?? NSNull()
-        return try JSONSerialization.data(
-            withJSONObject: normalized,
-            options: [.fragmentsAllowed]
-        )
-    }
-}
-#endif
 
 #endif

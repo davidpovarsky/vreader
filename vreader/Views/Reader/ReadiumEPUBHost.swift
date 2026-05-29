@@ -46,11 +46,18 @@ struct ReadiumEPUBHost: View {
     /// registry registration so a stale callback from an outgoing reader cannot
     /// clobber an incoming probe binding.
     var readerToken: UUID?
+    /// WI-10b: shared TTS service (from `ReaderContainerView`), observed by
+    /// `+TTSFollow` to auto-advance the navigator. Optional → existing call sites compat.
+    var ttsService: TTSService?
 
-    @State private var viewModel: ReadiumEPUBReaderViewModel?
+    /// Not `private` — the `+Body` extension's `coreBody`/`openHostTask` read &
+    /// write it (a `private` @State is file-scoped, invisible to an extension in
+    /// another file).
+    @State var viewModel: ReadiumEPUBReaderViewModel?
     /// WI-6: the restored Readium locator, loaded before the navigator mounts so
-    /// it can be passed as `initialLocation`. nil = open at the start.
-    @State private var restoredLocator: ReadiumShared.Locator?
+    /// it can be passed as `initialLocation`. nil = open at the start. Not
+    /// `private` for the same `+Body`-extension-access reason as `viewModel`.
+    @State var restoredLocator: ReadiumShared.Locator?
     /// WI-8: renders stored highlights as Readium decorations. Owned by the host
     /// (via @State) so the same instance is both attached to the live navigator
     /// (in the representable's `makeUIViewController`) and driven by the host's
@@ -122,6 +129,12 @@ struct ReadiumEPUBHost: View {
     /// Non-`private` so the `+Background` extension's reload helper can write it.
     @State var hasBackgroundImage = false
 
+    // MARK: - WI-10b TTS speaking-position follow (wiring in `+TTSFollow`)
+
+    /// Per-spine offset table (offset→href+fraction); throttle cursor. See `+TTSFollow`.
+    @State var ttsFollowMapper: ReadiumTTSFollowMapper?
+    @State var lastFollowedTTSTarget: ReadiumTTSFollowMapper.Target?
+
     var body: some View {
         // WI-7: compose the decorative background BEHIND the navigator, mirroring
         // the legacy `ReaderContainerView` (`ZStack { if useCustomBackground {
@@ -130,170 +143,6 @@ struct ReadiumEPUBHost: View {
         // wrapper + reload observers live in `ReadiumEPUBHost+Background` for the
         // 300-line budget; bilingual body modifiers live in `bilingualSurfaces`.
         backgroundComposited(bilingualSurfaces(coreBody))
-    }
-
-    @ViewBuilder
-    private var coreBody: some View {
-        Group {
-            switch viewModel?.state {
-            case .ready(let publication):
-                // WI-7: read `theme` + `typography` + `epubLayout` directly here
-                // so SwiftUI tracks all three as `@Observable` dependencies of
-                // this body — a Display-settings change mutates one of them,
-                // re-runs the body, and re-builds the representable with fresh
-                // preferences, which `updateUIViewController` then re-submits.
-                ReadiumNavigatorRepresentable(
-                    publication: publication,
-                    preferences: ReadiumEPUBReaderViewModel.epubPreferences(
-                        theme: settingsStore.theme,
-                        typography: settingsStore.typography,
-                        layout: settingsStore.epubLayout,
-                        // Gate-4 round-1: feed the per-format-calibrated `.epub`
-                        // size (the same calibration band the legacy EPUB engine
-                        // renders through) so perceived font size stays consistent
-                        // across the legacy and Readium engines.
-                        calibratedFontSizePt: settingsStore.calibrator.calibratedSize(
-                            forUnified: settingsStore.typography.fontSize, target: .epub
-                        ),
-                        // WI-7: clear the HTML body background so the composited
-                        // ThemeBackgroundView shows through (photo/custom-bg path).
-                        transparentBackground: shouldRenderTransparentBackground
-                    ),
-                    fingerprintKey: fingerprint.canonicalKey,
-                    readerToken: readerToken,
-                    initialLocation: restoredLocator,
-                    // Med-2: a representable can only return a placeholder
-                    // controller synchronously, so a navigator-init throw routes
-                    // here to flip the host to `.failed`. `[weak viewModel]`
-                    // avoids mutating @State during a render pass.
-                    onNavigatorInitFailure: { [weak viewModel] message in
-                        viewModel?.markNavigatorInitFailed(message)
-                    },
-                    // WI-6: forward `locationDidChange` into the VM's debounced
-                    // save. `@MainActor @Sendable` so the coordinator stays
-                    // decoupled from the VM type.
-                    onLocationChange: { [weak viewModel] locator in
-                        viewModel?.save(readiumLocator: locator)  // WI-6 save
-                        // Gate-4 HIGH-1: remember the live locator so a first-enable
-                        // toggle (no location change of its own) resolves the
-                        // VISIBLE chapter. Compose — the WI-6 save above still runs.
-                        lastKnownReadiumLocator = locator
-                        // WI-11b: drive the chapter-change enumerate off the same
-                        // callback (href change + enabled → enumerate; intra-chapter
-                        // deduped). HIGH-2: a persisted-on book enumerates on its
-                        // FIRST locator (lastEnumeratedHref nil → href differs).
-                        handleBilingualLocationChange(locator)
-                    },
-                    // WI-8 (new-highlight): cache the finalized selection + surface
-                    // the designed color-picker popover (handler in `+Highlights`).
-                    onSelection: { handleReadiumSelection($0) },
-                    // WI-8: the host-owned highlight adapter — bound to the live
-                    // navigator in the representable, detached on teardown — so the
-                    // adapter the host's coordinator drives is the one on-spine.
-                    highlightAdapter: highlightAdapter,
-                    navCommander: navCommander,
-                    bilingualCommander: bilingualCommander,
-                    // WI-7: make the navigator view + spine WebViews transparent
-                    // so the ThemeBackgroundView composited behind shows through.
-                    transparentBackground: shouldRenderTransparentBackground
-                )
-                .ignoresSafeArea()
-                // WI-9a: the jump observer resolves a (legacy, OPF-relative)
-                // vreader `Locator` href against the publication's reading-order.
-                .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { _ in
-                    navCommander.nextPage()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .readerPreviousPage)) { _ in
-                    navCommander.previousPage()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-                    guard let vLocator = notification.object as? Locator,
-                          let readiumLocator = ReadiumEPUBReaderViewModel.readiumLocator(
-                            fromVReader: vLocator,
-                            spineHrefs: publication.readingOrder.map(\.href)
-                          ) else { return }
-                    navCommander.navigate(to: readiumLocator)
-                }
-            case .failed:
-                // Reuse the existing reader's failure messaging (rule 51 — no
-                // new chrome): the same copy the dispatcher shows when a book
-                // cannot be opened.
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text("Unable to open this book.")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityIdentifier("readiumOpenErrorView")
-            case .loading, .none:
-                ProgressView()
-            }
-        }
-        .task {
-            guard viewModel == nil else { return }
-            let persistence = PersistenceActor(modelContainer: modelContainer)
-            let vm = ReadiumEPUBReaderViewModel(
-                fileURL: fileURL,
-                fingerprint: fingerprint,
-                persistence: persistence,
-                deviceId: ReaderContainerView.deviceId
-            )
-            viewModel = vm
-            // WI-8: build the highlight coordinator over the host-owned adapter
-            // so restore-on-open + the `.readerHighlightRemoved` observer route
-            // through the shared highlight lifecycle (mirrors the legacy EPUB
-            // container). The adapter binds to the navigator separately (in the
-            // representable) once `state == .ready`.
-            highlightCoordinator = HighlightCoordinator(
-                renderer: highlightAdapter,
-                persistence: persistence,
-                bookFingerprintKey: fingerprint.canonicalKey
-            )
-            // WI-6: load the saved position BEFORE the navigator mounts (the
-            // representable is only built once `state == .ready`) so the
-            // navigator opens directly at the restored locator instead of the
-            // start. nil → open at the start (first-open / nothing saved).
-            restoredLocator = await vm.restoredReadiumLocator()
-            // WI-11b Gate-4 round-3 HIGH-1 (persisted-on open race): build the
-            // bilingual parser + VM BEFORE `vm.open()` flips `state = .ready` and
-            // mounts the navigator, so the navigator's initial `locationDidChange`
-            // sees a non-nil VM and a persisted-on book's only initial enumerate
-            // isn't dropped. Neither call depends on the Readium publication.
-            await openBilingualParser()
-            ensureBilingualViewModel()
-            await vm.open()
-            // WI-8: restore stored highlights once the publication is open. The
-            // adapter tracks the set even before the navigator attaches, so the
-            // decorations submit as soon as `attach(navigator:)` runs in the
-            // representable's `makeUIViewController`. `forHref: nil` — Readium
-            // decorations are book-wide; the navigator renders only those whose
-            // locators fall on visible spine items.
-            await highlightCoordinator?.restoreAll()
-        }
-        // WI-8: highlight observers (selection-popover present + create,
-        // decoration clear, import re-restore) live in the `+Highlights`
-        // extension's `highlightObservers` modifier (300-line budget).
-        .modifier(highlightObservers)
-        .onDisappear {
-            // High (bug #252 lesson): host-level close lifecycle. The host owns the
-            // VM (+ its `Publication`) via @State, so the close fires only on a
-            // genuine nav pop — releasing file handles deterministically. Registry
-            // + navigator teardown live in `dismantleUIViewController`.
-            // WI-6: `closeAndFlush()` awaits the final position save in a
-            // background task (like `EPUBReaderHost`) so it survives the dismiss.
-            guard let viewModel else { return }
-            let bgTaskID = UIApplication.shared.beginBackgroundTask(
-                expirationHandler: nil
-            )
-            Task {
-                await viewModel.closeAndFlush()
-                if bgTaskID != .invalid {
-                    UIApplication.shared.endBackgroundTask(bgTaskID)
-                }
-            }
-        }
     }
 }
 

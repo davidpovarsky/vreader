@@ -185,8 +185,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vreader.app
-        CURRENT_PROJECT_VERSION: 699
-        MARKETING_VERSION: 3.40.18
+        CURRENT_PROJECT_VERSION: 700
+        MARKETING_VERSION: 3.40.19
     info:
       # XcodeGen writes vreader/SupportingFiles/Info.plist with this content.
       # We need a real Info.plist (not Xcode's auto-generated one) because
@@ -313,11 +313,15 @@ targets:
       # Feature #42 WI-1: the Readium open-smoke test imports ReadiumShared +
       # ReadiumStreamer directly, so the test target must link them explicitly
       # (relying on host-app transitive exposure is fragile — Gate-4 audit).
-      # ReadiumNavigator stays app-only (the test doesn't render).
+      # WI-5: ReadiumNavigator is now also linked so ReadiumEPUBHostTests can
+      # assert the real `EPUBPreferences(scroll:)` mapping from the host's
+      # layout-preference translation (the render itself stays untested).
       - package: Readium
         product: ReadiumShared
       - package: Readium
         product: ReadiumStreamer
+      - package: Readium
+        product: ReadiumNavigator
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vreader.tests

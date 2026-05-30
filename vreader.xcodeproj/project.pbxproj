@@ -677,6 +677,7 @@
 		762B3F65978080FE7D26BF4C /* AnnotationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11E9DBFB16DA26DD0659851 /* AnnotationModelTests.swift */; };
 		768E594123AD4AA389E2BEAC /* AISummaryTabViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA307AD0EDD85730C6DE77A /* AISummaryTabViewTests.swift */; };
 		76B75FF4AC85FDA4239E43DE /* ProviderProfileMigratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7C16F12BA653A217A5439C /* ProviderProfileMigratorTests.swift */; };
+		770CE6C30927E26DC0DB017F /* FoliateScrolledWindowMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03AECD22002DD170A5BF984A /* FoliateScrolledWindowMathTests.swift */; };
 		7778CE2B4527836E7E8B3FD7 /* PDFHighlightTapResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21285A9149B2F11210A9430 /* PDFHighlightTapResolverTests.swift */; };
 		7783FE9E844F919F1D722742 /* EPUBBilingualJS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904A30F4AD7E5862C2D3C955 /* EPUBBilingualJS.swift */; };
 		77857F3327C895849DD2CACE /* DebugReaderRegistry+Settle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB7506487E3EB33A54EB619 /* DebugReaderRegistry+Settle.swift */; };
@@ -782,6 +783,7 @@
 		89B733D394A024A550FDC0F1 /* TXTReaderContainerView+DebugBridgeHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CAE98744C71CECB79F67EB /* TXTReaderContainerView+DebugBridgeHighlight.swift */; };
 		89F6E6A39DB88435F76F7D72 /* SettingsToggleRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB8220CC5FF3C114CFA6B6E3 /* SettingsToggleRow.swift */; };
 		8A1909A1927C0A98F6F8D6D0 /* ReadingStatsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75548C00D82133FCD8F0DB3 /* ReadingStatsModels.swift */; };
+		8A3108EFB992214662E20858 /* FoliateScrolledWindowMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8DA73FC4DB2CFB0B841E4D /* FoliateScrolledWindowMath.swift */; };
 		8A3AE73DD5935F4E45882E38 /* AccessibilityFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABC4CE4DBCD7E5A52BC4E511 /* AccessibilityFormatters.swift */; };
 		8A45E09F7832BE075BAF73D3 /* PersistenceActorStatsReadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D313521AE0A256629A2B0244 /* PersistenceActorStatsReadTests.swift */; };
 		8A5EFD4729B7E4BE9D2CA38E /* ReplacementTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AF84D4FD4FAA3232D18AA96 /* ReplacementTransform.swift */; };
@@ -1456,6 +1458,7 @@
 		03321A13C86F9E69BE338864 /* ReadiumNavCommanderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadiumNavCommanderTests.swift; sourceTree = "<group>"; };
 		0378B284E969CD8625A89EA1 /* RealDebugBridgeContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealDebugBridgeContext.swift; sourceTree = "<group>"; };
 		038FCEF53266698AAA8BAB2A /* MDChapterStartScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDChapterStartScanner.swift; sourceTree = "<group>"; };
+		03AECD22002DD170A5BF984A /* FoliateScrolledWindowMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateScrolledWindowMathTests.swift; sourceTree = "<group>"; };
 		03E01318DE23F63217033B89 /* ProviderProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderProfileTests.swift; sourceTree = "<group>"; };
 		03FA3AC72012ED6686293475 /* ReadingStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingStatsTests.swift; sourceTree = "<group>"; };
 		0459CAA7394555E5A8E17146 /* ReaderUnsupportedFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderUnsupportedFormatTests.swift; sourceTree = "<group>"; };
@@ -2386,6 +2389,7 @@
 		AD065491E8CFE99188D62E09 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		AD170A9C4FEB206D5F5F2157 /* V5toV6MigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V5toV6MigrationTests.swift; sourceTree = "<group>"; };
 		AD46F11BC7E87EC46B65BAF6 /* EPUBContinuousScrollJS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBContinuousScrollJS.swift; sourceTree = "<group>"; };
+		AD8DA73FC4DB2CFB0B841E4D /* FoliateScrolledWindowMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoliateScrolledWindowMath.swift; sourceTree = "<group>"; };
 		ADA1F6F765714110EBCCF24B /* HighlightPopoverActionRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightPopoverActionRouterTests.swift; sourceTree = "<group>"; };
 		AE0CDD04120BFF39B61E8418 /* BackgroundIndexingCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundIndexingCoordinatorTests.swift; sourceTree = "<group>"; };
 		AE29B97304B59C88E3F3F9CF /* AITranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AITranslationTests.swift; sourceTree = "<group>"; };
@@ -2951,6 +2955,7 @@
 				58CB10F386B36EF83C36873F /* FoliateJSEscaper.swift */,
 				36EE33B24FB16F8AC319BDB2 /* FoliateMessageParser.swift */,
 				EDD7B08B41BC2F95D59ACC3B /* FoliateNavSeek.swift */,
+				AD8DA73FC4DB2CFB0B841E4D /* FoliateScrolledWindowMath.swift */,
 				9B8C36563D7885AD214F885A /* FoliateSearchAdapter.swift */,
 				AF493E1A2F50B0916C76306D /* FoliateSelectionDispatcher.swift */,
 				0928B53225E1D74131620204 /* FoliateStyleMapper.swift */,
@@ -5149,6 +5154,7 @@
 				61DB3214E22D83E3A8E19212 /* FoliateJSEscaperTests.swift */,
 				EB35F648E8E697C82E4C41DE /* FoliateMessageParserTests.swift */,
 				8293E5CECE7616545BEEE15F /* FoliatePaginatorScrollBoundaryTests.swift */,
+				03AECD22002DD170A5BF984A /* FoliateScrolledWindowMathTests.swift */,
 				A6DB55181F2F55D99D879507 /* FoliateSearchAdapterTests.swift */,
 				97EE89998FF9D71667B4B83C /* FoliateSelectionDispatcherTests.swift */,
 				2F4BA9D085BDF7728D698FDA /* FoliateStyleMapperCascadeFlattenTests.swift */,
@@ -5632,6 +5638,7 @@
 				46BE197094C37683ABE4FC6B /* FoliatePositionRestoreControllerTests.swift in Sources */,
 				B8B06D067BBB837C6138967D /* FoliateReaderContainerViewTests.swift in Sources */,
 				B47FA1294B60A0652B9F0BCA /* FoliateReaderViewModelTests.swift in Sources */,
+				770CE6C30927E26DC0DB017F /* FoliateScrolledWindowMathTests.swift in Sources */,
 				7A90F0D9EB7A4F82D33EE237 /* FoliateSearchAdapterTests.swift in Sources */,
 				C999EC3BE3EA4ECBC2EF7F5B /* FoliateSelectionDispatcherTests.swift in Sources */,
 				64F77F9B1EB4BFF2CD6CE172 /* FoliateSpikeThemeCSSTests.swift in Sources */,
@@ -6264,6 +6271,7 @@
 				0DDED2E512493B4CB2DCD33F /* FoliateReaderContainerView+Navigation.swift in Sources */,
 				7D4818D21C7BE30304755F35 /* FoliateReaderContainerView.swift in Sources */,
 				AE34D7222B4EAB4191316FD2 /* FoliateReaderViewModel.swift in Sources */,
+				8A3108EFB992214662E20858 /* FoliateScrolledWindowMath.swift in Sources */,
 				1B78DA4330A421FE2206B70C /* FoliateSearchAdapter.swift in Sources */,
 				BB76E4E9F07F901B637B765D /* FoliateSectionExtracting.swift in Sources */,
 				05746231141B8C7001BEBDAD /* FoliateSelectionDispatcher.swift in Sources */,

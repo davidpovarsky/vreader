@@ -441,6 +441,7 @@ export class Paginator extends HTMLElement {
     // is byte-identical to the single-`#view` path until WI-2 lights it up.
     // Paged mode never touches these (it stays the exact single-`#view` code).
     #scrolledViews = []
+    #mountingIndices = new Set() // WI-3: in-flight mount dedup (async race guard)
     #windowedScroll = false
     #K = 3 // Feature #73 WI-2: windowed mount size (current + neighbours)
     #vertical = false
@@ -653,6 +654,10 @@ export class Paginator extends HTMLElement {
         switch (name) {
             case 'flow':
                 this.render()
+                // Feature #73 WI-3: the initial #display may have run while flow
+                // was still paginated (so its #ensureWindow was gated out). When
+                // flow becomes 'scrolled', (re)build the windowed neighbour set.
+                if (this.#windowedScroll && this.scrolled && this.#view) this.#ensureWindow()
                 break
             case 'gap':
             case 'margin':
@@ -714,7 +719,11 @@ export class Paginator extends HTMLElement {
     // return exactly the single `#view`, so behaviour is unchanged; WI-2 fills
     // `#scrolledViews` and WI-5 makes `#currentView()` scroll-position-aware.
     #mountedViews() {
-        if (this.#windowedScroll && this.#scrolledViews.length) return this.#scrolledViews
+        // WI-3 bugfix: include the anchor `#view` (the current section), not just
+        // the neighbour `#scrolledViews` — otherwise multi-doc consumers
+        // (getContents/overlays/TTS) miss the section the reader is actually in.
+        // Same ordering as `#windowedViews()`.
+        if (this.#windowedScroll && this.#scrolledViews.length) return this.#windowedViews()
         return this.#view ? [this.#view] : []
     }
     #currentView() {
@@ -748,11 +757,41 @@ export class Paginator extends HTMLElement {
         if (!this.#canGoToIndex(index)) return null
         if (index === this.#index) return null
         if (this.#scrolledViews.some(v => v.wi73Index === index)) return null
+        // WI-3 bugfix: #ensureWindow is called from several paths (#display,
+        // #afterScroll, flow change, boundary cross) and #mountSection awaits
+        // an async load, so the `scrolledViews.some(...)` dedup above can pass
+        // for several concurrent calls before any push completes — double-
+        // mounting the same section. Guard with an in-flight index set.
+        if (this.#mountingIndices.has(index)) return null
+        this.#mountingIndices.add(index)
+        try {
         const src = await Promise.resolve(this.sections[index].load())
         // WI-6c: a neighbour that grows on a late expand (fonts.ready / reflow)
         // would shift visible content if it sits above the viewport; compensate.
         const view = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view) })
         view.wi73Index = index
+        view.wi73Height = 0
+        // WI-3 bugfix (device-verified): insert the element into the container
+        // BEFORE `view.load`. `View.load` sets `iframe.src` and waits for the
+        // iframe's `load` event; a DETACHED iframe has no reliable
+        // `contentDocument` / computed style (note View.load's "needs to be
+        // visible for computed style"), so loading before insertion silently
+        // fails and no neighbour ever mounts. #createView likewise appends the
+        // element before #display calls load. The empty view grows 0→content
+        // height; #onNeighbourExpand compensates `scrollTop` for above-views as
+        // it grows (so no static insert-time height adjustment is needed here).
+        const anchorEl = this.#view?.element
+        if (index < this.#index && anchorEl) {
+            this.#container.insertBefore(view.element, anchorEl)
+        } else {
+            // place after the highest already-mounted element < index, else after anchor
+            const lower = this.#scrolledViews.filter(v => v.wi73Index < index)
+            const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl
+            if (beforeEl?.nextSibling) this.#container.insertBefore(view.element, beforeEl.nextSibling)
+            else this.#container.append(view.element)
+        }
+        this.#scrolledViews.push(view)
+        this.#scrolledViews.sort((a, b) => a.wi73Index - b.wi73Index)
         const afterLoad = doc => {
             if (doc.head) {
                 const $styleBefore = doc.createElement('style')
@@ -763,28 +802,18 @@ export class Paginator extends HTMLElement {
                 this.#applyCachedStyles(doc) // Gate-2 H8: style every mounted view
             }
         }
-        await view.load(src, afterLoad, this.#beforeRender.bind(this))
-        // insert into #scrolledViews + #container in section order, anchored on
-        // the current #view's element (the anchor section stays index `#index`).
-        this.#scrolledViews.push(view)
-        this.#scrolledViews.sort((a, b) => a.wi73Index - b.wi73Index)
-        const anchorEl = this.#view?.element
-        if (index < this.#index && anchorEl) {
-            this.#container.insertBefore(view.element, anchorEl)
-            // WI-6c: inserting above the anchor shifts visible content down; add
-            // the mounted height to scrollTop so the anchor stays put (the
-            // inverse of #evictOutsideWindow's above-evict subtraction).
-            view.wi73Height = Math.max(0, view.element.getBoundingClientRect().height)
-            this.#container.scrollTop += view.wi73Height
-        } else {
-            // place after the highest already-mounted element < index, else after anchor
-            const lower = this.#scrolledViews.filter(v => v.wi73Index < index)
-            const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl
-            if (beforeEl?.nextSibling) this.#container.insertBefore(view.element, beforeEl.nextSibling)
-            else this.#container.append(view.element)
-            view.wi73Height = Math.max(0, view.element.getBoundingClientRect().height)
+        try {
+            await view.load(src, afterLoad, this.#beforeRender.bind(this))
+        } catch (e) {
+            // unmount the phantom on load failure so the window stays consistent
+            if (view.element.parentNode === this.#container) this.#container.removeChild(view.element)
+            this.#scrolledViews = this.#scrolledViews.filter(v => v !== view)
+            throw e
         }
         return view
+        } finally {
+            this.#mountingIndices.delete(index)
+        }
     }
     // WI-6c: when a mounted neighbour's height changes after layout (fonts.ready,
     // image load, reflow), shift `scrollTop` by the delta IF the neighbour sits
@@ -1197,6 +1226,7 @@ export class Paginator extends HTMLElement {
             const r = this.#windowedResolve()
             this.#promoteCurrentView(r)
             scrolledFraction = r.intra
+            this.#ensureWindow() // WI-3: keep the K-window built around the current section (idempotent)
         }
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
@@ -1410,7 +1440,7 @@ export class Paginator extends HTMLElement {
         // to the old single-view return; WI-7 makes each mounted view carry its
         // own section index for cross-section selection/overlay/TTS.
         return this.#mountedViews().map(v => ({
-            index: this.#index,
+            index: v.wi73Index ?? this.#index, // WI-7: each mounted view carries its own section index
             overlayer: v.overlayer,
             doc: v.document,
         }))

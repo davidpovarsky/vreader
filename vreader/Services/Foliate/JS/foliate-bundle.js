@@ -4542,6 +4542,8 @@ ${doc.querySelector("parsererror").innerText}`);
         // is byte-identical to the single-`#view` path until WI-2 lights it up.
         // Paged mode never touches these (it stays the exact single-`#view` code).
         #scrolledViews = [];
+        #mountingIndices = /* @__PURE__ */ new Set();
+        // WI-3: in-flight mount dedup (async race guard)
         #windowedScroll = false;
         #K = 3;
         // Feature #73 WI-2: windowed mount size (current + neighbours)
@@ -4743,6 +4745,7 @@ ${doc.querySelector("parsererror").innerText}`);
           switch (name) {
             case "flow":
               this.render();
+              if (this.#windowedScroll && this.scrolled && this.#view) this.#ensureWindow();
               break;
             case "gap":
             case "margin":
@@ -4790,7 +4793,7 @@ ${doc.querySelector("parsererror").innerText}`);
         // return exactly the single `#view`, so behaviour is unchanged; WI-2 fills
         // `#scrolledViews` and WI-5 makes `#currentView()` scroll-position-aware.
         #mountedViews() {
-          if (this.#windowedScroll && this.#scrolledViews.length) return this.#scrolledViews;
+          if (this.#windowedScroll && this.#scrolledViews.length) return this.#windowedViews();
           return this.#view ? [this.#view] : [];
         }
         #currentView() {
@@ -4832,35 +4835,45 @@ ${doc.querySelector("parsererror").innerText}`);
           if (!this.#canGoToIndex(index)) return null;
           if (index === this.#index) return null;
           if (this.#scrolledViews.some((v3) => v3.wi73Index === index)) return null;
-          const src = await Promise.resolve(this.sections[index].load());
-          const view2 = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view2) });
-          view2.wi73Index = index;
-          const afterLoad = (doc) => {
-            if (doc.head) {
-              const $styleBefore = doc.createElement("style");
-              doc.head.prepend($styleBefore);
-              const $style = doc.createElement("style");
-              doc.head.append($style);
-              this.#styleMap.set(doc, [$styleBefore, $style]);
-              this.#applyCachedStyles(doc);
+          if (this.#mountingIndices.has(index)) return null;
+          this.#mountingIndices.add(index);
+          try {
+            const src = await Promise.resolve(this.sections[index].load());
+            const view2 = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view2) });
+            view2.wi73Index = index;
+            view2.wi73Height = 0;
+            const anchorEl = this.#view?.element;
+            if (index < this.#index && anchorEl) {
+              this.#container.insertBefore(view2.element, anchorEl);
+            } else {
+              const lower = this.#scrolledViews.filter((v3) => v3.wi73Index < index);
+              const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl;
+              if (beforeEl?.nextSibling) this.#container.insertBefore(view2.element, beforeEl.nextSibling);
+              else this.#container.append(view2.element);
             }
-          };
-          await view2.load(src, afterLoad, this.#beforeRender.bind(this));
-          this.#scrolledViews.push(view2);
-          this.#scrolledViews.sort((a3, b3) => a3.wi73Index - b3.wi73Index);
-          const anchorEl = this.#view?.element;
-          if (index < this.#index && anchorEl) {
-            this.#container.insertBefore(view2.element, anchorEl);
-            view2.wi73Height = Math.max(0, view2.element.getBoundingClientRect().height);
-            this.#container.scrollTop += view2.wi73Height;
-          } else {
-            const lower = this.#scrolledViews.filter((v3) => v3.wi73Index < index);
-            const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl;
-            if (beforeEl?.nextSibling) this.#container.insertBefore(view2.element, beforeEl.nextSibling);
-            else this.#container.append(view2.element);
-            view2.wi73Height = Math.max(0, view2.element.getBoundingClientRect().height);
+            this.#scrolledViews.push(view2);
+            this.#scrolledViews.sort((a3, b3) => a3.wi73Index - b3.wi73Index);
+            const afterLoad = (doc) => {
+              if (doc.head) {
+                const $styleBefore = doc.createElement("style");
+                doc.head.prepend($styleBefore);
+                const $style = doc.createElement("style");
+                doc.head.append($style);
+                this.#styleMap.set(doc, [$styleBefore, $style]);
+                this.#applyCachedStyles(doc);
+              }
+            };
+            try {
+              await view2.load(src, afterLoad, this.#beforeRender.bind(this));
+            } catch (e3) {
+              if (view2.element.parentNode === this.#container) this.#container.removeChild(view2.element);
+              this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== view2);
+              throw e3;
+            }
+            return view2;
+          } finally {
+            this.#mountingIndices.delete(index);
           }
-          return view2;
         }
         // WI-6c: when a mounted neighbour's height changes after layout (fonts.ready,
         // image load, reflow), shift `scrollTop` by the delta IF the neighbour sits
@@ -5220,6 +5233,7 @@ ${doc.querySelector("parsererror").innerText}`);
             const r3 = this.#windowedResolve();
             this.#promoteCurrentView(r3);
             scrolledFraction = r3.intra;
+            this.#ensureWindow();
           }
           const range = this.#getVisibleRange();
           this.#lastVisibleRange = range;
@@ -5422,7 +5436,8 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         getContents() {
           return this.#mountedViews().map((v3) => ({
-            index: this.#index,
+            index: v3.wi73Index ?? this.#index,
+            // WI-7: each mounted view carries its own section index
             overlayer: v3.overlayer,
             doc: v3.document
           }));

@@ -907,3 +907,66 @@ Add `#viewRelativeStart()` = `this.#container.scrollTop - this.#elementScrollTop
 ### Why this is paused here, not pushed further this session
 
 WI-6b reworks the coordinate system that every per-section render/visible-range/anchor operation depends on. The parity guard runs **flag-off**, so it cannot catch a subtly-wrong windowed coordinate transform — only flag-on device verification on a real multi-section AZW3 can. That verification is the WI that lights the flag; rushing the coordinate rework in the tail of a long session risks shipping math the guard can't see. Resume at WI-6a with the design above.
+
+---
+
+## Gate 5 — flag-on device verification (2026-05-30, iPhone 17 Pro Simulator iOS 26.4)
+
+Flipped `#windowedScroll = true` locally, built + installed, opened `mini-azw3`
+(Project Gutenberg #1064 "The Masque of the Red Death", **7 spine sections**,
+scrolled mode), and drove scrolling via computer-use while reading the windowed
+state through `vreader-debug://eval` (`foliate-view.renderer.getContents()`).
+
+### Result: core windowed continuous-scroll surface WORKS
+
+| Observation | Evidence |
+| --- | --- |
+| K=3 window mounts on open | `getContents` → `mounted:3 indices:[0,1,2]` |
+| Forward boundary crossing is native scroll (no swap, no getting stuck) | scrolled 0→1→2; indicator "Chapter 1 of 7" → "2 of 7" → "3 of 7"; continuous Poe prose across former section seams |
+| Window slides + evicts behind | after crossing to index 2: `mounted:3 indices:[1,2,3]` (section 0 evicted, 3 mounted) |
+| Backward crossing + re-centering | scrolled back up: indicator 3→1, window `[1,2,3]` → `[0,1,2]` |
+
+The pre-fix symptom (Bug #283 chapter-boundary jump) is structurally gone: there
+is no per-section swap, so no D1 offset reset / D2 blank flash / D3 reflow jump —
+the reader simply scrolls through pre-mounted contiguous sections.
+
+### Five real bugs found by device verification (all flag-gated; the flag-off parity guard could not catch them)
+
+1. **Detached-iframe mount failure.** `#mountSection` called `view.load` (sets
+   `iframe.src`, awaits the iframe `load` event) BEFORE inserting the element into
+   the container. A detached iframe has no reliable `contentDocument` / computed
+   style, so every neighbour mount silently failed (caught + swallowed). Fix:
+   insert element into the container BEFORE `load` (mirrors `#createView`).
+2. **`#ensureWindow` never fired.** The initial `#display` ran while `flow` was
+   still paginated, so its `if (this.scrolled && …)` `#ensureWindow` call was gated
+   out; `flow→"scrolled"` re-rendered but never built the window. Fix: trigger
+   `#ensureWindow` from the `flow` attributeChangedCallback AND from `#afterScroll`
+   (idempotent), so the window builds regardless of attribute/display ordering.
+3. **Concurrent-mount race → duplicate sections.** `#ensureWindow` is called from
+   several paths and `#mountSection` awaits an async load, so the
+   `scrolledViews.some(...)` dedup passed for several concurrent calls before any
+   push completed — mounting the same section 2-3×. Fix: `#mountingIndices` in-flight
+   guard set.
+4. **`getContents` hardcoded `index: this.#index`** for every mounted view → all
+   views reported the anchor's index. Fix: report each view's own `wi73Index`
+   (the WI-7 multi-doc correctness the WI-1a comment anticipated).
+5. **`#mountedViews()` excluded the anchor `#view`** (returned only
+   `#scrolledViews`), so multi-doc consumers (getContents/overlays/TTS) missed the
+   section the reader is actually in. Fix: return `#windowedViews()` (anchor +
+   neighbours, sorted).
+
+All five are committed as WI-3 hardening; the flag is reverted to OFF (the parity
+guard + math suite stay GREEN). The core crossing is proven; what remains before
+the flag can flip ON for all users:
+
+### Not yet verified (WI-7 / final acceptance — flag stays OFF until done)
+
+- **Bug #265 position restore** in windowed mode (reopen-at-position) — Gate-2
+  concern; needs flag-on reopen test.
+- **Selection / highlights across mounted sections** (selection owner = the right
+  document) — round-2 audit H1.
+- **TTS / overlays / bilingual** iterate `#mountedViews()` correctly.
+- **Search-result landing** into a windowed section.
+- **K=3 large-CJK memory** ceiling (WI-0 (d)).
+- **Windowed-mode parity guard** (a flag-ON test harness) so CI can catch windowed
+  regressions — today only flag-OFF is gated. This is WI-8.

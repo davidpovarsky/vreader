@@ -843,3 +843,13 @@ A throwaway `UIScrollViewDelegate.scrollViewDidScroll` was added to `FoliateSpik
 **(b)(c)(d): not yet measured** — gated on the AZW3 fixture fix (or a sim-transferred real AZW3).
 
 **Preliminary WI-0 verdict: GO-leaning** on the windowed model (the inner-`#container`-scroller finding is the key de-risk), but the empirical multi-iframe coexistence + memory measurements remain — WI-0 stays OPEN until the AZW3 fixture is unblocked and (a)-empirical/(b)/(c)/(d) are run on-device.
+
+### WI-0 update (2026-05-30, later) — measurement (a) EMPIRICALLY CONFIRMED
+
+The AZW3 fixture imports fine (the earlier "#288 blocker" was an observation error — the `mini-azw3` AZW3 and the EPUB Masque fixture share the title "The Masque of the Red Death"; #288 closed not-a-bug). With the AZW3 open in the Foliate **scrolled** reader on iPhone 17 Pro Sim (instrumented build), a finger-drag scroll:
+- **scrolled the content and crossed Chapter 1 → Chapter 2** (the current per-section swap — the very jump this feature removes), AND
+- the outer WKWebView scrollView's `scrollViewDidScroll` fired **ZERO times** (instrumentation category `Feat73WI0`, 0 OUTER lines).
+
+**Verdict on (a): CONFIRMED both code-derived AND empirically — the outer WKWebView scrollView is a no-op in scrolled mode; the inner shadow-DOM `#container` (`overflow:auto`) is the sole scroller.** This is the windowed model's substrate de-risk: mounting K sections inside `#container` and letting that one inner scroller move continuously is the right design. **GO on (a).**
+
+**Remaining WI-0: (b) multi-section coexistence, (c) expand-no-shift, (d) memory gate** — these require the experimental mounting code (mount the next section contiguously in `#container`, measure coexistence + memory with large CJK AZW3). Not yet run. WI-0 stays OPEN until (b)/(c)/(d) land, but (a)'s confirmation materially de-risks the approach.

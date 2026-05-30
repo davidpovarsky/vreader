@@ -4535,6 +4535,26 @@ ${doc.querySelector("parsererror").innerText}`);
         #header;
         #footer;
         #view;
+        // Feature #73 WI-1a: scrolled-mode windowed-rendering scaffold. The
+        // `#scrolledViews` list holds the mounted window of section views (current
+        // + neighbours) when `#windowedScroll` is on. The flag defaults OFF, so
+        // every consumer that routes through `#mountedViews()` / `#currentView()`
+        // is byte-identical to the single-`#view` path until WI-2 lights it up.
+        // Paged mode never touches these (it stays the exact single-`#view` code).
+        #scrolledViews = [];
+        #mountingIndices = /* @__PURE__ */ new Set();
+        // WI-3: in-flight mount dedup (async race guard)
+        #windowGeneration = 0;
+        // Gate-4 H1: bumped on navigation/teardown; stale mounts abort
+        // Feature #73: windowed multi-section continuous scroll for AZW3/MOBI scroll
+        // mode — ON by default. Replaces the per-section view-swap (the Bug #283
+        // chapter-boundary jump) with a K-window continuous surface. Horizontal-
+        // writing scrolled mode only; vertical writing + paged mode fall back to the
+        // single-`#view` path. Shipped after a 2-round Codex audit (ship-as-is) +
+        // flag-on device verification.
+        #windowedScroll = true;
+        #K = 3;
+        // Feature #73 WI-2: windowed mount size (current + neighbours)
         #vertical = false;
         #rtl = false;
         #margin = 0;
@@ -4733,6 +4753,7 @@ ${doc.querySelector("parsererror").innerText}`);
           switch (name) {
             case "flow":
               this.render();
+              if (this.#windowedScroll && this.scrolled && this.#view) this.#ensureWindow();
               break;
             case "gap":
             case "margin":
@@ -4757,6 +4778,16 @@ ${doc.querySelector("parsererror").innerText}`);
           });
         }
         #createView() {
+          if (this.#scrolledViews.length) {
+            for (const v3 of this.#scrolledViews) {
+              v3.destroy();
+              if (v3.element.parentNode === this.#container) this.#container.removeChild(v3.element);
+              this.sections[v3.wi73Index]?.unload?.();
+            }
+            this.#scrolledViews = [];
+          }
+          this.#mountingIndices.clear();
+          this.#windowGeneration++;
           if (this.#view) {
             this.#view.destroy();
             this.#container.removeChild(this.#view.element);
@@ -4767,6 +4798,237 @@ ${doc.querySelector("parsererror").innerText}`);
           });
           this.#container.append(this.#view.element);
           return this.#view;
+        }
+        // Feature #73 WI-1a: the mounted-view resolvers — the single seam every
+        // `#view` consumer will route through. With `#windowedScroll` OFF these
+        // return exactly the single `#view`, so behaviour is unchanged; WI-2 fills
+        // `#scrolledViews` and WI-5 makes `#currentView()` scroll-position-aware.
+        #mountedViews() {
+          if (this.#windowedScroll && this.#scrolledViews.length) return this.#windowedViews();
+          return this.#view ? [this.#view] : [];
+        }
+        #currentView() {
+          return this.#view;
+        }
+        // Feature #73 WI-2: the windowed-mount primitives (scrolled-gated). These
+        // mount NEIGHBOUR sections around the current `#view` into `#scrolledViews`
+        // (in section order) so the continuous surface spans more than one section.
+        // The current `#view` stays managed by `#createView`/`#display`; eviction
+        // (WI-4) and swap replacement (WI-3) build on these.
+        #windowRange(current, total, k3) {
+          if (total <= 0 || k3 <= 0) return null;
+          const size = Math.min(k3, total);
+          const c2 = Math.min(Math.max(current, 0), total - 1);
+          const half = Math.floor((size - 1) / 2);
+          let lo = c2 - half;
+          let hi = c2 + (size - 1 - half);
+          if (lo < 0) {
+            hi += -lo;
+            lo = 0;
+          }
+          if (hi > total - 1) {
+            lo -= hi - (total - 1);
+            hi = total - 1;
+          }
+          return [Math.max(0, lo), hi];
+        }
+        #applyCachedStyles(doc) {
+          const $$styles = this.#styleMap.get(doc);
+          if (!$$styles) return;
+          const [$beforeStyle, $style] = $$styles;
+          const s3 = this.#styles;
+          if (Array.isArray(s3)) {
+            $beforeStyle.textContent = s3[0] ?? "";
+            $style.textContent = s3[1] ?? "";
+          } else if (s3 != null) $style.textContent = s3;
+        }
+        // Gate-4 round-2 M (audit): unload a section only if the CURRENT generation no
+        // longer owns it — i.e. it is neither the anchor (#index) nor a mounted
+        // neighbour. An index-only unload from a stale/failed mount could revoke
+        // loader resources the fresh window load owns.
+        #unloadIfUnowned(index) {
+          if (index === this.#index) return;
+          if (this.#scrolledViews.some((v3) => v3.wi73Index === index)) return;
+          this.sections[index]?.unload?.();
+        }
+        async #mountSection(index) {
+          if (!this.#canGoToIndex(index)) return null;
+          if (index === this.#index) return null;
+          if (this.#scrolledViews.some((v3) => v3.wi73Index === index)) return null;
+          if (this.#mountingIndices.has(index)) return null;
+          this.#mountingIndices.add(index);
+          const gen = this.#windowGeneration;
+          try {
+            const src = await Promise.resolve(this.sections[index].load());
+            if (gen !== this.#windowGeneration || !this.#windowedScroll || !this.scrolled) {
+              this.#unloadIfUnowned(index);
+              return null;
+            }
+            const view2 = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view2) });
+            view2.wi73Index = index;
+            view2.wi73Height = 0;
+            const ordered = [this.#view, ...this.#scrolledViews].filter((v3) => v3 && v3.element?.parentNode === this.#container).map((v3) => ({ el: v3.element, idx: v3.wi73Index ?? this.#index })).sort((a3, b3) => a3.idx - b3.idx);
+            const below = ordered.filter((m3) => m3.idx < index);
+            if (below.length) {
+              const afterEl = below[below.length - 1].el;
+              if (afterEl.nextSibling) this.#container.insertBefore(view2.element, afterEl.nextSibling);
+              else this.#container.append(view2.element);
+            } else if (ordered.length) {
+              this.#container.insertBefore(view2.element, ordered[0].el);
+            } else {
+              this.#container.append(view2.element);
+            }
+            this.#scrolledViews.push(view2);
+            this.#scrolledViews.sort((a3, b3) => a3.wi73Index - b3.wi73Index);
+            const afterLoad = (doc) => {
+              if (doc.head) {
+                const $styleBefore = doc.createElement("style");
+                doc.head.prepend($styleBefore);
+                const $style = doc.createElement("style");
+                doc.head.append($style);
+                this.#styleMap.set(doc, [$styleBefore, $style]);
+                this.#applyCachedStyles(doc);
+              }
+            };
+            try {
+              await view2.load(src, afterLoad, this.#beforeRender.bind(this));
+            } catch (e3) {
+              view2.destroy();
+              if (view2.element.parentNode === this.#container) this.#container.removeChild(view2.element);
+              this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== view2);
+              this.#unloadIfUnowned(index);
+              throw e3;
+            }
+            if (gen !== this.#windowGeneration || !this.#windowedScroll || !this.scrolled) {
+              view2.destroy();
+              if (view2.element.parentNode === this.#container) this.#container.removeChild(view2.element);
+              this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== view2);
+              this.#unloadIfUnowned(index);
+              return null;
+            }
+            this.dispatchEvent(new CustomEvent("load", { detail: { doc: view2.document, index } }));
+            this.dispatchEvent(new CustomEvent("create-overlayer", {
+              detail: {
+                doc: view2.document,
+                index,
+                attach: (overlayer) => view2.overlayer = overlayer
+              }
+            }));
+            return view2;
+          } finally {
+            this.#mountingIndices.delete(index);
+          }
+        }
+        // WI-6c: when a mounted neighbour's height changes after layout (fonts.ready,
+        // image load, reflow), shift `scrollTop` by the delta IF the neighbour sits
+        // above the current scroll position — so the visible content does not jump.
+        #onNeighbourExpand(view2) {
+          if (!this.#windowedScroll || !view2?.element) return;
+          const prev = view2.wi73Height ?? 0;
+          const now = Math.max(0, view2.element.getBoundingClientRect().height);
+          view2.wi73Height = now;
+          const delta = now - prev;
+          if (delta === 0) return;
+          if (this.#elementScrollTop(view2.element) < this.#container.scrollTop) {
+            this.#container.scrollTop = Math.max(0, this.#container.scrollTop + delta);
+          }
+        }
+        async #ensureWindow() {
+          if (!this.#windowedScroll || !this.scrolled || this.#vertical) return;
+          const range = this.#windowRange(this.#index, this.sections.length, this.#K);
+          if (!range) return;
+          const [lo, hi] = range;
+          for (let i3 = lo; i3 <= hi; i3++) {
+            if (i3 === this.#index) continue;
+            if (!this.#scrolledViews.some((v3) => v3.wi73Index === i3)) {
+              try {
+                await this.#mountSection(i3);
+              } catch (e3) {
+                console.warn("WI73 mount", i3, e3);
+              }
+            }
+          }
+          this.#evictOutsideWindow(lo, hi);
+        }
+        // Feature #73 WI-4: bound memory to the K-window. Unmount + unload any
+        // neighbour outside [lo,hi]; the anchor `#view` (#index) is never in
+        // `#scrolledViews` so it can't be evicted. Evicting a section ABOVE the
+        // viewport removes content above the scroll position, shifting everything
+        // up — so subtract the evicted-above heights from `scrollTop` to keep the
+        // visible content stationary (FoliateScrolledWindowMath.offsetAdjustmentOnEvict).
+        #evictOutsideWindow(lo, hi) {
+          const keep = [];
+          let scrollAdjust = 0;
+          for (const v3 of this.#scrolledViews) {
+            const idx = v3.wi73Index;
+            if (idx >= lo && idx <= hi) {
+              keep.push(v3);
+              continue;
+            }
+            if (idx < this.#index) {
+              scrollAdjust += Math.max(0, v3.element.getBoundingClientRect().height);
+            }
+            v3.destroy();
+            if (v3.element.parentNode === this.#container) this.#container.removeChild(v3.element);
+            this.sections[idx]?.unload?.();
+          }
+          this.#scrolledViews = keep;
+          if (scrollAdjust > 0) this.#container.scrollTop = Math.max(0, this.#container.scrollTop - scrollAdjust);
+        }
+        // Feature #73 WI-3/WI-5: resolve the CURRENT section + intra-section fraction
+        // from the live scroll position over the mounted views (the anchor `#view`
+        // plus its neighbours), so windowed crossing is native scroll — no swap.
+        #elementScrollTop(el) {
+          return el.getBoundingClientRect().top - this.#container.getBoundingClientRect().top + this.#container.scrollTop;
+        }
+        #windowedViews() {
+          return [this.#view, ...this.#scrolledViews].filter(Boolean).sort((a3, b3) => (a3.wi73Index ?? this.#index) - (b3.wi73Index ?? this.#index));
+        }
+        #windowedResolve() {
+          const views = this.#windowedViews();
+          if (!views.length) return { view: this.#view, index: this.#index, intra: 0 };
+          if (this.#view && this.#view.wi73Index == null) this.#view.wi73Index = this.#index;
+          const scrollTop = this.#container.scrollTop;
+          for (const v3 of views) {
+            const top = this.#elementScrollTop(v3.element);
+            const h3 = v3.element.getBoundingClientRect().height;
+            if (scrollTop < top + h3 - 1) {
+              const idx = v3.wi73Index ?? this.#index;
+              const intra = h3 > 0 ? Math.min(Math.max((scrollTop - top) / h3, 0), 1) : 0;
+              return { view: v3, index: idx, intra };
+            }
+          }
+          const last = views[views.length - 1];
+          return { view: last, index: last.wi73Index ?? this.#index, intra: 1 };
+        }
+        // Feature #73 WI-6a: keep `#view` pointing at the section the viewport top is
+        // in — a POINTER swap, not a DOM move (no flash). After a swap-free crossing
+        // the single-`#view` getters (viewSize / pages / #getRectMapper /
+        // getVisibleRange / #background / atStart / atEnd) all read the correct
+        // section. The old `#view` is demoted into `#scrolledViews` (it stays mounted
+        // in the container); the resolved view leaves `#scrolledViews` to become `#view`.
+        #promoteCurrentView(resolved) {
+          if (!resolved?.view || resolved.view === this.#view) {
+            if (resolved) this.#index = resolved.index;
+            return;
+          }
+          const old = this.#view;
+          if (old) {
+            if (old.wi73Index == null) old.wi73Index = this.#index;
+            if (!this.#scrolledViews.includes(old)) this.#scrolledViews.push(old);
+          }
+          this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== resolved.view);
+          this.#view = resolved.view;
+          this.#index = resolved.index;
+          if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document);
+        }
+        // Feature #73 WI-6b: `start` is container-absolute (it spans every view
+        // mounted ABOVE the current one). Per-`#view` document operations need the
+        // offset RELATIVE to the current view's position in the container. Flag OFF
+        // (or no neighbours) → one view at offset 0 → relative == absolute.
+        #viewRelativeStart() {
+          if (!this.#windowedScroll || !this.#view || this.#vertical) return this.start;
+          return Math.max(0, this.#container.scrollTop - this.#elementScrollTop(this.#view.element));
         }
         #beforeRender({ vertical, rtl, background }) {
           this.#vertical = vertical;
@@ -4814,10 +5076,12 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         render() {
           if (!this.#view) return;
-          this.#view.render(this.#beforeRender({
+          const layout = this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl
-          }));
+          });
+          for (const v3 of this.#scrolledViews) v3.render(layout);
+          this.#view.render(layout);
           this.#scrollToAnchor(this.#anchor);
         }
         get scrolled() {
@@ -4932,7 +5196,8 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         async #scrollToRect(rect, reason) {
           if (this.scrolled) {
-            const offset2 = this.#getRectMapper()(rect).left - this.#margin;
+            let offset2 = this.#getRectMapper()(rect).left - this.#margin;
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset2 += this.#elementScrollTop(this.#view.element);
             return this.#scrollTo(offset2, reason);
           }
           const offset = this.#getRectMapper()(rect).left;
@@ -4980,7 +5245,9 @@ ${doc.querySelector("parsererror").innerText}`);
             return;
           }
           if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason);
+            let offset = anchor * this.viewSize;
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset += this.#elementScrollTop(this.#view.element);
+            await this.#scrollTo(offset, reason);
             return;
           }
           const { pages } = this;
@@ -4990,12 +5257,16 @@ ${doc.querySelector("parsererror").innerText}`);
           await this.#scrollToPage(newPage + 1, reason);
         }
         #getVisibleRange() {
-          if (this.scrolled) return getVisibleRange(
-            this.#view.document,
-            this.start + this.#margin,
-            this.end - this.#margin,
-            this.#getRectMapper()
-          );
+          if (this.scrolled) {
+            const vStart = this.#viewRelativeStart();
+            const vEnd = vStart + this.size;
+            return getVisibleRange(
+              this.#view.document,
+              vStart + this.#margin,
+              vEnd - this.#margin,
+              this.#getRectMapper()
+            );
+          }
           const size = this.#rtl ? -this.size : this.size;
           return getVisibleRange(
             this.#view.document,
@@ -5005,6 +5276,13 @@ ${doc.querySelector("parsererror").innerText}`);
           );
         }
         #afterScroll(reason) {
+          let scrolledFraction = null;
+          if (this.scrolled && this.#windowedScroll && !this.#vertical) {
+            const r3 = this.#windowedResolve();
+            this.#promoteCurrentView(r3);
+            scrolledFraction = r3.intra;
+            this.#ensureWindow();
+          }
           const range = this.#getVisibleRange();
           this.#lastVisibleRange = range;
           if (reason !== "selection" && reason !== "navigation" && reason !== "anchor")
@@ -5012,7 +5290,7 @@ ${doc.querySelector("parsererror").innerText}`);
           else this.#justAnchored = true;
           const index = this.#index;
           const detail = { reason, range, index };
-          if (this.scrolled) detail.fraction = this.start / this.viewSize;
+          if (this.scrolled) detail.fraction = scrolledFraction != null ? scrolledFraction : this.start / this.viewSize;
           else if (this.pages > 0) {
             const { page, pages } = this;
             this.#header.style.visibility = page > 1 ? "visible" : "hidden";
@@ -5050,6 +5328,7 @@ ${doc.querySelector("parsererror").innerText}`);
           }
           await this.scrollToAnchor((typeof anchor === "function" ? anchor(this.#view.document) : anchor) ?? 0, select);
           if (hasFocus) this.focusView();
+          if (this.scrolled && this.#windowedScroll) this.#ensureWindow();
         }
         #canGoToIndex(index) {
           return index >= 0 && index <= this.sections.length - 1;
@@ -5078,6 +5357,11 @@ ${doc.querySelector("parsererror").innerText}`);
         #scrollPrev(distance) {
           if (!this.#view) return true;
           if (this.scrolled) {
+            if (this.#windowedScroll && !this.#vertical) {
+              const top = this.#container.scrollTop;
+              if (top > 0) return this.#scrollTo(Math.max(0, top - (distance ?? this.size)), null, true);
+              return this.#adjacentIndex(-1) != null;
+            }
             if (this.start > 0) return this.#scrollTo(
               Math.max(0, this.start - (distance ?? this.size)),
               null,
@@ -5092,6 +5376,12 @@ ${doc.querySelector("parsererror").innerText}`);
         #scrollNext(distance) {
           if (!this.#view) return true;
           if (this.scrolled) {
+            if (this.#windowedScroll && !this.#vertical) {
+              const c2 = this.#container;
+              const remaining = c2.scrollHeight - (c2.scrollTop + c2.clientHeight);
+              if (remaining > 2) return this.#scrollTo(c2.scrollTop + (distance ?? this.size), null, true);
+              return this.#adjacentIndex(1) != null;
+            }
             if (this.viewSize - this.end > 2) return this.#scrollTo(
               Math.min(this.viewSize, distance ? this.start + distance : this.end),
               null,
@@ -5169,6 +5459,12 @@ ${doc.querySelector("parsererror").innerText}`);
           if (!this.scrolled) return;
           if (this.#locked) return;
           if (!this.#view) return;
+          if (this.#windowedScroll && !this.#vertical) {
+            const r3 = this.#windowedResolve();
+            this.#promoteCurrentView(r3);
+            this.#ensureWindow();
+            return;
+          }
           const atEnd = this.viewSize - this.end <= 2;
           const atStart = this.start <= 0;
           if (atEnd && this.#adjacentIndex(1) != null) {
@@ -5198,31 +5494,43 @@ ${doc.querySelector("parsererror").innerText}`);
           return this.goTo({ index });
         }
         getContents() {
-          if (this.#view) return [{
-            index: this.#index,
-            overlayer: this.#view.overlayer,
-            doc: this.#view.document
-          }];
-          return [];
+          return this.#mountedViews().map((v3) => ({
+            index: v3.wi73Index ?? this.#index,
+            // WI-7: each mounted view carries its own section index
+            overlayer: v3.overlayer,
+            doc: v3.document
+          }));
         }
         setStyles(styles) {
           this.#styles = styles;
-          const $$styles = this.#styleMap.get(this.#view?.document);
-          if (!$$styles) return;
-          const [$beforeStyle, $style] = $$styles;
-          if (Array.isArray(styles)) {
-            const [beforeStyle, style] = styles;
-            $beforeStyle.textContent = beforeStyle;
-            $style.textContent = style;
-          } else $style.textContent = styles;
-          requestAnimationFrame(() => this.#background.style.background = getBackground(this.#view.document));
-          this.#view?.document?.fonts?.ready?.then(() => this.#view.expand());
+          for (const view2 of this.#mountedViews()) {
+            const $$styles = this.#styleMap.get(view2?.document);
+            if (!$$styles) continue;
+            const [$beforeStyle, $style] = $$styles;
+            if (Array.isArray(styles)) {
+              const [beforeStyle, style] = styles;
+              $beforeStyle.textContent = beforeStyle;
+              $style.textContent = style;
+            } else $style.textContent = styles;
+            view2?.document?.fonts?.ready?.then(() => view2.expand());
+          }
+          requestAnimationFrame(() => {
+            if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document);
+          });
         }
         focusView() {
           this.#view.document.defaultView.focus();
         }
         destroy() {
           this.#observer.unobserve(this);
+          for (const v3 of this.#scrolledViews) {
+            v3.destroy();
+            if (v3.element.parentNode === this.#container) this.#container.removeChild(v3.element);
+            this.sections[v3.wi73Index]?.unload?.();
+          }
+          this.#scrolledViews = [];
+          this.#mountingIndices.clear();
+          this.#windowGeneration++;
           this.#view.destroy();
           this.#view = null;
           this.sections[this.#index]?.unload?.();
@@ -6575,12 +6883,22 @@ ${doc.querySelector("parsererror").innerText}`);
   });
   {
     let selectionTimeout = null;
-    const handleSelection = () => {
+    const handleSelection = (sourceDoc) => {
       clearTimeout(selectionTimeout);
       selectionTimeout = setTimeout(() => {
         const contents = view.renderer?.getContents?.();
         if (!contents?.length) return;
-        const { doc, index } = contents[0];
+        const hasLiveSel = (c2) => {
+          const s3 = c2?.doc?.getSelection?.();
+          return s3 && !s3.isCollapsed && s3.rangeCount;
+        };
+        let owner = sourceDoc ? contents.find((c2) => c2.doc === sourceDoc) : null;
+        if (!owner || !hasLiveSel(owner)) owner = contents.find(hasLiveSel);
+        if (!owner) {
+          post("selection", { collapsed: true });
+          return;
+        }
+        const { doc, index } = owner;
         const sel = doc.getSelection();
         if (!sel || sel.isCollapsed || !sel.rangeCount) {
           post("selection", { collapsed: true });
@@ -6602,7 +6920,7 @@ ${doc.querySelector("parsererror").innerText}`);
     };
     view.addEventListener("load", (e3) => {
       const doc = e3.detail.doc;
-      doc.addEventListener("selectionchange", handleSelection);
+      doc.addEventListener("selectionchange", () => handleSelection(doc));
     });
   }
   view.addEventListener("load", (e3) => {

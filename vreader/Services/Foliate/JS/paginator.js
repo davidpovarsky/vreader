@@ -434,6 +434,23 @@ export class Paginator extends HTMLElement {
     #header
     #footer
     #view
+    // Feature #73 WI-1a: scrolled-mode windowed-rendering scaffold. The
+    // `#scrolledViews` list holds the mounted window of section views (current
+    // + neighbours) when `#windowedScroll` is on. The flag defaults OFF, so
+    // every consumer that routes through `#mountedViews()` / `#currentView()`
+    // is byte-identical to the single-`#view` path until WI-2 lights it up.
+    // Paged mode never touches these (it stays the exact single-`#view` code).
+    #scrolledViews = []
+    #mountingIndices = new Set() // WI-3: in-flight mount dedup (async race guard)
+    #windowGeneration = 0 // Gate-4 H1: bumped on navigation/teardown; stale mounts abort
+    // Feature #73: windowed multi-section continuous scroll for AZW3/MOBI scroll
+    // mode — ON by default. Replaces the per-section view-swap (the Bug #283
+    // chapter-boundary jump) with a K-window continuous surface. Horizontal-
+    // writing scrolled mode only; vertical writing + paged mode fall back to the
+    // single-`#view` path. Shipped after a 2-round Codex audit (ship-as-is) +
+    // flag-on device verification.
+    #windowedScroll = true
+    #K = 3 // Feature #73 WI-2: windowed mount size (current + neighbours)
     #vertical = false
     #rtl = false
     #margin = 0
@@ -644,6 +661,10 @@ export class Paginator extends HTMLElement {
         switch (name) {
             case 'flow':
                 this.render()
+                // Feature #73 WI-3: the initial #display may have run while flow
+                // was still paginated (so its #ensureWindow was gated out). When
+                // flow becomes 'scrolled', (re)build the windowed neighbour set.
+                if (this.#windowedScroll && this.scrolled && this.#view) this.#ensureWindow()
                 break
             case 'gap':
             case 'margin':
@@ -679,6 +700,22 @@ export class Paginator extends HTMLElement {
         })
     }
     #createView() {
+        // Feature #73 WI-2: a navigation invalidates the windowed neighbour
+        // buffer — destroy + remove + UNLOAD every mounted neighbour before the
+        // new current view is built; #ensureWindow re-mounts around the new index.
+        // Gate-4 M (audit): mirror #evictOutsideWindow — also unload the section
+        // data + clear the in-flight mount set so a navigation that interrupts a
+        // pending mount can't resurrect a stale neighbour into the new window.
+        if (this.#scrolledViews.length) {
+            for (const v of this.#scrolledViews) {
+                v.destroy()
+                if (v.element.parentNode === this.#container) this.#container.removeChild(v.element)
+                this.sections[v.wi73Index]?.unload?.()
+            }
+            this.#scrolledViews = []
+        }
+        this.#mountingIndices.clear()
+        this.#windowGeneration++ // Gate-4 H1: invalidate any in-flight neighbour mounts
         if (this.#view) {
             this.#view.destroy()
             this.#container.removeChild(this.#view.element)
@@ -689,6 +726,283 @@ export class Paginator extends HTMLElement {
         })
         this.#container.append(this.#view.element)
         return this.#view
+    }
+    // Feature #73 WI-1a: the mounted-view resolvers — the single seam every
+    // `#view` consumer will route through. With `#windowedScroll` OFF these
+    // return exactly the single `#view`, so behaviour is unchanged; WI-2 fills
+    // `#scrolledViews` and WI-5 makes `#currentView()` scroll-position-aware.
+    #mountedViews() {
+        // WI-3 bugfix: include the anchor `#view` (the current section), not just
+        // the neighbour `#scrolledViews` — otherwise multi-doc consumers
+        // (getContents/overlays/TTS) miss the section the reader is actually in.
+        // Same ordering as `#windowedViews()`.
+        if (this.#windowedScroll && this.#scrolledViews.length) return this.#windowedViews()
+        return this.#view ? [this.#view] : []
+    }
+    #currentView() {
+        return this.#view
+    }
+    // Feature #73 WI-2: the windowed-mount primitives (scrolled-gated). These
+    // mount NEIGHBOUR sections around the current `#view` into `#scrolledViews`
+    // (in section order) so the continuous surface spans more than one section.
+    // The current `#view` stays managed by `#createView`/`#display`; eviction
+    // (WI-4) and swap replacement (WI-3) build on these.
+    #windowRange(current, total, k) {
+        if (total <= 0 || k <= 0) return null
+        const size = Math.min(k, total)
+        const c = Math.min(Math.max(current, 0), total - 1)
+        const half = Math.floor((size - 1) / 2)
+        let lo = c - half
+        let hi = c + (size - 1 - half)
+        if (lo < 0) { hi += -lo; lo = 0 }
+        if (hi > total - 1) { lo -= (hi - (total - 1)); hi = total - 1 }
+        return [Math.max(0, lo), hi]
+    }
+    #applyCachedStyles(doc) {
+        const $$styles = this.#styleMap.get(doc)
+        if (!$$styles) return
+        const [$beforeStyle, $style] = $$styles
+        const s = this.#styles
+        if (Array.isArray(s)) { $beforeStyle.textContent = s[0] ?? ''; $style.textContent = s[1] ?? '' }
+        else if (s != null) $style.textContent = s
+    }
+    // Gate-4 round-2 M (audit): unload a section only if the CURRENT generation no
+    // longer owns it — i.e. it is neither the anchor (#index) nor a mounted
+    // neighbour. An index-only unload from a stale/failed mount could revoke
+    // loader resources the fresh window load owns.
+    #unloadIfUnowned(index) {
+        if (index === this.#index) return
+        if (this.#scrolledViews.some(v => v.wi73Index === index)) return
+        this.sections[index]?.unload?.()
+    }
+    async #mountSection(index) {
+        if (!this.#canGoToIndex(index)) return null
+        if (index === this.#index) return null
+        if (this.#scrolledViews.some(v => v.wi73Index === index)) return null
+        // WI-3 bugfix: #ensureWindow is called from several paths (#display,
+        // #afterScroll, flow change, boundary cross) and #mountSection awaits
+        // an async load, so the `scrolledViews.some(...)` dedup above can pass
+        // for several concurrent calls before any push completes — double-
+        // mounting the same section. Guard with an in-flight index set.
+        if (this.#mountingIndices.has(index)) return null
+        this.#mountingIndices.add(index)
+        // Gate-4 H1: capture the window generation; a navigation/flow change
+        // (#createView / destroy) bumps it. After each await we re-check — a
+        // stale mount must NOT insert an old section into the rebuilt window.
+        const gen = this.#windowGeneration
+        try {
+        const src = await Promise.resolve(this.sections[index].load())
+        if (gen !== this.#windowGeneration || !this.#windowedScroll || !this.scrolled) {
+            this.#unloadIfUnowned(index)
+            return null
+        }
+        // WI-6c: a neighbour that grows on a late expand (fonts.ready / reflow)
+        // would shift visible content if it sits above the viewport; compensate.
+        const view = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view) })
+        view.wi73Index = index
+        view.wi73Height = 0
+        // WI-3 bugfix (device-verified): insert the element into the container
+        // BEFORE `view.load`. `View.load` sets `iframe.src` and waits for the
+        // iframe's `load` event; a DETACHED iframe has no reliable
+        // `contentDocument` / computed style (note View.load's "needs to be
+        // visible for computed style"), so loading before insertion silently
+        // fails and no neighbour ever mounts. #createView likewise appends the
+        // element before #display calls load. The empty view grows 0→content
+        // height; #onNeighbourExpand compensates `scrollTop` for above-views as
+        // it grows (so no static insert-time height adjustment is needed here).
+        // Gate-4 round-2 H (audit): insert in section order against ALL mounted
+        // views — the anchor `#view` AND the neighbours. The old code filtered
+        // only `#scrolledViews` (excludes `#view`), so once the window had slid
+        // and `#view` sat in the middle, a forward neighbour could be inserted
+        // before `#view` → DOM order `[1,3,2]` while the sorted indices still
+        // READ `[1,2,3]` (masking it from index-only checks). Place the new view
+        // after the highest-index mounted view strictly below it; if none is
+        // below, before the lowest mounted view.
+        const ordered = [this.#view, ...this.#scrolledViews]
+            .filter(v => v && v.element?.parentNode === this.#container)
+            .map(v => ({ el: v.element, idx: v.wi73Index ?? this.#index }))
+            .sort((a, b) => a.idx - b.idx)
+        const below = ordered.filter(m => m.idx < index)
+        if (below.length) {
+            const afterEl = below[below.length - 1].el
+            if (afterEl.nextSibling) this.#container.insertBefore(view.element, afterEl.nextSibling)
+            else this.#container.append(view.element)
+        } else if (ordered.length) {
+            this.#container.insertBefore(view.element, ordered[0].el)
+        } else {
+            this.#container.append(view.element)
+        }
+        this.#scrolledViews.push(view)
+        this.#scrolledViews.sort((a, b) => a.wi73Index - b.wi73Index)
+        const afterLoad = doc => {
+            if (doc.head) {
+                const $styleBefore = doc.createElement('style')
+                doc.head.prepend($styleBefore)
+                const $style = doc.createElement('style')
+                doc.head.append($style)
+                this.#styleMap.set(doc, [$styleBefore, $style])
+                this.#applyCachedStyles(doc) // Gate-2 H8: style every mounted view
+            }
+        }
+        try {
+            await view.load(src, afterLoad, this.#beforeRender.bind(this))
+        } catch (e) {
+            // unmount the phantom on load failure so the window stays consistent.
+            // Gate-4 round-2 M (audit): also unload the section so a repeatedly-
+            // failing neighbour doesn't leak loader refs.
+            view.destroy()
+            if (view.element.parentNode === this.#container) this.#container.removeChild(view.element)
+            this.#scrolledViews = this.#scrolledViews.filter(v => v !== view)
+            this.#unloadIfUnowned(index)
+            throw e
+        }
+        // Gate-4 H1: if a navigation/flow change landed during the load await,
+        // this mount is stale — destroy it instead of leaving a section from the
+        // old window stitched into the new one.
+        if (gen !== this.#windowGeneration || !this.#windowedScroll || !this.scrolled) {
+            view.destroy()
+            if (view.element.parentNode === this.#container) this.#container.removeChild(view.element)
+            this.#scrolledViews = this.#scrolledViews.filter(v => v !== view)
+            this.#unloadIfUnowned(index)
+            return null
+        }
+        // Gate-4 H2: wire the neighbour document the same way the primary path
+        // does — dispatch the renderer `load` + `create-overlayer` events so
+        // view.js attaches links / cursor / selection / tap handlers and builds
+        // the overlayer. Without this, neighbour-section selection + highlights
+        // never fire. We deliberately skip #goTo's navigation side effects
+        // (old-section unload, setStyles) — this is per-doc wiring only.
+        this.dispatchEvent(new CustomEvent('load', { detail: { doc: view.document, index } }))
+        this.dispatchEvent(new CustomEvent('create-overlayer', {
+            detail: {
+                doc: view.document, index,
+                attach: overlayer => view.overlayer = overlayer,
+            },
+        }))
+        return view
+        } finally {
+            this.#mountingIndices.delete(index)
+        }
+    }
+    // WI-6c: when a mounted neighbour's height changes after layout (fonts.ready,
+    // image load, reflow), shift `scrollTop` by the delta IF the neighbour sits
+    // above the current scroll position — so the visible content does not jump.
+    #onNeighbourExpand(view) {
+        if (!this.#windowedScroll || !view?.element) return
+        const prev = view.wi73Height ?? 0
+        const now = Math.max(0, view.element.getBoundingClientRect().height)
+        view.wi73Height = now
+        const delta = now - prev
+        if (delta === 0) return
+        // a view whose top is above the viewport top contributes its full height
+        // to everything below it; growing it pushes the viewport content down.
+        if (this.#elementScrollTop(view.element) < this.#container.scrollTop) {
+            this.#container.scrollTop = Math.max(0, this.#container.scrollTop + delta)
+        }
+    }
+    async #ensureWindow() {
+        // Gate-4 H (audit): the windowed coordinate math (#elementScrollTop /
+        // #windowedResolve / eviction + expand compensation) is vertical-scroll
+        // (top/height/scrollTop) only. Vertical-WRITING scrolled mode scrolls on
+        // the horizontal axis, so scope windowing to horizontal writing for now —
+        // vertical writing falls back to the proven per-section swap (window stays
+        // empty → all resolvers return the single `#view`).
+        if (!this.#windowedScroll || !this.scrolled || this.#vertical) return
+        const range = this.#windowRange(this.#index, this.sections.length, this.#K)
+        if (!range) return
+        const [lo, hi] = range
+        for (let i = lo; i <= hi; i++) {
+            if (i === this.#index) continue
+            if (!this.#scrolledViews.some(v => v.wi73Index === i)) {
+                try { await this.#mountSection(i) } catch (e) { console.warn('WI73 mount', i, e) }
+            }
+        }
+        this.#evictOutsideWindow(lo, hi)
+    }
+    // Feature #73 WI-4: bound memory to the K-window. Unmount + unload any
+    // neighbour outside [lo,hi]; the anchor `#view` (#index) is never in
+    // `#scrolledViews` so it can't be evicted. Evicting a section ABOVE the
+    // viewport removes content above the scroll position, shifting everything
+    // up — so subtract the evicted-above heights from `scrollTop` to keep the
+    // visible content stationary (FoliateScrolledWindowMath.offsetAdjustmentOnEvict).
+    #evictOutsideWindow(lo, hi) {
+        const keep = []
+        let scrollAdjust = 0
+        for (const v of this.#scrolledViews) {
+            const idx = v.wi73Index
+            if (idx >= lo && idx <= hi) { keep.push(v); continue }
+            if (idx < this.#index) {
+                scrollAdjust += Math.max(0, v.element.getBoundingClientRect().height)
+            }
+            v.destroy()
+            if (v.element.parentNode === this.#container) this.#container.removeChild(v.element)
+            this.sections[idx]?.unload?.()
+        }
+        this.#scrolledViews = keep
+        if (scrollAdjust > 0) this.#container.scrollTop = Math.max(0, this.#container.scrollTop - scrollAdjust)
+    }
+    // Feature #73 WI-3/WI-5: resolve the CURRENT section + intra-section fraction
+    // from the live scroll position over the mounted views (the anchor `#view`
+    // plus its neighbours), so windowed crossing is native scroll — no swap.
+    #elementScrollTop(el) {
+        return el.getBoundingClientRect().top
+            - this.#container.getBoundingClientRect().top
+            + this.#container.scrollTop
+    }
+    #windowedViews() {
+        return [this.#view, ...this.#scrolledViews]
+            .filter(Boolean)
+            .sort((a, b) => (a.wi73Index ?? this.#index) - (b.wi73Index ?? this.#index))
+    }
+    #windowedResolve() {
+        const views = this.#windowedViews()
+        if (!views.length) return { view: this.#view, index: this.#index, intra: 0 }
+        if (this.#view && this.#view.wi73Index == null) this.#view.wi73Index = this.#index
+        const scrollTop = this.#container.scrollTop
+        for (const v of views) {
+            const top = this.#elementScrollTop(v.element)
+            const h = v.element.getBoundingClientRect().height
+            if (scrollTop < top + h - 1) {
+                const idx = v.wi73Index ?? this.#index
+                const intra = h > 0 ? Math.min(Math.max((scrollTop - top) / h, 0), 1) : 0
+                return { view: v, index: idx, intra }
+            }
+        }
+        const last = views[views.length - 1]
+        return { view: last, index: last.wi73Index ?? this.#index, intra: 1 }
+    }
+    // Feature #73 WI-6a: keep `#view` pointing at the section the viewport top is
+    // in — a POINTER swap, not a DOM move (no flash). After a swap-free crossing
+    // the single-`#view` getters (viewSize / pages / #getRectMapper /
+    // getVisibleRange / #background / atStart / atEnd) all read the correct
+    // section. The old `#view` is demoted into `#scrolledViews` (it stays mounted
+    // in the container); the resolved view leaves `#scrolledViews` to become `#view`.
+    #promoteCurrentView(resolved) {
+        if (!resolved?.view || resolved.view === this.#view) {
+            if (resolved) this.#index = resolved.index
+            return
+        }
+        const old = this.#view
+        if (old) {
+            if (old.wi73Index == null) old.wi73Index = this.#index
+            if (!this.#scrolledViews.includes(old)) this.#scrolledViews.push(old)
+        }
+        this.#scrolledViews = this.#scrolledViews.filter(v => v !== resolved.view)
+        this.#view = resolved.view
+        this.#index = resolved.index
+        // the promoted view becomes the new background source
+        if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document)
+    }
+    // Feature #73 WI-6b: `start` is container-absolute (it spans every view
+    // mounted ABOVE the current one). Per-`#view` document operations need the
+    // offset RELATIVE to the current view's position in the container. Flag OFF
+    // (or no neighbours) → one view at offset 0 → relative == absolute.
+    #viewRelativeStart() {
+        // Gate-4 H: vertical-writing scroll is horizontal-axis; the windowed
+        // helpers are vertical-only, so vertical writing keeps the container-
+        // absolute `start` (windowing is disabled for it in #ensureWindow).
+        if (!this.#windowedScroll || !this.#view || this.#vertical) return this.start
+        return Math.max(0, this.#container.scrollTop - this.#elementScrollTop(this.#view.element))
     }
     #beforeRender({ vertical, rtl, background }) {
         this.#vertical = vertical
@@ -768,10 +1082,16 @@ export class Paginator extends HTMLElement {
     }
     render() {
         if (!this.#view) return
-        this.#view.render(this.#beforeRender({
+        const layout = this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl,
-        }))
+        })
+        // Gate-4 M7: re-render mounted neighbours with the same layout so a resize
+        // / margin / flow change keeps their dimensions in sync — stale neighbour
+        // heights would corrupt the windowed offset math + eviction compensation.
+        // Flag OFF → #scrolledViews empty → only #view renders (unchanged).
+        for (const v of this.#scrolledViews) v.render(layout)
+        this.#view.render(layout)
         this.#scrollToAnchor(this.#anchor)
     }
     get scrolled() {
@@ -897,7 +1217,12 @@ export class Paginator extends HTMLElement {
     }
     async #scrollToRect(rect, reason) {
         if (this.scrolled) {
-            const offset = this.#getRectMapper()(rect).left - this.#margin
+            let offset = this.#getRectMapper()(rect).left - this.#margin
+            // Feature #73 WI-6c: the rect is in `#view`'s own document
+            // coordinates; in windowed mode `#view` may sit at a nonzero
+            // container offset, so add its position to land at the right
+            // container scroll. Flag OFF → offset 0 → unchanged.
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset += this.#elementScrollTop(this.#view.element)
             return this.#scrollTo(offset, reason)
         }
         const offset = this.#getRectMapper()(rect).left
@@ -948,7 +1273,15 @@ export class Paginator extends HTMLElement {
         }
         // if anchor is a fraction
         if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason)
+            // Feature #73 WI-7 (Gate-5 restore fix): `anchor * viewSize` is the
+            // intra-section offset; in windowed mode `#view` may sit at a nonzero
+            // container offset (neighbours mounted above), so add its position —
+            // otherwise a fraction seek (Bug #265 position restore + the
+            // re-assert window) lands too high by the above-sections' height.
+            // Same offset gap WI-6c fixed for `#scrollToRect`. Flag OFF → 0.
+            let offset = anchor * this.viewSize
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset += this.#elementScrollTop(this.#view.element)
+            await this.#scrollTo(offset, reason)
             return
         }
         const { pages } = this
@@ -958,13 +1291,35 @@ export class Paginator extends HTMLElement {
         await this.#scrollToPage(newPage + 1, reason)
     }
     #getVisibleRange() {
-        if (this.scrolled) return getVisibleRange(this.#view.document,
-            this.start + this.#margin, this.end - this.#margin, this.#getRectMapper())
+        if (this.scrolled) {
+            // Feature #73 WI-6b: window-relative offsets so the per-`#view`
+            // document mapper gets coordinates relative to the current view's
+            // position in the container (not the container-absolute `start`,
+            // which spans every view mounted above). Flag OFF → start/end.
+            const vStart = this.#viewRelativeStart()
+            const vEnd = vStart + this.size
+            return getVisibleRange(this.#view.document,
+                vStart + this.#margin, vEnd - this.#margin, this.#getRectMapper())
+        }
         const size = this.#rtl ? -this.size : this.size
         return getVisibleRange(this.#view.document,
             this.start - size, this.end - size, this.#getRectMapper())
     }
     #afterScroll(reason) {
+        // Feature #73 WI-5/WI-6a: in windowed scrolled mode, resolve the current
+        // section from the live scroll position and PROMOTE `#view` to it BEFORE
+        // computing the visible range — so the range + emitted fraction read the
+        // section the viewport is actually in, not the stale anchor. The emitted
+        // fraction is the Gate-2 C1 INTRA-section value (view.js→SectionProgress
+        // still owns whole-book conversion + Bug #265 restore). Non-windowed path
+        // unchanged.
+        let scrolledFraction = null
+        if (this.scrolled && this.#windowedScroll && !this.#vertical) {
+            const r = this.#windowedResolve()
+            this.#promoteCurrentView(r)
+            scrolledFraction = r.intra
+            this.#ensureWindow() // WI-3: keep the K-window built around the current section (idempotent)
+        }
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
@@ -974,7 +1329,7 @@ export class Paginator extends HTMLElement {
 
         const index = this.#index
         const detail = { reason, range, index }
-        if (this.scrolled) detail.fraction = this.start / this.viewSize
+        if (this.scrolled) detail.fraction = scrolledFraction != null ? scrolledFraction : this.start / this.viewSize
         else if (this.pages > 0) {
             const { page, pages } = this
             this.#header.style.visibility = page > 1 ? 'visible' : 'hidden'
@@ -1012,6 +1367,11 @@ export class Paginator extends HTMLElement {
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
         if (hasFocus) this.focusView()
+        // Feature #73 WI-2: after the anchor section renders, mount the
+        // neighbour window so the scrolled surface spans multiple sections.
+        // Gated on #windowedScroll (OFF by default → paged + non-windowed
+        // scrolled paths are byte-identical).
+        if (this.scrolled && this.#windowedScroll) this.#ensureWindow()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
@@ -1042,6 +1402,15 @@ export class Paginator extends HTMLElement {
     #scrollPrev(distance) {
         if (!this.#view) return true
         if (this.scrolled) {
+            // Feature #73 H4: in windowed mode the scrollable surface is the whole
+            // container (all mounted sections), not just `#view`. Scroll within it
+            // and let the scroll-driven promote/#ensureWindow slide the window; only
+            // fall through to #goTo at the true top of the book.
+            if (this.#windowedScroll && !this.#vertical) {
+                const top = this.#container.scrollTop
+                if (top > 0) return this.#scrollTo(Math.max(0, top - (distance ?? this.size)), null, true)
+                return this.#adjacentIndex(-1) != null
+            }
             if (this.start > 0) return this.#scrollTo(
                 Math.max(0, this.start - (distance ?? this.size)), null, true)
             return true
@@ -1053,6 +1422,12 @@ export class Paginator extends HTMLElement {
     #scrollNext(distance) {
         if (!this.#view) return true
         if (this.scrolled) {
+            if (this.#windowedScroll && !this.#vertical) {
+                const c = this.#container
+                const remaining = c.scrollHeight - (c.scrollTop + c.clientHeight)
+                if (remaining > 2) return this.#scrollTo(c.scrollTop + (distance ?? this.size), null, true)
+                return this.#adjacentIndex(1) != null
+            }
             if (this.viewSize - this.end > 2) return this.#scrollTo(
                 Math.min(this.viewSize, distance ? this.start + distance : this.end), null, true)
             return true
@@ -1127,6 +1502,17 @@ export class Paginator extends HTMLElement {
         if (!this.scrolled) return
         if (this.#locked) return
         if (!this.#view) return
+        // Feature #73 WI-3: in windowed mode the neighbour sections are already
+        // mounted contiguously, so a boundary crossing is just native scroll —
+        // do NOT swap. Track the current section live from the scroll position
+        // and keep the K-window mounted ahead/behind. (D1 offset-reset gone:
+        // there is no scrollToAnchor(0) reset, the scroll simply continues.)
+        if (this.#windowedScroll && !this.#vertical) {
+            const r = this.#windowedResolve()
+            this.#promoteCurrentView(r) // WI-6a: track `#view` to the viewport's section
+            this.#ensureWindow()
+            return
+        }
         const atEnd = this.viewSize - this.end <= 2
         const atStart = this.start <= 0
         if (atEnd && this.#adjacentIndex(1) != null) {
@@ -1156,36 +1542,56 @@ export class Paginator extends HTMLElement {
         return this.goTo({ index })
     }
     getContents() {
-        if (this.#view) return [{
-            index: this.#index,
-            overlayer: this.#view.overlayer,
-            doc: this.#view.document,
-        }]
-        return []
+        // Feature #73 WI-1a: route the multi-doc consumer (Gate-2 M11 / round-2
+        // H1) through `#mountedViews()`. Flag OFF → `[this.#view]` → byte-identical
+        // to the old single-view return; WI-7 makes each mounted view carry its
+        // own section index for cross-section selection/overlay/TTS.
+        return this.#mountedViews().map(v => ({
+            index: v.wi73Index ?? this.#index, // WI-7: each mounted view carries its own section index
+            overlayer: v.overlayer,
+            doc: v.document,
+        }))
     }
     setStyles(styles) {
         this.#styles = styles
-        const $$styles = this.#styleMap.get(this.#view?.document)
-        if (!$$styles) return
-        const [$beforeStyle, $style] = $$styles
-        if (Array.isArray(styles)) {
-            const [beforeStyle, style] = styles
-            $beforeStyle.textContent = beforeStyle
-            $style.textContent = style
-        } else $style.textContent = styles
+        // Gate-4 M (audit): apply the theme/typography style pair to EVERY mounted
+        // view, not just `#view` — otherwise windowed neighbours keep the old CSS
+        // (stale theme/font, and a height change that desyncs the offset math)
+        // until they're evicted + remounted. Flag OFF → only `#view` is mounted.
+        for (const view of this.#mountedViews()) {
+            const $$styles = this.#styleMap.get(view?.document)
+            if (!$$styles) continue
+            const [$beforeStyle, $style] = $$styles
+            if (Array.isArray(styles)) {
+                const [beforeStyle, style] = styles
+                $beforeStyle.textContent = beforeStyle
+                $style.textContent = style
+            } else $style.textContent = styles
+            // needed because the resize observer doesn't work in Firefox
+            view?.document?.fonts?.ready?.then(() => view.expand())
+        }
 
         // NOTE: needs `requestAnimationFrame` in Chromium
-        requestAnimationFrame(() =>
-            this.#background.style.background = getBackground(this.#view.document))
-
-        // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        requestAnimationFrame(() => {
+            if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document)
+        })
     }
     focusView() {
         this.#view.document.defaultView.focus()
     }
     destroy() {
         this.#observer.unobserve(this)
+        // Gate-4 M (audit): tear down the windowed neighbour buffer too — destroy
+        // their Views (releasing each View's ResizeObserver) + unload sections —
+        // else closing the reader while windowed leaks live observers.
+        for (const v of this.#scrolledViews) {
+            v.destroy()
+            if (v.element.parentNode === this.#container) this.#container.removeChild(v.element)
+            this.sections[v.wi73Index]?.unload?.()
+        }
+        this.#scrolledViews = []
+        this.#mountingIndices.clear()
+        this.#windowGeneration++ // Gate-4 H1: invalidate any in-flight neighbour mounts
         this.#view.destroy()
         this.#view = null
         this.sections[this.#index]?.unload?.()

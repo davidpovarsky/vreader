@@ -694,15 +694,20 @@ export class Paginator extends HTMLElement {
     }
     #createView() {
         // Feature #73 WI-2: a navigation invalidates the windowed neighbour
-        // buffer — destroy + remove every mounted neighbour before the new
-        // current view is built; #ensureWindow re-mounts around the new index.
+        // buffer — destroy + remove + UNLOAD every mounted neighbour before the
+        // new current view is built; #ensureWindow re-mounts around the new index.
+        // Gate-4 M (audit): mirror #evictOutsideWindow — also unload the section
+        // data + clear the in-flight mount set so a navigation that interrupts a
+        // pending mount can't resurrect a stale neighbour into the new window.
         if (this.#scrolledViews.length) {
             for (const v of this.#scrolledViews) {
                 v.destroy()
                 if (v.element.parentNode === this.#container) this.#container.removeChild(v.element)
+                this.sections[v.wi73Index]?.unload?.()
             }
             this.#scrolledViews = []
         }
+        this.#mountingIndices.clear()
         if (this.#view) {
             this.#view.destroy()
             this.#container.removeChild(this.#view.element)
@@ -832,7 +837,13 @@ export class Paginator extends HTMLElement {
         }
     }
     async #ensureWindow() {
-        if (!this.#windowedScroll || !this.scrolled) return
+        // Gate-4 H (audit): the windowed coordinate math (#elementScrollTop /
+        // #windowedResolve / eviction + expand compensation) is vertical-scroll
+        // (top/height/scrollTop) only. Vertical-WRITING scrolled mode scrolls on
+        // the horizontal axis, so scope windowing to horizontal writing for now —
+        // vertical writing falls back to the proven per-section swap (window stays
+        // empty → all resolvers return the single `#view`).
+        if (!this.#windowedScroll || !this.scrolled || this.#vertical) return
         const range = this.#windowRange(this.#index, this.sections.length, this.#K)
         if (!range) return
         const [lo, hi] = range
@@ -923,7 +934,10 @@ export class Paginator extends HTMLElement {
     // offset RELATIVE to the current view's position in the container. Flag OFF
     // (or no neighbours) → one view at offset 0 → relative == absolute.
     #viewRelativeStart() {
-        if (!this.#windowedScroll || !this.#view) return this.start
+        // Gate-4 H: vertical-writing scroll is horizontal-axis; the windowed
+        // helpers are vertical-only, so vertical writing keeps the container-
+        // absolute `start` (windowing is disabled for it in #ensureWindow).
+        if (!this.#windowedScroll || !this.#view || this.#vertical) return this.start
         return Math.max(0, this.#container.scrollTop - this.#elementScrollTop(this.#view.element))
     }
     #beforeRender({ vertical, rtl, background }) {
@@ -1138,7 +1152,7 @@ export class Paginator extends HTMLElement {
             // coordinates; in windowed mode `#view` may sit at a nonzero
             // container offset, so add its position to land at the right
             // container scroll. Flag OFF → offset 0 → unchanged.
-            if (this.#windowedScroll && this.#view) offset += this.#elementScrollTop(this.#view.element)
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset += this.#elementScrollTop(this.#view.element)
             return this.#scrollTo(offset, reason)
         }
         const offset = this.#getRectMapper()(rect).left
@@ -1196,7 +1210,7 @@ export class Paginator extends HTMLElement {
             // re-assert window) lands too high by the above-sections' height.
             // Same offset gap WI-6c fixed for `#scrollToRect`. Flag OFF → 0.
             let offset = anchor * this.viewSize
-            if (this.#windowedScroll && this.#view) offset += this.#elementScrollTop(this.#view.element)
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset += this.#elementScrollTop(this.#view.element)
             await this.#scrollTo(offset, reason)
             return
         }
@@ -1230,7 +1244,7 @@ export class Paginator extends HTMLElement {
         // still owns whole-book conversion + Bug #265 restore). Non-windowed path
         // unchanged.
         let scrolledFraction = null
-        if (this.scrolled && this.#windowedScroll) {
+        if (this.scrolled && this.#windowedScroll && !this.#vertical) {
             const r = this.#windowedResolve()
             this.#promoteCurrentView(r)
             scrolledFraction = r.intra
@@ -1408,7 +1422,7 @@ export class Paginator extends HTMLElement {
         // do NOT swap. Track the current section live from the scroll position
         // and keep the K-window mounted ahead/behind. (D1 offset-reset gone:
         // there is no scrollToAnchor(0) reset, the scroll simply continues.)
-        if (this.#windowedScroll) {
+        if (this.#windowedScroll && !this.#vertical) {
             const r = this.#windowedResolve()
             this.#promoteCurrentView(r) // WI-6a: track `#view` to the viewport's section
             this.#ensureWindow()
@@ -1455,27 +1469,43 @@ export class Paginator extends HTMLElement {
     }
     setStyles(styles) {
         this.#styles = styles
-        const $$styles = this.#styleMap.get(this.#view?.document)
-        if (!$$styles) return
-        const [$beforeStyle, $style] = $$styles
-        if (Array.isArray(styles)) {
-            const [beforeStyle, style] = styles
-            $beforeStyle.textContent = beforeStyle
-            $style.textContent = style
-        } else $style.textContent = styles
+        // Gate-4 M (audit): apply the theme/typography style pair to EVERY mounted
+        // view, not just `#view` — otherwise windowed neighbours keep the old CSS
+        // (stale theme/font, and a height change that desyncs the offset math)
+        // until they're evicted + remounted. Flag OFF → only `#view` is mounted.
+        for (const view of this.#mountedViews()) {
+            const $$styles = this.#styleMap.get(view?.document)
+            if (!$$styles) continue
+            const [$beforeStyle, $style] = $$styles
+            if (Array.isArray(styles)) {
+                const [beforeStyle, style] = styles
+                $beforeStyle.textContent = beforeStyle
+                $style.textContent = style
+            } else $style.textContent = styles
+            // needed because the resize observer doesn't work in Firefox
+            view?.document?.fonts?.ready?.then(() => view.expand())
+        }
 
         // NOTE: needs `requestAnimationFrame` in Chromium
-        requestAnimationFrame(() =>
-            this.#background.style.background = getBackground(this.#view.document))
-
-        // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        requestAnimationFrame(() => {
+            if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document)
+        })
     }
     focusView() {
         this.#view.document.defaultView.focus()
     }
     destroy() {
         this.#observer.unobserve(this)
+        // Gate-4 M (audit): tear down the windowed neighbour buffer too — destroy
+        // their Views (releasing each View's ResizeObserver) + unload sections —
+        // else closing the reader while windowed leaks live observers.
+        for (const v of this.#scrolledViews) {
+            v.destroy()
+            if (v.element.parentNode === this.#container) this.#container.removeChild(v.element)
+            this.sections[v.wi73Index]?.unload?.()
+        }
+        this.#scrolledViews = []
+        this.#mountingIndices.clear()
         this.#view.destroy()
         this.#view = null
         this.sections[this.#index]?.unload?.()

@@ -75,21 +75,23 @@ view.addEventListener('external-link', e => {
 // Selection tracking
 {
     let selectionTimeout = null
-    const handleSelection = () => {
+    const handleSelection = (sourceDoc) => {
         clearTimeout(selectionTimeout)
         selectionTimeout = setTimeout(() => {
             const contents = view.renderer?.getContents?.()
             if (!contents?.length) return
             // Feature #73 WI-7: in windowed scrolled mode `getContents()` returns
             // EVERY mounted section, so `contents[0]` is just the lowest-index one
-            // — not necessarily the section the user selected in. Find the mounted
-            // document that actually holds a non-collapsed selection so the CFI +
-            // index are attributed to the right section. Single-view mode → the
-            // one entry, unchanged.
-            const owner = contents.find(c => {
-                const s = c.doc?.getSelection?.()
+            // — not necessarily the section the user selected in. Prefer the doc
+            // that actually FIRED `selectionchange` (Gate-4 M: a stale selection
+            // in another mounted iframe could otherwise win); fall back to scanning
+            // for any live selection. Single-view mode → the one entry, unchanged.
+            const hasLiveSel = c => {
+                const s = c?.doc?.getSelection?.()
                 return s && !s.isCollapsed && s.rangeCount
-            })
+            }
+            let owner = sourceDoc ? contents.find(c => c.doc === sourceDoc) : null
+            if (!owner || !hasLiveSel(owner)) owner = contents.find(hasLiveSel)
             if (!owner) {
                 post('selection', { collapsed: true })
                 return
@@ -118,7 +120,7 @@ view.addEventListener('external-link', e => {
     // Listen for selection on each loaded section
     view.addEventListener('load', e => {
         const doc = e.detail.doc
-        doc.addEventListener('selectionchange', handleSelection)
+        doc.addEventListener('selectionchange', () => handleSelection(doc))
     })
 }
 

@@ -4774,9 +4774,11 @@ ${doc.querySelector("parsererror").innerText}`);
             for (const v3 of this.#scrolledViews) {
               v3.destroy();
               if (v3.element.parentNode === this.#container) this.#container.removeChild(v3.element);
+              this.sections[v3.wi73Index]?.unload?.();
             }
             this.#scrolledViews = [];
           }
+          this.#mountingIndices.clear();
           if (this.#view) {
             this.#view.destroy();
             this.#container.removeChild(this.#view.element);
@@ -4890,7 +4892,7 @@ ${doc.querySelector("parsererror").innerText}`);
           }
         }
         async #ensureWindow() {
-          if (!this.#windowedScroll || !this.scrolled) return;
+          if (!this.#windowedScroll || !this.scrolled || this.#vertical) return;
           const range = this.#windowRange(this.#index, this.sections.length, this.#K);
           if (!range) return;
           const [lo, hi] = range;
@@ -4983,7 +4985,7 @@ ${doc.querySelector("parsererror").innerText}`);
         // offset RELATIVE to the current view's position in the container. Flag OFF
         // (or no neighbours) → one view at offset 0 → relative == absolute.
         #viewRelativeStart() {
-          if (!this.#windowedScroll || !this.#view) return this.start;
+          if (!this.#windowedScroll || !this.#view || this.#vertical) return this.start;
           return Math.max(0, this.#container.scrollTop - this.#elementScrollTop(this.#view.element));
         }
         #beforeRender({ vertical, rtl, background }) {
@@ -5151,7 +5153,7 @@ ${doc.querySelector("parsererror").innerText}`);
         async #scrollToRect(rect, reason) {
           if (this.scrolled) {
             let offset2 = this.#getRectMapper()(rect).left - this.#margin;
-            if (this.#windowedScroll && this.#view) offset2 += this.#elementScrollTop(this.#view.element);
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset2 += this.#elementScrollTop(this.#view.element);
             return this.#scrollTo(offset2, reason);
           }
           const offset = this.#getRectMapper()(rect).left;
@@ -5200,7 +5202,7 @@ ${doc.querySelector("parsererror").innerText}`);
           }
           if (this.scrolled) {
             let offset = anchor * this.viewSize;
-            if (this.#windowedScroll && this.#view) offset += this.#elementScrollTop(this.#view.element);
+            if (this.#windowedScroll && this.#view && !this.#vertical) offset += this.#elementScrollTop(this.#view.element);
             await this.#scrollTo(offset, reason);
             return;
           }
@@ -5231,7 +5233,7 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         #afterScroll(reason) {
           let scrolledFraction = null;
-          if (this.scrolled && this.#windowedScroll) {
+          if (this.scrolled && this.#windowedScroll && !this.#vertical) {
             const r3 = this.#windowedResolve();
             this.#promoteCurrentView(r3);
             scrolledFraction = r3.intra;
@@ -5402,7 +5404,7 @@ ${doc.querySelector("parsererror").innerText}`);
           if (!this.scrolled) return;
           if (this.#locked) return;
           if (!this.#view) return;
-          if (this.#windowedScroll) {
+          if (this.#windowedScroll && !this.#vertical) {
             const r3 = this.#windowedResolve();
             this.#promoteCurrentView(r3);
             this.#ensureWindow();
@@ -5446,22 +5448,33 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         setStyles(styles) {
           this.#styles = styles;
-          const $$styles = this.#styleMap.get(this.#view?.document);
-          if (!$$styles) return;
-          const [$beforeStyle, $style] = $$styles;
-          if (Array.isArray(styles)) {
-            const [beforeStyle, style] = styles;
-            $beforeStyle.textContent = beforeStyle;
-            $style.textContent = style;
-          } else $style.textContent = styles;
-          requestAnimationFrame(() => this.#background.style.background = getBackground(this.#view.document));
-          this.#view?.document?.fonts?.ready?.then(() => this.#view.expand());
+          for (const view2 of this.#mountedViews()) {
+            const $$styles = this.#styleMap.get(view2?.document);
+            if (!$$styles) continue;
+            const [$beforeStyle, $style] = $$styles;
+            if (Array.isArray(styles)) {
+              const [beforeStyle, style] = styles;
+              $beforeStyle.textContent = beforeStyle;
+              $style.textContent = style;
+            } else $style.textContent = styles;
+            view2?.document?.fonts?.ready?.then(() => view2.expand());
+          }
+          requestAnimationFrame(() => {
+            if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document);
+          });
         }
         focusView() {
           this.#view.document.defaultView.focus();
         }
         destroy() {
           this.#observer.unobserve(this);
+          for (const v3 of this.#scrolledViews) {
+            v3.destroy();
+            if (v3.element.parentNode === this.#container) this.#container.removeChild(v3.element);
+            this.sections[v3.wi73Index]?.unload?.();
+          }
+          this.#scrolledViews = [];
+          this.#mountingIndices.clear();
           this.#view.destroy();
           this.#view = null;
           this.sections[this.#index]?.unload?.();
@@ -6814,15 +6827,17 @@ ${doc.querySelector("parsererror").innerText}`);
   });
   {
     let selectionTimeout = null;
-    const handleSelection = () => {
+    const handleSelection = (sourceDoc) => {
       clearTimeout(selectionTimeout);
       selectionTimeout = setTimeout(() => {
         const contents = view.renderer?.getContents?.();
         if (!contents?.length) return;
-        const owner = contents.find((c2) => {
-          const s3 = c2.doc?.getSelection?.();
+        const hasLiveSel = (c2) => {
+          const s3 = c2?.doc?.getSelection?.();
           return s3 && !s3.isCollapsed && s3.rangeCount;
-        });
+        };
+        let owner = sourceDoc ? contents.find((c2) => c2.doc === sourceDoc) : null;
+        if (!owner || !hasLiveSel(owner)) owner = contents.find(hasLiveSel);
         if (!owner) {
           post("selection", { collapsed: true });
           return;
@@ -6849,7 +6864,7 @@ ${doc.querySelector("parsererror").innerText}`);
     };
     view.addEventListener("load", (e3) => {
       const doc = e3.detail.doc;
-      doc.addEventListener("selectionchange", handleSelection);
+      doc.addEventListener("selectionchange", () => handleSelection(doc));
     });
   }
   view.addEventListener("load", (e3) => {

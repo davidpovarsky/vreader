@@ -1189,7 +1189,15 @@ export class Paginator extends HTMLElement {
         }
         // if anchor is a fraction
         if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason)
+            // Feature #73 WI-7 (Gate-5 restore fix): `anchor * viewSize` is the
+            // intra-section offset; in windowed mode `#view` may sit at a nonzero
+            // container offset (neighbours mounted above), so add its position —
+            // otherwise a fraction seek (Bug #265 position restore + the
+            // re-assert window) lands too high by the above-sections' height.
+            // Same offset gap WI-6c fixed for `#scrollToRect`. Flag OFF → 0.
+            let offset = anchor * this.viewSize
+            if (this.#windowedScroll && this.#view) offset += this.#elementScrollTop(this.#view.element)
+            await this.#scrollTo(offset, reason)
             return
         }
         const { pages } = this

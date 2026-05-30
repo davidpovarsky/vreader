@@ -5199,7 +5199,9 @@ ${doc.querySelector("parsererror").innerText}`);
             return;
           }
           if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason);
+            let offset = anchor * this.viewSize;
+            if (this.#windowedScroll && this.#view) offset += this.#elementScrollTop(this.#view.element);
+            await this.#scrollTo(offset, reason);
             return;
           }
           const { pages } = this;

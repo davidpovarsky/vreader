@@ -1021,3 +1021,34 @@ rebuild; (c) defer `#ensureWindow` until after the restore scroll settles.
 restore precision must be fixed before the default-ON flip. No regression ships
 (production reader is unaffected with the flag off). This is the top remaining
 WI-7 item, ahead of the WI-8 windowed parity harness.
+
+
+---
+
+## WI-7 restore blocker RESOLVED (2026-05-30, round 3)
+
+The intra-section restore regression was the `#scrollToAnchor` **fraction branch**:
+`#scrollTo(anchor * this.viewSize)` computed the intra-section offset but never
+added the current `#view`'s container offset — the exact WI-6c gap fixed for
+`#scrollToRect` but missed for the fraction path. When `#ensureWindow` mounts a
+neighbour ABOVE the restored section, `#view` sits at a nonzero container offset,
+so the re-assert seek (Bug #265's 4×700ms window) landed ~(above-sections' height)
+too high — for the 8853px story section, near the top.
+
+Fix: `offset = anchor * viewSize; if (windowed && #view) offset += #elementScrollTop(#view.element)`.
+
+**Re-verified flag-on (mini-azw3):** read to the masquerade passage (mid 8853px
+section 2), closed, reopened → restored to the **exact same passage** (window
+`[1,2,3]`, identical visible content). Intra-section restore is now precise.
+
+### WI-7 status: all verified surfaces PASS flag-on
+- Core forward/back crossing + window slide/evict ✅
+- Selection owner-finding ✅
+- Bilingual enumerate/inject/clear (via getContents per-view index) ✅
+- Bug #265 position restore — section AND intra-section precise ✅
+
+### Remaining before default-ON flip
+- TTS across the windowed surface (verify it doesn't double-read the window)
+- WI-8: a flag-ON parity harness so CI catches windowed regressions
+- Gate-4: independent Codex audit of the full windowed diff
+- Final acceptance + flag flip + merge

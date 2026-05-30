@@ -434,6 +434,14 @@ export class Paginator extends HTMLElement {
     #header
     #footer
     #view
+    // Feature #73 WI-1a: scrolled-mode windowed-rendering scaffold. The
+    // `#scrolledViews` list holds the mounted window of section views (current
+    // + neighbours) when `#windowedScroll` is on. The flag defaults OFF, so
+    // every consumer that routes through `#mountedViews()` / `#currentView()`
+    // is byte-identical to the single-`#view` path until WI-2 lights it up.
+    // Paged mode never touches these (it stays the exact single-`#view` code).
+    #scrolledViews = []
+    #windowedScroll = false
     #vertical = false
     #rtl = false
     #margin = 0
@@ -688,6 +696,17 @@ export class Paginator extends HTMLElement {
             onExpand: () => this.#scrollToAnchor(this.#anchor),
         })
         this.#container.append(this.#view.element)
+        return this.#view
+    }
+    // Feature #73 WI-1a: the mounted-view resolvers — the single seam every
+    // `#view` consumer will route through. With `#windowedScroll` OFF these
+    // return exactly the single `#view`, so behaviour is unchanged; WI-2 fills
+    // `#scrolledViews` and WI-5 makes `#currentView()` scroll-position-aware.
+    #mountedViews() {
+        if (this.#windowedScroll && this.#scrolledViews.length) return this.#scrolledViews
+        return this.#view ? [this.#view] : []
+    }
+    #currentView() {
         return this.#view
     }
     #beforeRender({ vertical, rtl, background }) {
@@ -1156,12 +1175,15 @@ export class Paginator extends HTMLElement {
         return this.goTo({ index })
     }
     getContents() {
-        if (this.#view) return [{
+        // Feature #73 WI-1a: route the multi-doc consumer (Gate-2 M11 / round-2
+        // H1) through `#mountedViews()`. Flag OFF → `[this.#view]` → byte-identical
+        // to the old single-view return; WI-7 makes each mounted view carry its
+        // own section index for cross-section selection/overlay/TTS.
+        return this.#mountedViews().map(v => ({
             index: this.#index,
-            overlayer: this.#view.overlayer,
-            doc: this.#view.document,
-        }]
-        return []
+            overlayer: v.overlayer,
+            doc: v.document,
+        }))
     }
     setStyles(styles) {
         this.#styles = styles

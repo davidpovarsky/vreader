@@ -829,3 +829,17 @@ drift. H1 is the sole change for round 3.
 - v1 (2026-05-30) — initial Gate-1 plan. Awaiting Gate-2 independent audit
   (cc-suite / Codex). Audit must verify §10 open questions, especially the line
   ranges (§10.1) and windowing feasibility (§10.2).
+
+---
+
+## WI-0 progress log (2026-05-30, Gate-3 start)
+
+**(a) Which element scrolls in Foliate scrolled mode — code-derived verdict: the inner `#container`.**
+The audit's C2 asked whether the outer WKWebView scrollView or the inner shadow-DOM `#container` is the real scroller. The JS source settles it: in scrolled mode `:host([flow="scrolled"]) #container` gets `overflow: auto` (`paginator.js:511-514`) and owns the scroll listeners (`paginator.js:559, 575`) that drive `#afterScroll` + `#maybeCrossSectionBoundary` — i.e. the **inner `#container` is the scroll element**. The outer WKWebView scrollView is left `isScrollEnabled = true` (`FoliateSpikeView.swift:244`) but the rendered document is sized to the viewport (the `#container` scrolls internally), so its `contentSize ≈ bounds` and it has nothing to scroll. **This is the feasibility unlock for the windowed model**: mounting K sections inside `#container` and letting that one inner scroller move continuously is the natural substrate; the outer scrollView is a near-no-op (the `FoliateSpikeView` comment claiming "the outer scrollView IS the scroller" is misleading — corrected in the Gate-2 C2 record).
+
+**Empirical iOS confirmation — instrumentation built, BLOCKED on AZW3 fixture.**
+A throwaway `UIScrollViewDelegate.scrollViewDidScroll` was added to `FoliateSpikeView.Coordinator` (DEBUG-gated) logging the outer scrollView's `contentOffset.y`/`contentSize` to category `Feat73WI0`; build SUCCEEDED + installed on iPhone 17 Pro Sim. The plan was to open an AZW3 in scrolled mode, scroll via CU, and confirm the outer `contentOffset.y` stays ≈0 (inner `#container` scrolls). **This is blocked**: the `vreader-debug://seed?fixture=mini-azw3` DebugBridge fixture silently fails to import an AZW3 into the library (consistently, all session) — the resource IS bundled (`vreader.app/DebugFixtures/mini-azw3.azw3`, 128 KB) and the seed resolves + calls `importer.importFile`, so the failure is in the AZW3 import path (error lands in `snapshot.lastError`, not surfaced to the host openurl). Filed as a DevTools/Verification bug. Without a Foliate AZW3 in scrolled mode, none of WI-0 (a)-empirical / (b) multi-section coexistence / (c) expand-no-shift / (d) memory gate can be measured CU-free.
+
+**(b)(c)(d): not yet measured** — gated on the AZW3 fixture fix (or a sim-transferred real AZW3).
+
+**Preliminary WI-0 verdict: GO-leaning** on the windowed model (the inner-`#container`-scroller finding is the key de-risk), but the empirical multi-iframe coexistence + memory measurements remain — WI-0 stays OPEN until the AZW3 fixture is unblocked and (a)-empirical/(b)/(c)/(d) are run on-device.

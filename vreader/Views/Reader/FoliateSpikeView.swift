@@ -243,6 +243,9 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
         // line 226 (`webView.scrollView.isScrollEnabled = !isPaged`).
         webView.scrollView.isScrollEnabled = (layoutFlow == "scrolled")
         coordinator.webView = webView
+        #if DEBUG
+        webView.scrollView.delegate = coordinator  // Feature #73 WI-0 spike (throwaway)
+        #endif
 
         // Read book as base64
         if let bookData = try? Data(contentsOf: bookURL) {
@@ -352,8 +355,18 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
 }
 
 extension FoliateSpikeView {
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate {
         weak var webView: WKWebView?
+        #if DEBUG
+        // Feature #73 WI-0 spike: instrument the OUTER WKWebView scrollView to
+        // measure whether it is the actual scroller in scrolled mode, or whether
+        // the inner shadow-DOM #container (overflow:auto) scrolls instead.
+        // Throwaway spike instrumentation; reverted before WI-0 ships.
+        private let wi0Log = Logger(subsystem: "com.vreader.app", category: "Feat73WI0")
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            wi0Log.info("OUTER scrollView.contentOffset.y=\(scrollView.contentOffset.y, privacy: .public) contentSize.h=\(scrollView.contentSize.height, privacy: .public) bounds.h=\(scrollView.bounds.height, privacy: .public)")
+        }
+        #endif
         var bookBase64: String?
         var bookExt: String?
         let onBookReady: @MainActor (String) -> Void

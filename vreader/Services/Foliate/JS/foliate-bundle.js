@@ -4546,7 +4546,13 @@ ${doc.querySelector("parsererror").innerText}`);
         // WI-3: in-flight mount dedup (async race guard)
         #windowGeneration = 0;
         // Gate-4 H1: bumped on navigation/teardown; stale mounts abort
-        #windowedScroll = false;
+        // Feature #73: windowed multi-section continuous scroll for AZW3/MOBI scroll
+        // mode — ON by default. Replaces the per-section view-swap (the Bug #283
+        // chapter-boundary jump) with a K-window continuous surface. Horizontal-
+        // writing scrolled mode only; vertical writing + paged mode fall back to the
+        // single-`#view` path. Shipped after a 2-round Codex audit (ship-as-is) +
+        // flag-on device verification.
+        #windowedScroll = true;
         #K = 3;
         // Feature #73 WI-2: windowed mount size (current + neighbours)
         #vertical = false;

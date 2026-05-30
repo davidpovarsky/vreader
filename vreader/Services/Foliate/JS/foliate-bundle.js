@@ -4875,6 +4875,32 @@ ${doc.querySelector("parsererror").innerText}`);
               }
             }
           }
+          this.#evictOutsideWindow(lo, hi);
+        }
+        // Feature #73 WI-4: bound memory to the K-window. Unmount + unload any
+        // neighbour outside [lo,hi]; the anchor `#view` (#index) is never in
+        // `#scrolledViews` so it can't be evicted. Evicting a section ABOVE the
+        // viewport removes content above the scroll position, shifting everything
+        // up — so subtract the evicted-above heights from `scrollTop` to keep the
+        // visible content stationary (FoliateScrolledWindowMath.offsetAdjustmentOnEvict).
+        #evictOutsideWindow(lo, hi) {
+          const keep = [];
+          let scrollAdjust = 0;
+          for (const v3 of this.#scrolledViews) {
+            const idx = v3.wi73Index;
+            if (idx >= lo && idx <= hi) {
+              keep.push(v3);
+              continue;
+            }
+            if (idx < this.#index) {
+              scrollAdjust += Math.max(0, v3.element.getBoundingClientRect().height);
+            }
+            v3.destroy();
+            if (v3.element.parentNode === this.#container) this.#container.removeChild(v3.element);
+            this.sections[idx]?.unload?.();
+          }
+          this.#scrolledViews = keep;
+          if (scrollAdjust > 0) this.#container.scrollTop = Math.max(0, this.#container.scrollTop - scrollAdjust);
         }
         // Feature #73 WI-3/WI-5: resolve the CURRENT section + intra-section fraction
         // from the live scroll position over the mounted views (the anchor `#view`

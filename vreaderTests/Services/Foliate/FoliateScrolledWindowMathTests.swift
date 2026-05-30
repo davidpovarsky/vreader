@@ -131,4 +131,17 @@ struct FoliateScrolledWindowMathTests {
         #expect(FoliateScrolledWindowMath.offsetAdjustmentOnEvict(evictedSizesAbove: []) == 0)
         #expect(FoliateScrolledWindowMath.offsetAdjustmentOnEvict(evictedSizesAbove: [100, -50]) == 100)
     }
+
+    // MARK: - containerOffset (WI-1b anchor translation)
+
+    @Test("containerOffset adds the mounted section's offset to the in-section rect top")
+    func containerOffset() {
+        let sizes = [100.0, 200.0, 300.0]
+        // a rect at top=0 in section 0 → container offset 0 (no shift for the first)
+        #expect(FoliateScrolledWindowMath.containerOffset(rectTopWithinSection: 0, mountedIndex: 0, mountedSizes: sizes) == 0)
+        // a rect at top=50 in section 1 (starts at 100) → 150
+        #expect(FoliateScrolledWindowMath.containerOffset(rectTopWithinSection: 50, mountedIndex: 1, mountedSizes: sizes) == 150)
+        // a rect at top=10 in section 2 (starts at 300) → 310
+        #expect(FoliateScrolledWindowMath.containerOffset(rectTopWithinSection: 10, mountedIndex: 2, mountedSizes: sizes) == 310)
+    }
 }

@@ -74,4 +74,15 @@ enum FoliateScrolledWindowMath {
     static func offsetAdjustmentOnEvict(evictedSizesAbove: [Double]) -> Double {
         evictedSizesAbove.reduce(0) { $0 + max(0, $1) }
     }
+
+    /// WI-1b — anchor coordinate translation across mounted iframes (Gate-2 H5).
+    /// A rect/anchor inside the mounted section at `mountedIndex` is measured in
+    /// that section's OWN iframe-document coordinates (top = `rectTopWithinSection`);
+    /// the windowed `#scrollToRect`/`#scrollToAnchor` must add the section's offset
+    /// in the container to land at the right place. Container offset =
+    /// `offsetOfSection(mountedIndex) + rectTopWithinSection`. (The current
+    /// single-view `#scrollToRect` adds no offset — correct only for index 0.)
+    static func containerOffset(rectTopWithinSection: Double, mountedIndex: Int, mountedSizes: [Double]) -> Double {
+        offsetOfSection(mountedIndex, mountedSizes: mountedSizes) + rectTopWithinSection
+    }
 }

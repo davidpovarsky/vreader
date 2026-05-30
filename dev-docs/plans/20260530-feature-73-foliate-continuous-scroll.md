@@ -853,3 +853,15 @@ The AZW3 fixture imports fine (the earlier "#288 blocker" was an observation err
 **Verdict on (a): CONFIRMED both code-derived AND empirically — the outer WKWebView scrollView is a no-op in scrolled mode; the inner shadow-DOM `#container` (`overflow:auto`) is the sole scroller.** This is the windowed model's substrate de-risk: mounting K sections inside `#container` and letting that one inner scroller move continuously is the right design. **GO on (a).**
 
 **Remaining WI-0: (b) multi-section coexistence, (c) expand-no-shift, (d) memory gate** — these require the experimental mounting code (mount the next section contiguously in `#container`, measure coexistence + memory with large CJK AZW3). Not yet run. WI-0 stays OPEN until (b)/(c)/(d) land, but (a)'s confirmation materially de-risks the approach.
+
+### WI-0 update (2026-05-30, later still) — measurement (b) partial: mount mechanism VIABLE
+
+A throwaway spike (`#wi0MountNext`, scrolled-gated, reverted after) was added to `paginator.js`: after the first scrolled section renders, it resolves `sections[index+1].load()`, creates a second `View`, `view.load(src, …, #beforeRender)`, and appends `view2.element` to `#container` (with a green top-border marker). Bundle + app rebuilt, run on the AZW3 on iPhone 17 Pro Sim.
+
+**Result: the mount mechanism is mechanically VIABLE.** Loading a second section's iframe and appending its element to `#container` did **not** crash or destabilize the Foliate scrolled renderer — the reader stayed fully functional and scrolled **smoothly through the entire book** (front-matter → Chapter 3 story → Chapter 4 back-matter) with the second view mounted. No layout collapse, no error state.
+
+**Caveat (not yet clean):** the green-band coexistence marker was not visually caught at a boundary because the spike ran **alongside** the existing `#maybeCrossSectionBoundary` per-section swap, which dominated the real boundary crossings (and orphans/scrolls-past the single pre-mounted view2). A clean visual demonstration of *contiguous two-section coexistence* needs the next iteration: **gate-off the normal swap when the windowed path is active** so the only way across is the pre-mounted view (then the green band is observable). This is exactly WI-1a (`#view`-consumer fork) + WI-3 (replace the swap), so it belongs in implementation, not the spike.
+
+**(c) expand-no-shift / (d) memory gate:** the spike included a `view2.onExpand` log for (c) but console isn't host-piped, so (c) wasn't captured; (d) (K=3 large-CJK memory) not run. Both remain.
+
+**Updated WI-0 verdict: GO (strengthened).** (a) confirmed (inner `#container` scrolls); (b) mount mechanism confirmed viable (no crash). The two highest-risk unknowns from the Gate-2 audit (which element scrolls; can a 2nd iframe coexist at all) are both favorable. (b)-clean / (c) / (d) fold naturally into WI-1a/WI-2/WI-3/WI-4 implementation. **Recommendation: proceed to WI-1 (pure windowing math, Swift-testable) — the substrate is de-risked enough to start the real fork.**

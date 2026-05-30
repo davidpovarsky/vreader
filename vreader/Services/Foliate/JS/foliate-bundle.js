@@ -6817,7 +6817,15 @@ ${doc.querySelector("parsererror").innerText}`);
       selectionTimeout = setTimeout(() => {
         const contents = view.renderer?.getContents?.();
         if (!contents?.length) return;
-        const { doc, index } = contents[0];
+        const owner = contents.find((c2) => {
+          const s3 = c2.doc?.getSelection?.();
+          return s3 && !s3.isCollapsed && s3.rangeCount;
+        });
+        if (!owner) {
+          post("selection", { collapsed: true });
+          return;
+        }
+        const { doc, index } = owner;
         const sel = doc.getSelection();
         if (!sel || sel.isCollapsed || !sel.rangeCount) {
           post("selection", { collapsed: true });

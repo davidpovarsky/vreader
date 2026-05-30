@@ -80,7 +80,21 @@ view.addEventListener('external-link', e => {
         selectionTimeout = setTimeout(() => {
             const contents = view.renderer?.getContents?.()
             if (!contents?.length) return
-            const { doc, index } = contents[0]
+            // Feature #73 WI-7: in windowed scrolled mode `getContents()` returns
+            // EVERY mounted section, so `contents[0]` is just the lowest-index one
+            // — not necessarily the section the user selected in. Find the mounted
+            // document that actually holds a non-collapsed selection so the CFI +
+            // index are attributed to the right section. Single-view mode → the
+            // one entry, unchanged.
+            const owner = contents.find(c => {
+                const s = c.doc?.getSelection?.()
+                return s && !s.isCollapsed && s.rangeCount
+            })
+            if (!owner) {
+                post('selection', { collapsed: true })
+                return
+            }
+            const { doc, index } = owner
             const sel = doc.getSelection()
             if (!sel || sel.isCollapsed || !sel.rangeCount) {
                 post('selection', { collapsed: true })

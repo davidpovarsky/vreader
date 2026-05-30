@@ -442,6 +442,7 @@ export class Paginator extends HTMLElement {
     // Paged mode never touches these (it stays the exact single-`#view` code).
     #scrolledViews = []
     #windowedScroll = false
+    #K = 3 // Feature #73 WI-2: windowed mount size (current + neighbours)
     #vertical = false
     #rtl = false
     #margin = 0
@@ -687,6 +688,16 @@ export class Paginator extends HTMLElement {
         })
     }
     #createView() {
+        // Feature #73 WI-2: a navigation invalidates the windowed neighbour
+        // buffer — destroy + remove every mounted neighbour before the new
+        // current view is built; #ensureWindow re-mounts around the new index.
+        if (this.#scrolledViews.length) {
+            for (const v of this.#scrolledViews) {
+                v.destroy()
+                if (v.element.parentNode === this.#container) this.#container.removeChild(v.element)
+            }
+            this.#scrolledViews = []
+        }
         if (this.#view) {
             this.#view.destroy()
             this.#container.removeChild(this.#view.element)
@@ -708,6 +719,76 @@ export class Paginator extends HTMLElement {
     }
     #currentView() {
         return this.#view
+    }
+    // Feature #73 WI-2: the windowed-mount primitives (scrolled-gated). These
+    // mount NEIGHBOUR sections around the current `#view` into `#scrolledViews`
+    // (in section order) so the continuous surface spans more than one section.
+    // The current `#view` stays managed by `#createView`/`#display`; eviction
+    // (WI-4) and swap replacement (WI-3) build on these.
+    #windowRange(current, total, k) {
+        if (total <= 0 || k <= 0) return null
+        const size = Math.min(k, total)
+        const c = Math.min(Math.max(current, 0), total - 1)
+        const half = Math.floor((size - 1) / 2)
+        let lo = c - half
+        let hi = c + (size - 1 - half)
+        if (lo < 0) { hi += -lo; lo = 0 }
+        if (hi > total - 1) { lo -= (hi - (total - 1)); hi = total - 1 }
+        return [Math.max(0, lo), hi]
+    }
+    #applyCachedStyles(doc) {
+        const $$styles = this.#styleMap.get(doc)
+        if (!$$styles) return
+        const [$beforeStyle, $style] = $$styles
+        const s = this.#styles
+        if (Array.isArray(s)) { $beforeStyle.textContent = s[0] ?? ''; $style.textContent = s[1] ?? '' }
+        else if (s != null) $style.textContent = s
+    }
+    async #mountSection(index) {
+        if (!this.#canGoToIndex(index)) return null
+        if (index === this.#index) return null
+        if (this.#scrolledViews.some(v => v.wi73Index === index)) return null
+        const src = await Promise.resolve(this.sections[index].load())
+        const view = new View({ container: this, onExpand: () => {} })
+        view.wi73Index = index
+        const afterLoad = doc => {
+            if (doc.head) {
+                const $styleBefore = doc.createElement('style')
+                doc.head.prepend($styleBefore)
+                const $style = doc.createElement('style')
+                doc.head.append($style)
+                this.#styleMap.set(doc, [$styleBefore, $style])
+                this.#applyCachedStyles(doc) // Gate-2 H8: style every mounted view
+            }
+        }
+        await view.load(src, afterLoad, this.#beforeRender.bind(this))
+        // insert into #scrolledViews + #container in section order, anchored on
+        // the current #view's element (the anchor section stays index `#index`).
+        this.#scrolledViews.push(view)
+        this.#scrolledViews.sort((a, b) => a.wi73Index - b.wi73Index)
+        const anchorEl = this.#view?.element
+        if (index < this.#index && anchorEl) {
+            this.#container.insertBefore(view.element, anchorEl)
+        } else {
+            // place after the highest already-mounted element < index, else after anchor
+            const lower = this.#scrolledViews.filter(v => v.wi73Index < index)
+            const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl
+            if (beforeEl?.nextSibling) this.#container.insertBefore(view.element, beforeEl.nextSibling)
+            else this.#container.append(view.element)
+        }
+        return view
+    }
+    async #ensureWindow() {
+        if (!this.#windowedScroll || !this.scrolled) return
+        const range = this.#windowRange(this.#index, this.sections.length, this.#K)
+        if (!range) return
+        const [lo, hi] = range
+        for (let i = lo; i <= hi; i++) {
+            if (i === this.#index) continue
+            if (!this.#scrolledViews.some(v => v.wi73Index === i)) {
+                try { await this.#mountSection(i) } catch (e) { console.warn('WI73 mount', i, e) }
+            }
+        }
     }
     #beforeRender({ vertical, rtl, background }) {
         this.#vertical = vertical
@@ -1031,6 +1112,11 @@ export class Paginator extends HTMLElement {
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
         if (hasFocus) this.focusView()
+        // Feature #73 WI-2: after the anchor section renders, mount the
+        // neighbour window so the scrolled surface spans multiple sections.
+        // Gated on #windowedScroll (OFF by default → paged + non-windowed
+        // scrolled paths are byte-identical).
+        if (this.scrolled && this.#windowedScroll) this.#ensureWindow()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1

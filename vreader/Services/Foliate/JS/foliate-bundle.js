@@ -4833,8 +4833,7 @@ ${doc.querySelector("parsererror").innerText}`);
           if (index === this.#index) return null;
           if (this.#scrolledViews.some((v3) => v3.wi73Index === index)) return null;
           const src = await Promise.resolve(this.sections[index].load());
-          const view2 = new View({ container: this, onExpand: () => {
-          } });
+          const view2 = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view2) });
           view2.wi73Index = index;
           const afterLoad = (doc) => {
             if (doc.head) {
@@ -4852,13 +4851,30 @@ ${doc.querySelector("parsererror").innerText}`);
           const anchorEl = this.#view?.element;
           if (index < this.#index && anchorEl) {
             this.#container.insertBefore(view2.element, anchorEl);
+            view2.wi73Height = Math.max(0, view2.element.getBoundingClientRect().height);
+            this.#container.scrollTop += view2.wi73Height;
           } else {
             const lower = this.#scrolledViews.filter((v3) => v3.wi73Index < index);
             const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl;
             if (beforeEl?.nextSibling) this.#container.insertBefore(view2.element, beforeEl.nextSibling);
             else this.#container.append(view2.element);
+            view2.wi73Height = Math.max(0, view2.element.getBoundingClientRect().height);
           }
           return view2;
+        }
+        // WI-6c: when a mounted neighbour's height changes after layout (fonts.ready,
+        // image load, reflow), shift `scrollTop` by the delta IF the neighbour sits
+        // above the current scroll position — so the visible content does not jump.
+        #onNeighbourExpand(view2) {
+          if (!this.#windowedScroll || !view2?.element) return;
+          const prev = view2.wi73Height ?? 0;
+          const now = Math.max(0, view2.element.getBoundingClientRect().height);
+          view2.wi73Height = now;
+          const delta = now - prev;
+          if (delta === 0) return;
+          if (this.#elementScrollTop(view2.element) < this.#container.scrollTop) {
+            this.#container.scrollTop = Math.max(0, this.#container.scrollTop + delta);
+          }
         }
         async #ensureWindow() {
           if (!this.#windowedScroll || !this.scrolled) return;
@@ -4927,6 +4943,35 @@ ${doc.querySelector("parsererror").innerText}`);
           }
           const last = views[views.length - 1];
           return { view: last, index: last.wi73Index ?? this.#index, intra: 1 };
+        }
+        // Feature #73 WI-6a: keep `#view` pointing at the section the viewport top is
+        // in — a POINTER swap, not a DOM move (no flash). After a swap-free crossing
+        // the single-`#view` getters (viewSize / pages / #getRectMapper /
+        // getVisibleRange / #background / atStart / atEnd) all read the correct
+        // section. The old `#view` is demoted into `#scrolledViews` (it stays mounted
+        // in the container); the resolved view leaves `#scrolledViews` to become `#view`.
+        #promoteCurrentView(resolved) {
+          if (!resolved?.view || resolved.view === this.#view) {
+            if (resolved) this.#index = resolved.index;
+            return;
+          }
+          const old = this.#view;
+          if (old) {
+            if (old.wi73Index == null) old.wi73Index = this.#index;
+            if (!this.#scrolledViews.includes(old)) this.#scrolledViews.push(old);
+          }
+          this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== resolved.view);
+          this.#view = resolved.view;
+          this.#index = resolved.index;
+          if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document);
+        }
+        // Feature #73 WI-6b: `start` is container-absolute (it spans every view
+        // mounted ABOVE the current one). Per-`#view` document operations need the
+        // offset RELATIVE to the current view's position in the container. Flag OFF
+        // (or no neighbours) → one view at offset 0 → relative == absolute.
+        #viewRelativeStart() {
+          if (!this.#windowedScroll || !this.#view) return this.start;
+          return Math.max(0, this.#container.scrollTop - this.#elementScrollTop(this.#view.element));
         }
         #beforeRender({ vertical, rtl, background }) {
           this.#vertical = vertical;
@@ -5092,7 +5137,8 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         async #scrollToRect(rect, reason) {
           if (this.scrolled) {
-            const offset2 = this.#getRectMapper()(rect).left - this.#margin;
+            let offset2 = this.#getRectMapper()(rect).left - this.#margin;
+            if (this.#windowedScroll && this.#view) offset2 += this.#elementScrollTop(this.#view.element);
             return this.#scrollTo(offset2, reason);
           }
           const offset = this.#getRectMapper()(rect).left;
@@ -5150,12 +5196,16 @@ ${doc.querySelector("parsererror").innerText}`);
           await this.#scrollToPage(newPage + 1, reason);
         }
         #getVisibleRange() {
-          if (this.scrolled) return getVisibleRange(
-            this.#view.document,
-            this.start + this.#margin,
-            this.end - this.#margin,
-            this.#getRectMapper()
-          );
+          if (this.scrolled) {
+            const vStart = this.#viewRelativeStart();
+            const vEnd = vStart + this.size;
+            return getVisibleRange(
+              this.#view.document,
+              vStart + this.#margin,
+              vEnd - this.#margin,
+              this.#getRectMapper()
+            );
+          }
           const size = this.#rtl ? -this.size : this.size;
           return getVisibleRange(
             this.#view.document,
@@ -5165,19 +5215,18 @@ ${doc.querySelector("parsererror").innerText}`);
           );
         }
         #afterScroll(reason) {
+          let scrolledFraction = null;
+          if (this.scrolled && this.#windowedScroll) {
+            const r3 = this.#windowedResolve();
+            this.#promoteCurrentView(r3);
+            scrolledFraction = r3.intra;
+          }
           const range = this.#getVisibleRange();
           this.#lastVisibleRange = range;
           if (reason !== "selection" && reason !== "navigation" && reason !== "anchor")
             this.#anchor = range;
           else this.#justAnchored = true;
-          let index = this.#index;
-          let scrolledFraction = null;
-          if (this.scrolled && this.#windowedScroll) {
-            const r3 = this.#windowedResolve();
-            this.#index = r3.index;
-            index = r3.index;
-            scrolledFraction = r3.intra;
-          }
+          const index = this.#index;
           const detail = { reason, range, index };
           if (this.scrolled) detail.fraction = scrolledFraction != null ? scrolledFraction : this.start / this.viewSize;
           else if (this.pages > 0) {
@@ -5339,7 +5388,7 @@ ${doc.querySelector("parsererror").innerText}`);
           if (!this.#view) return;
           if (this.#windowedScroll) {
             const r3 = this.#windowedResolve();
-            if (r3.index !== this.#index) this.#index = r3.index;
+            this.#promoteCurrentView(r3);
             this.#ensureWindow();
             return;
           }

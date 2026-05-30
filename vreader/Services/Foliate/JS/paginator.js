@@ -749,7 +749,9 @@ export class Paginator extends HTMLElement {
         if (index === this.#index) return null
         if (this.#scrolledViews.some(v => v.wi73Index === index)) return null
         const src = await Promise.resolve(this.sections[index].load())
-        const view = new View({ container: this, onExpand: () => {} })
+        // WI-6c: a neighbour that grows on a late expand (fonts.ready / reflow)
+        // would shift visible content if it sits above the viewport; compensate.
+        const view = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view) })
         view.wi73Index = index
         const afterLoad = doc => {
             if (doc.head) {
@@ -769,14 +771,36 @@ export class Paginator extends HTMLElement {
         const anchorEl = this.#view?.element
         if (index < this.#index && anchorEl) {
             this.#container.insertBefore(view.element, anchorEl)
+            // WI-6c: inserting above the anchor shifts visible content down; add
+            // the mounted height to scrollTop so the anchor stays put (the
+            // inverse of #evictOutsideWindow's above-evict subtraction).
+            view.wi73Height = Math.max(0, view.element.getBoundingClientRect().height)
+            this.#container.scrollTop += view.wi73Height
         } else {
             // place after the highest already-mounted element < index, else after anchor
             const lower = this.#scrolledViews.filter(v => v.wi73Index < index)
             const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl
             if (beforeEl?.nextSibling) this.#container.insertBefore(view.element, beforeEl.nextSibling)
             else this.#container.append(view.element)
+            view.wi73Height = Math.max(0, view.element.getBoundingClientRect().height)
         }
         return view
+    }
+    // WI-6c: when a mounted neighbour's height changes after layout (fonts.ready,
+    // image load, reflow), shift `scrollTop` by the delta IF the neighbour sits
+    // above the current scroll position — so the visible content does not jump.
+    #onNeighbourExpand(view) {
+        if (!this.#windowedScroll || !view?.element) return
+        const prev = view.wi73Height ?? 0
+        const now = Math.max(0, view.element.getBoundingClientRect().height)
+        view.wi73Height = now
+        const delta = now - prev
+        if (delta === 0) return
+        // a view whose top is above the viewport top contributes its full height
+        // to everything below it; growing it pushes the viewport content down.
+        if (this.#elementScrollTop(view.element) < this.#container.scrollTop) {
+            this.#container.scrollTop = Math.max(0, this.#container.scrollTop + delta)
+        }
     }
     async #ensureWindow() {
         if (!this.#windowedScroll || !this.scrolled) return
@@ -842,6 +866,36 @@ export class Paginator extends HTMLElement {
         }
         const last = views[views.length - 1]
         return { view: last, index: last.wi73Index ?? this.#index, intra: 1 }
+    }
+    // Feature #73 WI-6a: keep `#view` pointing at the section the viewport top is
+    // in — a POINTER swap, not a DOM move (no flash). After a swap-free crossing
+    // the single-`#view` getters (viewSize / pages / #getRectMapper /
+    // getVisibleRange / #background / atStart / atEnd) all read the correct
+    // section. The old `#view` is demoted into `#scrolledViews` (it stays mounted
+    // in the container); the resolved view leaves `#scrolledViews` to become `#view`.
+    #promoteCurrentView(resolved) {
+        if (!resolved?.view || resolved.view === this.#view) {
+            if (resolved) this.#index = resolved.index
+            return
+        }
+        const old = this.#view
+        if (old) {
+            if (old.wi73Index == null) old.wi73Index = this.#index
+            if (!this.#scrolledViews.includes(old)) this.#scrolledViews.push(old)
+        }
+        this.#scrolledViews = this.#scrolledViews.filter(v => v !== resolved.view)
+        this.#view = resolved.view
+        this.#index = resolved.index
+        // the promoted view becomes the new background source
+        if (this.#view?.document) this.#background.style.background = getBackground(this.#view.document)
+    }
+    // Feature #73 WI-6b: `start` is container-absolute (it spans every view
+    // mounted ABOVE the current one). Per-`#view` document operations need the
+    // offset RELATIVE to the current view's position in the container. Flag OFF
+    // (or no neighbours) → one view at offset 0 → relative == absolute.
+    #viewRelativeStart() {
+        if (!this.#windowedScroll || !this.#view) return this.start
+        return Math.max(0, this.#container.scrollTop - this.#elementScrollTop(this.#view.element))
     }
     #beforeRender({ vertical, rtl, background }) {
         this.#vertical = vertical
@@ -1050,7 +1104,12 @@ export class Paginator extends HTMLElement {
     }
     async #scrollToRect(rect, reason) {
         if (this.scrolled) {
-            const offset = this.#getRectMapper()(rect).left - this.#margin
+            let offset = this.#getRectMapper()(rect).left - this.#margin
+            // Feature #73 WI-6c: the rect is in `#view`'s own document
+            // coordinates; in windowed mode `#view` may sit at a nonzero
+            // container offset, so add its position to land at the right
+            // container scroll. Flag OFF → offset 0 → unchanged.
+            if (this.#windowedScroll && this.#view) offset += this.#elementScrollTop(this.#view.element)
             return this.#scrollTo(offset, reason)
         }
         const offset = this.#getRectMapper()(rect).left
@@ -1111,13 +1170,34 @@ export class Paginator extends HTMLElement {
         await this.#scrollToPage(newPage + 1, reason)
     }
     #getVisibleRange() {
-        if (this.scrolled) return getVisibleRange(this.#view.document,
-            this.start + this.#margin, this.end - this.#margin, this.#getRectMapper())
+        if (this.scrolled) {
+            // Feature #73 WI-6b: window-relative offsets so the per-`#view`
+            // document mapper gets coordinates relative to the current view's
+            // position in the container (not the container-absolute `start`,
+            // which spans every view mounted above). Flag OFF → start/end.
+            const vStart = this.#viewRelativeStart()
+            const vEnd = vStart + this.size
+            return getVisibleRange(this.#view.document,
+                vStart + this.#margin, vEnd - this.#margin, this.#getRectMapper())
+        }
         const size = this.#rtl ? -this.size : this.size
         return getVisibleRange(this.#view.document,
             this.start - size, this.end - size, this.#getRectMapper())
     }
     #afterScroll(reason) {
+        // Feature #73 WI-5/WI-6a: in windowed scrolled mode, resolve the current
+        // section from the live scroll position and PROMOTE `#view` to it BEFORE
+        // computing the visible range — so the range + emitted fraction read the
+        // section the viewport is actually in, not the stale anchor. The emitted
+        // fraction is the Gate-2 C1 INTRA-section value (view.js→SectionProgress
+        // still owns whole-book conversion + Bug #265 restore). Non-windowed path
+        // unchanged.
+        let scrolledFraction = null
+        if (this.scrolled && this.#windowedScroll) {
+            const r = this.#windowedResolve()
+            this.#promoteCurrentView(r)
+            scrolledFraction = r.intra
+        }
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
@@ -1125,19 +1205,7 @@ export class Paginator extends HTMLElement {
             this.#anchor = range
         else this.#justAnchored = true
 
-        // Feature #73 WI-5: in windowed mode derive the current section + its
-        // INTRA-section fraction from the scroll position over the mounted views
-        // (Gate-2 C1 — emit intra, NOT whole-book; view.js→SectionProgress still
-        // owns the whole-book conversion + Bug #265 restore). Non-windowed path
-        // unchanged.
-        let index = this.#index
-        let scrolledFraction = null
-        if (this.scrolled && this.#windowedScroll) {
-            const r = this.#windowedResolve()
-            this.#index = r.index
-            index = r.index
-            scrolledFraction = r.intra
-        }
+        const index = this.#index
         const detail = { reason, range, index }
         if (this.scrolled) detail.fraction = scrolledFraction != null ? scrolledFraction : this.start / this.viewSize
         else if (this.pages > 0) {
@@ -1304,7 +1372,7 @@ export class Paginator extends HTMLElement {
         // there is no scrollToAnchor(0) reset, the scroll simply continues.)
         if (this.#windowedScroll) {
             const r = this.#windowedResolve()
-            if (r.index !== this.#index) this.#index = r.index
+            this.#promoteCurrentView(r) // WI-6a: track `#view` to the viewport's section
             this.#ensureWindow()
             return
         }

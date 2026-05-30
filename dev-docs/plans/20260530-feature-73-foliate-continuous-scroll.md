@@ -970,3 +970,54 @@ the flag can flip ON for all users:
 - **K=3 large-CJK memory** ceiling (WI-0 (d)).
 - **Windowed-mode parity guard** (a flag-ON test harness) so CI can catch windowed
   regressions — today only flag-OFF is gated. This is WI-8.
+
+---
+
+## WI-7 progress + Gate-5 flag-on findings (2026-05-30, round 2)
+
+### Fixed + verified flag-on (iPhone 17 Pro Sim, mini-azw3)
+
+- **Selection owner** (round-2 audit H1) — the host's selection handler used
+  `getContents()[0]` (lowest-index mounted section); now scans for the document
+  that actually holds the selection. Committed.
+- **Bilingual multi-doc** (`bilingualEnumerate`/`Inject`/`Clear`) — already filter
+  by `entry.index === targetSectionIndex`; the WI-3 `getContents` per-view-index
+  fix repairs them in windowed mode (pre-fix, every entry reported the anchor
+  index → injection into a neighbour was a silent no-op).
+- **Bug #265 SECTION-LEVEL position restore** — PASS. Closed at Chapter 3
+  (section index 2, window `[1,2,3]`), reopened → restored to section 2, window
+  `[1,2,3]`. Does NOT reset to page 1 (the original Bug #265 symptom is gone in
+  windowed mode at section granularity).
+
+### BLOCKER found — intra-section restore regresses in windowed mode
+
+**Symptom**: `mini-azw3` section 2 holds the entire story and is **8853px tall**
+(sections 1/3 are 769/966px). Reading at the colored-rooms passage (intra-section
+fraction ≈ 0.45), closing, and reopening restored the correct SECTION but landed
+near the section **top** (intra ≈ 0) — the intra-section fraction was lost.
+
+**Why it's a windowed regression** (not pre-existing): Bug #265's own non-windowed
+device verification is fraction-precise — "seek 0.6 → reopen /6/10; seek 0.35 →
+reopen /6/6" (different fractions land at different spots). The windowed run lost
+that precision.
+
+**Suspected cause** (unconfirmed — needs focused work): the restore path is
+`readerAPI.goToFraction(frac)` → `view.goToFraction` →
+`SectionProgress.getSection(frac)` → `renderer.goTo({index, anchor})` → `#display`
+→ `#scrollToAnchor(anchor)` → `#scrollTo(anchor * this.viewSize)`. For an
+8853px section, `viewSize` is only correct after the `fonts.ready` re-expand;
+non-windowed relies on the Swift-side **4×700ms re-assert** to land precisely once
+layout settles. In windowed mode each re-assert tears down + rebuilds the window
+(`#createView` clears `#scrolledViews`, `#ensureWindow` re-mounts), and the
+above-mount scrollTop compensation + `#afterScroll` promote/resolve run on the
+restore relocate — one of these interactions is dropping the intra offset.
+Candidate fixes to investigate next session: (a) re-assert the anchor scroll
+*after* the anchor view's `fonts.ready` expand inside `#display` when windowed;
+(b) make `goToFraction`'s repeated re-asserts idempotent against the window
+rebuild; (c) defer `#ensureWindow` until after the restore scroll settles.
+
+**Decision**: flag stays **OFF**. The windowed surface is correct for live reading
+(forward/back crossing, window slide, selection, bilingual) but intra-section
+restore precision must be fixed before the default-ON flip. No regression ships
+(production reader is unaffected with the flag off). This is the top remaining
+WI-7 item, ahead of the WI-8 windowed parity harness.

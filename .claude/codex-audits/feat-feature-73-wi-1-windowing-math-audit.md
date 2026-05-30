@@ -1,8 +1,8 @@
 ---
 branch: feat/feature-73-wi-1-windowing-math
 threadId: codex-exec-2026-05-30-wi73-gate4
-rounds: 1
-final_verdict: follow-up-recommended
+rounds: 2
+final_verdict: ship-as-is
 date: 2026-05-30
 ---
 
@@ -38,3 +38,31 @@ flag-off shipped state).
 1 Medium deferred to round 2 as **default-ON-flip blockers**. The flag-off shipped
 state is unaffected (parity suite green). The flag stays OFF until round 2 closes
 findings #1, #2, #4 (#7 rides with #2).
+
+## Round 2 (2026-05-30)
+
+Re-audit of the round-1 fixes + verification of the round-2 changes.
+
+**Round-1 findings confirmed RESOLVED, no regressions:** H1 (generation checks
+prevent stale mounts dispatching lifecycle / staying in `#scrolledViews`; `finally`
+clears `#mountingIndices`), H2 (neighbour `load`/`create-overlayer` dispatch is
+per-doc and safe; Swift `section-load` doesn't mutate current-section state;
+promotion is pointer-only so no double-wiring), H4 (prev/next vertical-guarded,
+true book-end handled), M7 (flag-off parity intact), selection owner correct.
+
+**New findings (all FIXED this round):**
+
+| # | file:line | sev | issue | fix |
+|---|---|---|---|---|
+| R2-1 | paginator.js:#mountSection insert | High | Forward-neighbour insertion filtered only `#scrolledViews` (excludes `#view`); once the window had slid with `#view` in the middle, mounting a forward section could land it BEFORE `#view` → DOM order `[1,3,2]` while sorted indices still READ `[1,2,3]` (masked from index-only checks). | Insert against ALL mounted views (anchor + neighbours) sorted by real index: place after the highest-index mounted view `< index`, else before the lowest. **Verified flag-on CU-free**: after sliding the window, ordering mounted iframes by actual `frameElement.top` gives `[1,2,3]` monotonic. |
+| R2-2 | paginator.js stale-abort | Medium | Stale/failed mount unloaded the section by index even if the current generation re-owned it (anchor or re-mounted neighbour) → could revoke a fresh load's resources. Dormant for MOBI (no `unload`) but incorrect lifecycle. | `#unloadIfUnowned(index)`: unload only if `index` is neither `#index` nor a mounted neighbour. Used at both stale-abort sites + the load-failure catch. |
+| R2-3 | paginator.js load-failure catch | Medium | A failed `view.load` removed the phantom view but never unloaded the section → repeated failures leak loader refs. | catch now `view.destroy()` + `#unloadIfUnowned(index)` before rethrow. |
+
+## Verdict
+
+Two independent audit rounds; every Critical/High/Medium resolved. Low findings
+(1px boundary hysteresis, Swift horizontal-only helper) accepted with rationale.
+Flag-off parity GREEN; flag-on verified CU-free (window mount/slide, neighbour
+overlayers, next/prev no-teardown, DOM order monotonic, position restore) plus the
+earlier full CU visual verification of the core crossing. **Verdict: ship-as-is.**
+The default-ON flag flip is now unblocked.

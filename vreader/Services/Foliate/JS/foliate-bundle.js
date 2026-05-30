@@ -4544,6 +4544,8 @@ ${doc.querySelector("parsererror").innerText}`);
         #scrolledViews = [];
         #mountingIndices = /* @__PURE__ */ new Set();
         // WI-3: in-flight mount dedup (async race guard)
+        #windowGeneration = 0;
+        // Gate-4 H1: bumped on navigation/teardown; stale mounts abort
         #windowedScroll = false;
         #K = 3;
         // Feature #73 WI-2: windowed mount size (current + neighbours)
@@ -4779,6 +4781,7 @@ ${doc.querySelector("parsererror").innerText}`);
             this.#scrolledViews = [];
           }
           this.#mountingIndices.clear();
+          this.#windowGeneration++;
           if (this.#view) {
             this.#view.destroy();
             this.#container.removeChild(this.#view.element);
@@ -4833,25 +4836,41 @@ ${doc.querySelector("parsererror").innerText}`);
             $style.textContent = s3[1] ?? "";
           } else if (s3 != null) $style.textContent = s3;
         }
+        // Gate-4 round-2 M (audit): unload a section only if the CURRENT generation no
+        // longer owns it — i.e. it is neither the anchor (#index) nor a mounted
+        // neighbour. An index-only unload from a stale/failed mount could revoke
+        // loader resources the fresh window load owns.
+        #unloadIfUnowned(index) {
+          if (index === this.#index) return;
+          if (this.#scrolledViews.some((v3) => v3.wi73Index === index)) return;
+          this.sections[index]?.unload?.();
+        }
         async #mountSection(index) {
           if (!this.#canGoToIndex(index)) return null;
           if (index === this.#index) return null;
           if (this.#scrolledViews.some((v3) => v3.wi73Index === index)) return null;
           if (this.#mountingIndices.has(index)) return null;
           this.#mountingIndices.add(index);
+          const gen = this.#windowGeneration;
           try {
             const src = await Promise.resolve(this.sections[index].load());
+            if (gen !== this.#windowGeneration || !this.#windowedScroll || !this.scrolled) {
+              this.#unloadIfUnowned(index);
+              return null;
+            }
             const view2 = new View({ container: this, onExpand: () => this.#onNeighbourExpand(view2) });
             view2.wi73Index = index;
             view2.wi73Height = 0;
-            const anchorEl = this.#view?.element;
-            if (index < this.#index && anchorEl) {
-              this.#container.insertBefore(view2.element, anchorEl);
-            } else {
-              const lower = this.#scrolledViews.filter((v3) => v3.wi73Index < index);
-              const beforeEl = lower.length ? lower[lower.length - 1].element : anchorEl;
-              if (beforeEl?.nextSibling) this.#container.insertBefore(view2.element, beforeEl.nextSibling);
+            const ordered = [this.#view, ...this.#scrolledViews].filter((v3) => v3 && v3.element?.parentNode === this.#container).map((v3) => ({ el: v3.element, idx: v3.wi73Index ?? this.#index })).sort((a3, b3) => a3.idx - b3.idx);
+            const below = ordered.filter((m3) => m3.idx < index);
+            if (below.length) {
+              const afterEl = below[below.length - 1].el;
+              if (afterEl.nextSibling) this.#container.insertBefore(view2.element, afterEl.nextSibling);
               else this.#container.append(view2.element);
+            } else if (ordered.length) {
+              this.#container.insertBefore(view2.element, ordered[0].el);
+            } else {
+              this.#container.append(view2.element);
             }
             this.#scrolledViews.push(view2);
             this.#scrolledViews.sort((a3, b3) => a3.wi73Index - b3.wi73Index);
@@ -4868,10 +4887,27 @@ ${doc.querySelector("parsererror").innerText}`);
             try {
               await view2.load(src, afterLoad, this.#beforeRender.bind(this));
             } catch (e3) {
+              view2.destroy();
               if (view2.element.parentNode === this.#container) this.#container.removeChild(view2.element);
               this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== view2);
+              this.#unloadIfUnowned(index);
               throw e3;
             }
+            if (gen !== this.#windowGeneration || !this.#windowedScroll || !this.scrolled) {
+              view2.destroy();
+              if (view2.element.parentNode === this.#container) this.#container.removeChild(view2.element);
+              this.#scrolledViews = this.#scrolledViews.filter((v3) => v3 !== view2);
+              this.#unloadIfUnowned(index);
+              return null;
+            }
+            this.dispatchEvent(new CustomEvent("load", { detail: { doc: view2.document, index } }));
+            this.dispatchEvent(new CustomEvent("create-overlayer", {
+              detail: {
+                doc: view2.document,
+                index,
+                attach: (overlayer) => view2.overlayer = overlayer
+              }
+            }));
             return view2;
           } finally {
             this.#mountingIndices.delete(index);
@@ -5034,10 +5070,12 @@ ${doc.querySelector("parsererror").innerText}`);
         }
         render() {
           if (!this.#view) return;
-          this.#view.render(this.#beforeRender({
+          const layout = this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl
-          }));
+          });
+          for (const v3 of this.#scrolledViews) v3.render(layout);
+          this.#view.render(layout);
           this.#scrollToAnchor(this.#anchor);
         }
         get scrolled() {
@@ -5313,6 +5351,11 @@ ${doc.querySelector("parsererror").innerText}`);
         #scrollPrev(distance) {
           if (!this.#view) return true;
           if (this.scrolled) {
+            if (this.#windowedScroll && !this.#vertical) {
+              const top = this.#container.scrollTop;
+              if (top > 0) return this.#scrollTo(Math.max(0, top - (distance ?? this.size)), null, true);
+              return this.#adjacentIndex(-1) != null;
+            }
             if (this.start > 0) return this.#scrollTo(
               Math.max(0, this.start - (distance ?? this.size)),
               null,
@@ -5327,6 +5370,12 @@ ${doc.querySelector("parsererror").innerText}`);
         #scrollNext(distance) {
           if (!this.#view) return true;
           if (this.scrolled) {
+            if (this.#windowedScroll && !this.#vertical) {
+              const c2 = this.#container;
+              const remaining = c2.scrollHeight - (c2.scrollTop + c2.clientHeight);
+              if (remaining > 2) return this.#scrollTo(c2.scrollTop + (distance ?? this.size), null, true);
+              return this.#adjacentIndex(1) != null;
+            }
             if (this.viewSize - this.end > 2) return this.#scrollTo(
               Math.min(this.viewSize, distance ? this.start + distance : this.end),
               null,
@@ -5475,6 +5524,7 @@ ${doc.querySelector("parsererror").innerText}`);
           }
           this.#scrolledViews = [];
           this.#mountingIndices.clear();
+          this.#windowGeneration++;
           this.#view.destroy();
           this.#view = null;
           this.sections[this.#index]?.unload?.();

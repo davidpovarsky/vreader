@@ -790,6 +790,36 @@ export class Paginator extends HTMLElement {
             }
         }
     }
+    // Feature #73 WI-3/WI-5: resolve the CURRENT section + intra-section fraction
+    // from the live scroll position over the mounted views (the anchor `#view`
+    // plus its neighbours), so windowed crossing is native scroll — no swap.
+    #elementScrollTop(el) {
+        return el.getBoundingClientRect().top
+            - this.#container.getBoundingClientRect().top
+            + this.#container.scrollTop
+    }
+    #windowedViews() {
+        return [this.#view, ...this.#scrolledViews]
+            .filter(Boolean)
+            .sort((a, b) => (a.wi73Index ?? this.#index) - (b.wi73Index ?? this.#index))
+    }
+    #windowedResolve() {
+        const views = this.#windowedViews()
+        if (!views.length) return { view: this.#view, index: this.#index, intra: 0 }
+        if (this.#view && this.#view.wi73Index == null) this.#view.wi73Index = this.#index
+        const scrollTop = this.#container.scrollTop
+        for (const v of views) {
+            const top = this.#elementScrollTop(v.element)
+            const h = v.element.getBoundingClientRect().height
+            if (scrollTop < top + h - 1) {
+                const idx = v.wi73Index ?? this.#index
+                const intra = h > 0 ? Math.min(Math.max((scrollTop - top) / h, 0), 1) : 0
+                return { view: v, index: idx, intra }
+            }
+        }
+        const last = views[views.length - 1]
+        return { view: last, index: last.wi73Index ?? this.#index, intra: 1 }
+    }
     #beforeRender({ vertical, rtl, background }) {
         this.#vertical = vertical
         this.#rtl = rtl
@@ -1072,9 +1102,21 @@ export class Paginator extends HTMLElement {
             this.#anchor = range
         else this.#justAnchored = true
 
-        const index = this.#index
+        // Feature #73 WI-5: in windowed mode derive the current section + its
+        // INTRA-section fraction from the scroll position over the mounted views
+        // (Gate-2 C1 — emit intra, NOT whole-book; view.js→SectionProgress still
+        // owns the whole-book conversion + Bug #265 restore). Non-windowed path
+        // unchanged.
+        let index = this.#index
+        let scrolledFraction = null
+        if (this.scrolled && this.#windowedScroll) {
+            const r = this.#windowedResolve()
+            this.#index = r.index
+            index = r.index
+            scrolledFraction = r.intra
+        }
         const detail = { reason, range, index }
-        if (this.scrolled) detail.fraction = this.start / this.viewSize
+        if (this.scrolled) detail.fraction = scrolledFraction != null ? scrolledFraction : this.start / this.viewSize
         else if (this.pages > 0) {
             const { page, pages } = this
             this.#header.style.visibility = page > 1 ? 'visible' : 'hidden'
@@ -1232,6 +1274,17 @@ export class Paginator extends HTMLElement {
         if (!this.scrolled) return
         if (this.#locked) return
         if (!this.#view) return
+        // Feature #73 WI-3: in windowed mode the neighbour sections are already
+        // mounted contiguously, so a boundary crossing is just native scroll —
+        // do NOT swap. Track the current section live from the scroll position
+        // and keep the K-window mounted ahead/behind. (D1 offset-reset gone:
+        // there is no scrollToAnchor(0) reset, the scroll simply continues.)
+        if (this.#windowedScroll) {
+            const r = this.#windowedResolve()
+            if (r.index !== this.#index) this.#index = r.index
+            this.#ensureWindow()
+            return
+        }
         const atEnd = this.viewSize - this.end <= 2
         const atStart = this.start <= 0
         if (atEnd && this.#adjacentIndex(1) != null) {

@@ -4876,6 +4876,32 @@ ${doc.querySelector("parsererror").innerText}`);
             }
           }
         }
+        // Feature #73 WI-3/WI-5: resolve the CURRENT section + intra-section fraction
+        // from the live scroll position over the mounted views (the anchor `#view`
+        // plus its neighbours), so windowed crossing is native scroll — no swap.
+        #elementScrollTop(el) {
+          return el.getBoundingClientRect().top - this.#container.getBoundingClientRect().top + this.#container.scrollTop;
+        }
+        #windowedViews() {
+          return [this.#view, ...this.#scrolledViews].filter(Boolean).sort((a3, b3) => (a3.wi73Index ?? this.#index) - (b3.wi73Index ?? this.#index));
+        }
+        #windowedResolve() {
+          const views = this.#windowedViews();
+          if (!views.length) return { view: this.#view, index: this.#index, intra: 0 };
+          if (this.#view && this.#view.wi73Index == null) this.#view.wi73Index = this.#index;
+          const scrollTop = this.#container.scrollTop;
+          for (const v3 of views) {
+            const top = this.#elementScrollTop(v3.element);
+            const h3 = v3.element.getBoundingClientRect().height;
+            if (scrollTop < top + h3 - 1) {
+              const idx = v3.wi73Index ?? this.#index;
+              const intra = h3 > 0 ? Math.min(Math.max((scrollTop - top) / h3, 0), 1) : 0;
+              return { view: v3, index: idx, intra };
+            }
+          }
+          const last = views[views.length - 1];
+          return { view: last, index: last.wi73Index ?? this.#index, intra: 1 };
+        }
         #beforeRender({ vertical, rtl, background }) {
           this.#vertical = vertical;
           this.#rtl = rtl;
@@ -5118,9 +5144,16 @@ ${doc.querySelector("parsererror").innerText}`);
           if (reason !== "selection" && reason !== "navigation" && reason !== "anchor")
             this.#anchor = range;
           else this.#justAnchored = true;
-          const index = this.#index;
+          let index = this.#index;
+          let scrolledFraction = null;
+          if (this.scrolled && this.#windowedScroll) {
+            const r3 = this.#windowedResolve();
+            this.#index = r3.index;
+            index = r3.index;
+            scrolledFraction = r3.intra;
+          }
           const detail = { reason, range, index };
-          if (this.scrolled) detail.fraction = this.start / this.viewSize;
+          if (this.scrolled) detail.fraction = scrolledFraction != null ? scrolledFraction : this.start / this.viewSize;
           else if (this.pages > 0) {
             const { page, pages } = this;
             this.#header.style.visibility = page > 1 ? "visible" : "hidden";
@@ -5278,6 +5311,12 @@ ${doc.querySelector("parsererror").innerText}`);
           if (!this.scrolled) return;
           if (this.#locked) return;
           if (!this.#view) return;
+          if (this.#windowedScroll) {
+            const r3 = this.#windowedResolve();
+            if (r3.index !== this.#index) this.#index = r3.index;
+            this.#ensureWindow();
+            return;
+          }
           const atEnd = this.viewSize - this.end <= 2;
           const atStart = this.start <= 0;
           if (atEnd && this.#adjacentIndex(1) != null) {

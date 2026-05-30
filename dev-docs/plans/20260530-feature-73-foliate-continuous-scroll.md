@@ -865,3 +865,45 @@ A throwaway spike (`#wi0MountNext`, scrolled-gated, reverted after) was added to
 **(c) expand-no-shift / (d) memory gate:** the spike included a `view2.onExpand` log for (c) but console isn't host-piped, so (c) wasn't captured; (d) (K=3 large-CJK memory) not run. Both remain.
 
 **Updated WI-0 verdict: GO (strengthened).** (a) confirmed (inner `#container` scrolls); (b) mount mechanism confirmed viable (no crash). The two highest-risk unknowns from the Gate-2 audit (which element scrolls; can a 2nd iframe coexist at all) are both favorable. (b)-clean / (c) / (d) fold naturally into WI-1a/WI-2/WI-3/WI-4 implementation. **Recommendation: proceed to WI-1 (pure windowing math, Swift-testable) — the substrate is de-risked enough to start the real fork.**
+
+---
+
+## Implementation progress + WI-6/WI-7 design finding (2026-05-30)
+
+### Banked (committed on `feat/feature-73-wi-1-windowing-math`, flag OFF, parity GREEN)
+
+- **WI-1/1a/1b** — `FoliateScrolledWindowMath` (window / offsetOfSection / sectionAtOffset / intraSectionFraction / offsetAdjustmentOnEvict / containerOffset), 19 unit tests GREEN; renderer fork scaffold (`#scrolledViews`, `#windowedScroll=false`, `#K=3`, `#mountedViews()`/`#currentView()`, `getContents()` routed through `#mountedViews()`).
+- **WI-2** — `#windowRange` / `#applyCachedStyles` / `#mountSection` / `#ensureWindow` (mount the K-window neighbours into the single `#container` in section order).
+- **WI-3/WI-5** — `#elementScrollTop` / `#windowedViews` / `#windowedResolve` (map live `#container.scrollTop` → {view, absolute index, intra-section fraction}); `#maybeCrossSectionBoundary` windowed branch skips `#turnPage`'s destroy+swap and updates `#index` from scroll position; `#afterScroll` windowed branch emits Gate-2 C1 **intra-section** fraction from `#windowedResolve()`.
+- **WI-4** — `#evictOutsideWindow(lo,hi)` from `#ensureWindow`: unmount+unload neighbours outside the window; subtract evicted-above heights from `scrollTop` (offset preservation).
+
+### The core problem WI-6/WI-7 must solve — `#view` vs `#index` divergence
+
+`get start()` returns the **container-absolute** scroll offset (`Math.abs(this.#container[scrollProp])`), and `viewSize` / `pages` / `#getRectMapper` / `getVisibleRange` / `atStart` / `atEnd` / `#background` are all coupled to the single `#view`. In single-view scrolled mode the container holds exactly one view, so `start ∈ [0, viewSize]` and these are correct.
+
+In windowed mode the container holds K stacked views. After a swap-free crossing, WI-3 updates `#index` but leaves `#view` pointing at the original anchor section — so:
+
+1. `#index` (logical current section) ≠ `#view.wi73Index` (the DOM view the getters read).
+2. `start` is container-absolute — it spans the heights of every view mounted **above** the current one, so passing `start`/`end` into a per-`#view` document mapper (`getVisibleRange`, `#getRectMapper`) is wrong by the above-views' total height.
+
+`#afterScroll`'s emitted fraction is already correct (WI-5 overrides it with `#windowedResolve().intra`), so the *relocate* contract is safe. The divergence bites the **navigation-landing** and **multi-doc** paths (visible range, rect mapping, TOC/CFI/goToFraction landing, selection owner).
+
+### Resolution design (next session — WI-6 then WI-7)
+
+**WI-6a — promote `#view` to track the viewport's current section (pointer swap, not DOM swap).**
+In the windowed branch of `#maybeCrossSectionBoundary` / `#afterScroll`, when `#windowedResolve().view !== this.#view`:
+- stamp `this.#view.wi73Index ??= this.#index` (old index), push old `#view` into `#scrolledViews`,
+- remove the resolved view from `#scrolledViews`, set `this.#view = resolved.view`, `this.#index = resolved.index`.
+The **DOM does not move** (no flash) — only the JS pointer changes — so `viewSize`/`pages`/`#getRectMapper`/`#background`/`atStart`/`atEnd` immediately read the correct section.
+
+**WI-6b — make container-absolute `start` window-relative for per-`#view` ops.**
+Add `#viewRelativeStart()` = `this.#container.scrollTop - this.#elementScrollTop(this.#view.element)` and, in windowed mode only, route `getVisibleRange`'s start/end and any `#getRectMapper` offset through it (so per-section document coordinates get section-relative offsets). Flag OFF → unchanged (`start` stays container-absolute == view-relative because one view).
+
+**WI-6c — navigation landing offset preservation on above-mount (symmetric to WI-4 eviction).**
+`#mountSection` of a section ABOVE the current scroll anchor (`index < #index`, `insertBefore`) shifts visible content DOWN by the mounted height. After landing (`#display` → `#scrollToAnchor`), `#ensureWindow` mounting above-neighbours must `scrollTop += mountedHeight` to keep the just-landed anchor stationary. For non-anchor mounted targets, use `containerOffset(rectTopWithinSection, mountedIndex, mountedSizes)` (WI-1b) to translate the in-section rect to a container offset. (Bug #265 goToFraction restore routes through `#goTo`→`#display`→`#createView` which clears the window and makes the target the anchor `#view` at container-top, so the fraction lands correctly *before* `#ensureWindow` runs — WI-6c only needs the above-mount compensation so the post-landing window fill doesn't shift it.)
+
+**WI-7 — multi-doc consumers.** `getContents()` already routes through `#mountedViews()` (WI-1a). Remaining: overlays/TTS/selection/bilingual must (a) iterate `#mountedViews()` not just `#view`, (b) track the **selection owner** view (round-2 audit H1, `foliate-host.js`) so a selection in a neighbour section resolves against the right document. Audit the `relocate`/`getCFI`/overlay redraw paths for `#view`-only assumptions.
+
+### Why this is paused here, not pushed further this session
+
+WI-6b reworks the coordinate system that every per-section render/visible-range/anchor operation depends on. The parity guard runs **flag-off**, so it cannot catch a subtly-wrong windowed coordinate transform — only flag-on device verification on a real multi-section AZW3 can. That verification is the WI that lights the flag; rushing the coordinate rework in the tail of a long session risks shipping math the guard can't see. Resume at WI-6a with the design above.

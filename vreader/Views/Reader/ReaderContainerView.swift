@@ -997,7 +997,8 @@ struct ReaderContainerView: View {
                     modelContainer: modelContext.container,
                     settingsStore: settingsStore,
                     readerToken: readerToken,
-                    ttsService: ttsService
+                    ttsService: ttsService,
+                    isChromeVisible: isChromeVisible
                 )
             } else {
                 EPUBReaderHost(
@@ -1018,7 +1019,8 @@ struct ReaderContainerView: View {
                 modelContainer: modelContext.container,
                 settingsStore: settingsStore,
                 readerToken: readerToken,
-                ttsService: ttsService
+                ttsService: ttsService,
+                isChromeVisible: isChromeVisible
             )
         case .pdfKit:
             PDFReaderHost(

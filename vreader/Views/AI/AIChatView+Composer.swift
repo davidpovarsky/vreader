@@ -44,6 +44,12 @@ extension AIChatView {
                     .textFieldStyle(.plain)
                     .focused($isInputFocused)
                     .onSubmit { sendCurrentMessage() }
+                    // Feature #86 WI-5b (Gate-4): the field itself is non-editable
+                    // while the whole book is being read — not just the send button.
+                    .disabled(viewModel.isComposerDisabled)
+                    .onChange(of: viewModel.isComposerDisabled) { _, disabled in
+                        if disabled { isInputFocused = false }
+                    }
                     .accessibilityIdentifier("chatInputField")
                     // Bug #310: the empty prompt `""` would leave VoiceOver an
                     // unlabeled field (the overlay placeholder is hidden), so
@@ -81,7 +87,10 @@ extension AIChatView {
     /// book-specific copy; the Library general-chat sheet keeps the neutral
     /// pre-v2 wording so the WI-2 re-skin doesn't regress that reused surface.
     var inputPlaceholder: String {
-        viewModel.bookFingerprint != nil
+        // Feature #86 WI-5b: while the whole book is being read, the composer is
+        // disabled and the placeholder says so.
+        if viewModel.isComposerDisabled { return "Reading\u{2026} ask once the book is ready" }
+        return viewModel.bookFingerprint != nil
             ? "Ask about this book\u{2026}"
             : "Type a message\u{2026}"
     }
@@ -89,6 +98,7 @@ extension AIChatView {
     var canSend: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !viewModel.isLoading
+            && !viewModel.isComposerDisabled   // Feature #86 WI-5b: disabled while reading
     }
 
     /// Bug #310: the empty-state + the placeholder must read the designed

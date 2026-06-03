@@ -321,6 +321,33 @@ struct TXTTextViewBridge: UIViewRepresentable {
             )
         }
 
+        // Feature #74 WI-2: bloom when a navigation lands on a SAVED highlight (a
+        // Notes/Highlights row tap — the nav range exactly matches a persisted
+        // highlight). Gated on the navigate NONCE (advances on every nav incl. a
+        // re-tap on the same highlight), NOT scroll dedupe, so a re-tap re-blooms
+        // (Gate-4 High). The trigger is a CANCELLABLE work item — a superseding
+        // nav cancels the prior pending bloom, and a user tap/scroll cancels it
+        // via `cancelLandingBloom` (design §3 interruptibility, Gate-4 High).
+        if highlightNonce != context.coordinator.lastBloomNonce {
+            context.coordinator.lastBloomNonce = highlightNonce
+            context.coordinator.cancelLandingBloom()  // supersede any prior bloom
+            if let landed = Self.landingTrigger(
+                highlightRange: highlightRange, persisted: persistedHighlights) {
+                let family = Self.bloomThemeFamily(for: config.backgroundColor)
+                let reduceMotion = UIAccessibility.isReduceMotionEnabled
+                let range = landed.range
+                let colorName = landed.colorName
+                let work = DispatchWorkItem { [weak textView] in
+                    (textView as? HighlightableTextView)?.playLandingBloom(
+                        range: range, colorName: colorName,
+                        family: family, reduceMotion: reduceMotion
+                    )
+                }
+                context.coordinator.pendingBloom = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+            }
+        }
+
         // Scroll position restore is one-shot only (handled in makeUIView).
         // Do NOT re-apply restoreOffset here — doing so creates an observation
         // feedback loop: scroll → viewModel.currentOffsetUTF16 changes →
@@ -331,7 +358,35 @@ struct TXTTextViewBridge: UIViewRepresentable {
         Coordinator(delegate: delegate, config: config)
     }
 
+    static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
+        // Feature #74 WI-2 (Gate-4 Medium): cancel any pending/active locate bloom
+        // (and its CADisplayLink) when the reader tears down, so nothing animates
+        // against a detached view.
+        coordinator.cancelLandingBloom()
+    }
+
     // MARK: - Static seams (testable)
+
+    /// Feature #74 WI-2: the saved highlight a navigation landed on — the
+    /// persisted highlight whose range EXACTLY matches the nav target (a
+    /// Notes/Highlights list tap), or nil for a search hit / non-highlight nav
+    /// (so only a real "jump to my saved highlight" blooms).
+    static func landingTrigger(
+        highlightRange: NSRange?, persisted: [PaintedHighlight]
+    ) -> PaintedHighlight? {
+        guard let highlightRange, highlightRange.length > 0 else { return nil }
+        return persisted.first { $0.range == highlightRange }
+    }
+
+    /// Feature #74 WI-2 (design §6): the bloom theme family from the reader
+    /// background — light (Paper/Sepia) vs dark (Dark/OLED/Photo) — by relative
+    /// luminance, so the glow alpha picks the right knob.
+    static func bloomThemeFamily(for backgroundColor: UIColor) -> LandingBloomThemeFamily {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        backgroundColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return luminance < 0.5 ? .dark : .light
+    }
 
     /// Bug #154 / GH #443: decides whether the temporary search/navigation
     /// highlight should be re-applied (and its 3 s auto-clear timer re-armed).

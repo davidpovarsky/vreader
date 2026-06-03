@@ -38,7 +38,7 @@ final class HighlightingLayoutManager: NSLayoutManager {
     /// range — defeats the dedup no-op), and it REPLACES the persisted fill for
     /// an equal range (the design's single wash value-lift, never a stacked
     /// translucent fill). `nil` when no bloom is active. WI-2 drives `intensity`.
-    var landingHighlight: (range: NSRange, colorName: String, intensity: CGFloat, family: LandingBloomThemeFamily)?
+    var landingHighlight: (range: NSRange, colorName: String, intensity: CGFloat, family: LandingBloomThemeFamily, reduceMotion: Bool)?
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
@@ -96,11 +96,14 @@ final class HighlightingLayoutManager: NSLayoutManager {
     /// `saveGState`/`restoreGState` so the shadow/stroke state never leaks into
     /// the persisted/search fills painted above.
     private func paintLandingBloom(
-        _ landing: (range: NSRange, colorName: String, intensity: CGFloat, family: LandingBloomThemeFamily),
+        _ landing: (range: NSRange, colorName: String, intensity: CGFloat, family: LandingBloomThemeFamily, reduceMotion: Bool),
         ctx: CGContext, container: NSTextContainer, validBounds: NSRange,
         visibleCharRange: NSRange, glyphsToShow: NSRange, origin: CGPoint
     ) {
-        let p = LandingBloomPaint(intensity: landing.intensity, family: landing.family)
+        let p = LandingBloomPaint(
+            intensity: landing.intensity, family: landing.family,
+            reduceMotion: landing.reduceMotion
+        )
         let swatch = HighlightPaintColor.solidSwatch(for: landing.colorName)
         // 1. Wash (value-lifted alpha).
         paint(
@@ -126,7 +129,7 @@ final class HighlightingLayoutManager: NSLayoutManager {
                 color: swatch.withAlphaComponent(p.glowAlpha).cgColor
             )
         }
-        ctx.setStrokeColor(swatch.cgColor)
+        ctx.setStrokeColor(swatch.withAlphaComponent(p.ringAlpha).cgColor)
         ctx.setLineWidth(p.ringWidth)
         enumerateEnclosingRects(
             forGlyphRange: visible,
@@ -239,10 +242,14 @@ final class HighlightableTextView: UITextView {
     /// persisted/search (so an equal range still renders — defeats the dedup),
     /// and it replaces the equal-range persisted wash (no stacking).
     func setLandingHighlight(
-        range: NSRange, colorName: String, intensity: CGFloat, family: LandingBloomThemeFamily
+        range: NSRange, colorName: String, intensity: CGFloat,
+        family: LandingBloomThemeFamily, reduceMotion: Bool = false
     ) {
         guard let lm = layoutManager as? HighlightingLayoutManager else { return }
-        lm.landingHighlight = (range: range, colorName: colorName, intensity: intensity, family: family)
+        lm.landingHighlight = (
+            range: range, colorName: colorName, intensity: intensity,
+            family: family, reduceMotion: reduceMotion
+        )
         invalidateHighlightDisplay(lm)
     }
 
@@ -253,6 +260,70 @@ final class HighlightableTextView: UITextView {
         lm.landingHighlight = nil
         invalidateHighlightDisplay(lm)
     }
+
+    // MARK: - Feature #74 WI-2: bloom animation driver
+
+    private var bloomLink: CADisplayLink?
+    private var bloomStart: CFTimeInterval = 0
+    private var bloomRange = NSRange(location: 0, length: 0)
+    private var bloomColorName = "yellow"
+    private var bloomFamily: LandingBloomThemeFamily = .light
+    private var bloomReduceMotion = false
+
+    /// Plays the locate bloom once over the `LandingBloomCurve` (design §3 / §5),
+    /// driving `intensity` per display frame and tearing the layer down when the
+    /// run completes. Cancels any in-flight bloom first (single fire).
+    func playLandingBloom(
+        range: NSRange, colorName: String,
+        family: LandingBloomThemeFamily, reduceMotion: Bool
+    ) {
+        cancelLandingBloom()
+        bloomRange = range
+        bloomColorName = colorName
+        bloomFamily = family
+        bloomReduceMotion = reduceMotion
+        bloomStart = 0
+        // Seed the FIRST frame at the curve's t=0 value — 0 for motion (rises in),
+        // 1 for reduce-motion (jumps to peak per §5), so there is no rest-frame
+        // flash before the first display tick (Gate-4 Medium).
+        setLandingHighlight(
+            range: range, colorName: colorName,
+            intensity: LandingBloomCurve.intensity(elapsedMs: 0, reduceMotion: reduceMotion),
+            family: family, reduceMotion: reduceMotion
+        )
+        let link = CADisplayLink(target: self, selector: #selector(bloomTick(_:)))
+        link.add(to: .main, forMode: .common)
+        bloomLink = link
+    }
+
+    @objc private func bloomTick(_ link: CADisplayLink) {
+        if bloomStart == 0 { bloomStart = link.timestamp }
+        let elapsedMs = (link.timestamp - bloomStart) * 1000
+        if LandingBloomCurve.isComplete(elapsedMs: elapsedMs, reduceMotion: bloomReduceMotion) {
+            cancelLandingBloom()
+            return
+        }
+        let i = LandingBloomCurve.intensity(elapsedMs: elapsedMs, reduceMotion: bloomReduceMotion)
+        setLandingHighlight(
+            range: bloomRange, colorName: bloomColorName, intensity: i,
+            family: bloomFamily, reduceMotion: bloomReduceMotion
+        )
+    }
+
+    /// Cancels an in-flight bloom + clears the layer (design §3: interruptible —
+    /// any tap/scroll during the bloom cancels it to resting).
+    func cancelLandingBloom() {
+        bloomLink?.invalidate()
+        bloomLink = nil
+        clearLandingHighlight()
+    }
+
+    // Feature #74 WI-2 (Gate-4 Medium): teardown is handled by
+    // `TXTTextViewBridge.dismantleUIView` → `cancelLandingBloom()`, which
+    // invalidates the link. A `deinit` cannot touch the MainActor-isolated
+    // `CADisplayLink` under Swift 6, and isn't needed: while a bloom runs the
+    // link retains `self`, so the view cannot dealloc until the link is already
+    // invalidated (on completion, cancel, or dismantle).
 
     private func invalidateHighlightDisplay(_ lm: HighlightingLayoutManager) {
         let glyphCount = lm.numberOfGlyphs

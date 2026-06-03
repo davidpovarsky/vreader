@@ -110,4 +110,112 @@ struct HighlightableTextViewLandingTests {
         #expect(lm?.landingHighlight == nil)
     }
 }
+
+/// Feature #74 WI-2: the bloom intensity curve (design §3 motion / §5 reduce-motion).
+@Suite("LandingBloomCurve (Feature #74 WI-2)")
+struct LandingBloomCurveTests {
+
+    @Test func intensity_rest_isZero() {
+        #expect(LandingBloomCurve.intensity(elapsedMs: 0, reduceMotion: false) == 0)
+    }
+
+    @Test func intensity_duringHold_isPeak() {
+        #expect(LandingBloomCurve.intensity(elapsedMs: 250, reduceMotion: false) == 1)
+    }
+
+    @Test func intensity_decaysMonotonicallyAfterHold() {
+        let a = LandingBloomCurve.intensity(elapsedMs: 500, reduceMotion: false)
+        let b = LandingBloomCurve.intensity(elapsedMs: 900, reduceMotion: false)
+        #expect(a > b)
+        #expect(b > 0)
+    }
+
+    @Test func intensity_atEnd_isZero_andComplete() {
+        #expect(LandingBloomCurve.intensity(elapsedMs: 1500, reduceMotion: false) == 0)
+        #expect(LandingBloomCurve.isComplete(elapsedMs: 1500, reduceMotion: false))
+        #expect(!LandingBloomCurve.isComplete(elapsedMs: 1400, reduceMotion: false))
+    }
+
+    @Test func reduceMotion_jumpsToPeak_holdsThenFades() {
+        #expect(LandingBloomCurve.intensity(elapsedMs: 0, reduceMotion: true) == 1)
+        #expect(LandingBloomCurve.intensity(elapsedMs: 1200, reduceMotion: true) == 1)
+        #expect(LandingBloomCurve.intensity(elapsedMs: 1360, reduceMotion: true) > 0)
+        #expect(LandingBloomCurve.intensity(elapsedMs: 1520, reduceMotion: true) == 0)
+    }
+}
+
+/// Feature #74 WI-2: the navigate-from-list trigger + theme-family resolution +
+/// the reduce-motion glow suppression.
+@Suite("LandingBloom trigger + family (Feature #74 WI-2)")
+@MainActor
+struct LandingBloomTriggerTests {
+
+    @Test func landingTrigger_firesOnlyForAPersistedRangeMatch() {
+        let h = PaintedHighlight(range: NSRange(location: 10, length: 5), colorName: "green")
+        // Exact match (a list tap on the saved highlight) → bloom with its color.
+        #expect(TXTTextViewBridge.landingTrigger(
+            highlightRange: NSRange(location: 10, length: 5), persisted: [h])?.colorName == "green")
+        // A search hit (range matches no persisted highlight) → no bloom.
+        #expect(TXTTextViewBridge.landingTrigger(
+            highlightRange: NSRange(location: 11, length: 5), persisted: [h]) == nil)
+        // No nav range → no bloom.
+        #expect(TXTTextViewBridge.landingTrigger(highlightRange: nil, persisted: [h]) == nil)
+    }
+
+    @Test func bloomThemeFamily_byBackgroundLuminance() {
+        #expect(TXTTextViewBridge.bloomThemeFamily(for: .white) == .light)
+        #expect(TXTTextViewBridge.bloomThemeFamily(for: .black) == .dark)
+    }
+
+    @Test func paint_reduceMotion_suppressesGlowKeepsRing() {
+        let p = LandingBloomPaint(intensity: 1, family: .dark, reduceMotion: true)
+        #expect(p.glowRadius == 0)
+        #expect(p.glowAlpha == 0)
+        #expect(approxCG(p.ringWidth, 1.6))
+        #expect(p.ringAlpha == 1)
+        #expect(approxCG(p.washAlpha, 0.86))
+    }
+
+    /// §5 fidelity (Gate-4 Medium): under reduce-motion the ring fades by OPACITY
+    /// (ringAlpha), NOT by shrinking — its WIDTH stays fixed at 1.6 while active,
+    /// so nothing translates/scales. Contrast: motion shrinks the ring width.
+    @Test func paint_reduceMotion_ringFadesByOpacityNotWidth() {
+        let fading = LandingBloomPaint(intensity: 0.5, family: .dark, reduceMotion: true)
+        #expect(approxCG(fading.ringWidth, 1.6))   // fixed geometry
+        #expect(approxCG(fading.ringAlpha, 0.5))   // fades by opacity
+        #expect(fading.glowRadius == 0)
+        // Motion (contrast): the ring width shrinks with intensity, alpha stays 1.
+        let motion = LandingBloomPaint(intensity: 0.5, family: .dark, reduceMotion: false)
+        #expect(approxCG(motion.ringWidth, 0.8))
+        #expect(motion.ringAlpha == 1)
+    }
+
+    /// Gate-4 round-2: the coordinator's `cancelLandingBloom` cancels BOTH the
+    /// pending (delayed work item) AND the active (layer on the text view) bloom —
+    /// the contract the interruptibility paths (user tap/scroll, superseding nav,
+    /// highlight-hit tap) rely on.
+    @Test func coordinator_cancelLandingBloom_cancelsPendingAndActive() {
+        let coord = TXTTextViewBridge.Coordinator(delegate: nil, config: TXTViewConfig())
+        let tv = HighlightableTextView()
+        coord.activeTextView = tv
+        // Active bloom: a landing layer is on the text view.
+        tv.setLandingHighlight(
+            range: NSRange(location: 0, length: 4), colorName: "yellow",
+            intensity: 0.5, family: .light
+        )
+        let lm = tv.layoutManager as? HighlightingLayoutManager
+        #expect(lm?.landingHighlight != nil)
+        // Pending bloom: a scheduled work item.
+        let work = DispatchWorkItem {}
+        coord.pendingBloom = work
+
+        coord.cancelLandingBloom()
+
+        #expect(coord.pendingBloom == nil)   // pending dropped
+        #expect(work.isCancelled)            // …and cancelled
+        #expect(lm?.landingHighlight == nil) // active torn down
+    }
+
+    private func approxCG(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 0.0001 }
+}
 #endif

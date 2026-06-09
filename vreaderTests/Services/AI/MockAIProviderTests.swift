@@ -82,6 +82,57 @@ struct MockAIProviderTests {
         let elapsedNanos = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
         #expect(elapsedNanos < 50_000_000)         // no artificial hold
     }
+
+    // Feature #77 Gate-5b / GH #1585: a multi-segment chunk-contract translate
+    // prompt must get a JSON array of EXACTLY N strings so the strict decode
+    // passes on the FIRST attempt (no slow per-segment fallback) — the fix that
+    // lets the Foliate multi-paragraph translate→inject land.
+    @Test func reply_chunkContractPrompt_returnsDecodableJSONArray() throws {
+        let segments = ["第一段。", "第二段落，更长一些。", "Third paragraph."]
+        let prompt = TranslationChunkContract.userPrompt(
+            segments: segments, targetLanguage: "Italian", style: .natural)
+        let req = request(action: .translate, prompt: prompt, context: "")
+        let reply = MockAIProvider.reply(for: req)
+        // The contract decoder must accept it as exactly N strings.
+        let decoded = try TranslationChunkContract.decode(reply, expectedCount: segments.count)
+        #expect(decoded.count == segments.count)
+        #expect(decoded.allSatisfy { $0.contains("[MOCK译]") })
+        // Reflects each source segment, in order.
+        #expect(decoded[0].contains("第一段"))
+        #expect(decoded[2].contains("Third"))
+    }
+
+    // Codex audit Medium: a source segment that itself contains a blank line
+    // must NOT over-split — N headers → N array elements.
+    @Test func reply_chunkContract_segmentWithInternalBlankLine_keepsCount() throws {
+        let segments = ["Line one.\n\nStill segment zero.", "Segment one."]
+        let prompt = TranslationChunkContract.userPrompt(
+            segments: segments, targetLanguage: "German", style: .literal)
+        let reply = MockAIProvider.reply(for: request(action: .translate, prompt: prompt, context: ""))
+        let decoded = try TranslationChunkContract.decode(reply, expectedCount: 2)
+        #expect(decoded.count == 2)
+        #expect(decoded[0].contains("Line one"))
+    }
+
+    // Codex audit Low: an empty source segment still yields one array element so
+    // the length equals N (decode passes).
+    @Test func reply_chunkContract_emptySegment_stillEmitsElement() throws {
+        let segments = ["First.", "", "Third."]
+        let prompt = TranslationChunkContract.userPrompt(
+            segments: segments, targetLanguage: "French", style: .natural)
+        let reply = MockAIProvider.reply(for: request(action: .translate, prompt: prompt, context: ""))
+        let decoded = try TranslationChunkContract.decode(reply, expectedCount: 3)
+        #expect(decoded.count == 3)
+        #expect(decoded.allSatisfy { $0.contains("[MOCK译]") })
+    }
+
+    @Test func reply_singleSegmentTranslate_staysSingleString() {
+        // A plain (non-chunk) translate prompt keeps the single-string reply —
+        // the chunk-array path only triggers on the JSON-array contract prompt.
+        let r = MockAIProvider.reply(for: request(action: .translate, prompt: "床前明月光"))
+        #expect(r.hasPrefix("[MOCK译]"))
+        #expect(!r.hasPrefix("[\""))  // not a JSON array of strings (which begins `["`)
+    }
 }
 
 #endif

@@ -66,13 +66,14 @@ struct AgenticToolRegistryBuilderTests {
     private static let fp = DocumentFingerprint(
         contentSHA256: String(repeating: "a", count: 64), fileByteCount: 4096, format: .epub)
 
-    @Test("with an open book + a live search service, the registry offers all three tools")
+    @Test("with an open book + a live search service, the registry offers all four tools")
     func includesCurrentBookTool() {
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: Self.fp, currentBookSearch: StubSearch(),
             libraryBackend: StubLibraryBackend(), contentProvider: StubContent())
+        // Feature #97 added list_library (name-sorted).
         #expect(registry.definitions().map(\.name)
-            == ["get_book_content", "search_current_book", "search_other_books"])
+            == ["get_book_content", "list_library", "search_current_book", "search_other_books"])
     }
 
     @Test("general chat (no open book) omits search_current_book")
@@ -80,7 +81,7 @@ struct AgenticToolRegistryBuilderTests {
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: nil, currentBookSearch: nil,
             libraryBackend: StubLibraryBackend(), contentProvider: StubContent())
-        #expect(registry.definitions().map(\.name) == ["get_book_content", "search_other_books"])
+        #expect(registry.definitions().map(\.name) == ["get_book_content", "list_library", "search_other_books"])
         #expect(!registry.isEmpty)
     }
 
@@ -90,7 +91,7 @@ struct AgenticToolRegistryBuilderTests {
             currentBook: Self.fp, currentBookSearch: nil,
             libraryBackend: StubLibraryBackend(), contentProvider: StubContent())
         #expect(!registry.definitions().map(\.name).contains("search_current_book"))
-        #expect(registry.definitions().map(\.name) == ["get_book_content", "search_other_books"])
+        #expect(registry.definitions().map(\.name) == ["get_book_content", "list_library", "search_other_books"])
     }
 
     @Test("the assembled search_other_books EXCLUDES the open book at runtime (not just the names)")
@@ -113,5 +114,37 @@ struct AgenticToolRegistryBuilderTests {
         // search the open book too and fail.)
         #expect(spy.searchedKeys.contains(otherKey))
         #expect(!spy.searchedKeys.contains(openKey))
+    }
+
+    // Feature #97 — HIGH-FIDELITY INTEGRATION: a `list_library` ToolCall dispatched
+    // through the ASSEMBLED registry (the SAME `registry.run(call)` boundary the
+    // AgenticChatDriver invokes per tool-use turn) reaches the real `ListLibraryTool`
+    // over a real `LibrarySearchBackend` and enumerates the library. This proves the
+    // tool is wired into the agentic loop end-to-end (the model-routing step — a
+    // real tool-use LLM choosing list_library — is the only piece a deterministic
+    // mock can't exercise; see the verification-exception evidence file).
+    @Test("list_library runs through the assembled registry and enumerates the library")
+    func listLibraryDispatchesThroughRegistry() async {
+        let backend = SpyLibraryBackend(books: [
+            LibraryBookItem.stub(
+                fingerprintKey: "epub:\(String(repeating: "c", count: 64)):4096",
+                title: "Designing Data-Intensive Applications", author: "Kleppmann", format: "epub"),
+            LibraryBookItem.stub(
+                fingerprintKey: "pdf:\(String(repeating: "d", count: 64)):4096",
+                title: "三体", author: "刘慈欣", format: "pdf"),
+        ])
+        let registry = AgenticToolRegistryBuilder.build(
+            currentBook: nil, currentBookSearch: nil,
+            libraryBackend: backend, contentProvider: StubContent())
+
+        let result = await registry.run(ToolCall(
+            id: "lib-1", name: "list_library", input: .object([:])))
+
+        #expect(!result.isError)
+        #expect(result.toolUseID == "lib-1")   // registry rebinds the provider call id
+        #expect(result.content.contains("Designing Data-Intensive Applications"))
+        #expect(result.content.contains("Kleppmann"))
+        #expect(result.content.contains("三体"))         // CJK through the live boundary
+        #expect(result.content.contains("刘慈欣"))
     }
 }

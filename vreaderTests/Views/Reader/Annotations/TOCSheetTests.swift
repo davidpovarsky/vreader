@@ -50,6 +50,7 @@ struct TOCSheetTests {
         tocEntries: [TOCEntry] = [],
         tocDidLoad: Bool = true,
         currentLocator: Locator? = nil,
+        spineHrefs: [String] = [],
         theme: ReaderThemeV2 = .paper,
         initialTab: TOCSheetTab = .contents,
         onNavigate: @escaping (Locator) -> Void = { _ in },
@@ -63,6 +64,7 @@ struct TOCSheetTests {
             tocEntries: tocEntries,
             tocDidLoad: tocDidLoad,
             currentLocator: currentLocator,
+            spineHrefs: spineHrefs,
             theme: theme,
             initialTab: initialTab,
             onNavigate: onNavigate,
@@ -168,6 +170,148 @@ struct TOCSheetTests {
     func noCurrentChapterWhenLocatorNil() {
         let sheet = makeSheet(tocEntries: makeTOCEntries(5), currentLocator: nil)
         #expect(sheet.activeEntryIndexForTesting == nil)
+    }
+
+    // MARK: - Bug #313 r2: entry-less spine items (preceding-entry fallback)
+
+    /// "The Half Second" shape: the nav titles the chapter COVER pages, so
+    /// the actual prose bodies (and the book's own toc page) are spine items
+    /// with NO TOC entry. The current-chapter match must fall back to the
+    /// nearest PRECEDING entry in spine order.
+    private var halfSecondSpine: [String] {
+        ["covers/cover-front.xhtml",                  // 0 — no entry
+         "prose/front-matter/title-page.xhtml",       // 1 — "Title page"
+         "prose/front-matter/copyright.xhtml",        // 2 — "Copyright"
+         "covers/cover-flyleaf.xhtml",                // 3 — no entry
+         "toc.xhtml",                                 // 4 — no entry
+         "covers/cover-prologue.xhtml",               // 5 — "Prologue"
+         "prose/book/prologue.xhtml",                 // 6 — no entry (prose body!)
+         "covers/cover-ch01.xhtml",                   // 7 — "Chapter 1"
+         "prose/book/chapter-01.xhtml"]               // 8 — no entry (prose body)
+    }
+
+    private var halfSecondEntries: [TOCEntry] {
+        [("Title page", "prose/front-matter/title-page.xhtml"),
+         ("Copyright", "prose/front-matter/copyright.xhtml"),
+         ("Prologue", "covers/cover-prologue.xhtml"),
+         ("Chapter 1", "covers/cover-ch01.xhtml")].map { title, href in
+            TOCEntry(title: title, level: 0,
+                     locator: makeEPUBLocator(href: href, progression: 0))
+        }
+    }
+
+    @Test("Entry-less prose body highlights its preceding entry (the user repro)")
+    func entryLessProseBody_highlightsPrecedingEntry() {
+        // Reading the prologue PROSE (spine 6) — entry is its cover (spine 5).
+        let loc = makeEPUBLocator(href: "prose/book/prologue.xhtml", progression: 0.4)
+        let sheet = makeSheet(
+            tocEntries: halfSecondEntries, currentLocator: loc,
+            spineHrefs: halfSecondSpine)
+        #expect(sheet.activeEntryIndexForTesting == 2, "the Prologue row highlights")
+    }
+
+    @Test("The book's own toc page highlights the preceding entry")
+    func entryLessTocPage_highlightsPrecedingEntry() {
+        let loc = makeEPUBLocator(href: "toc.xhtml", progression: 0.9)
+        let sheet = makeSheet(
+            tocEntries: halfSecondEntries, currentLocator: loc,
+            spineHrefs: halfSecondSpine)
+        #expect(sheet.activeEntryIndexForTesting == 1, "Copyright precedes the toc page")
+    }
+
+    @Test("A position before the first entry stays nil (don't guess)")
+    func entryLessBeforeFirstEntry_returnsNil() {
+        let loc = makeEPUBLocator(href: "covers/cover-front.xhtml", progression: 0.0)
+        let sheet = makeSheet(
+            tocEntries: halfSecondEntries, currentLocator: loc,
+            spineHrefs: halfSecondSpine)
+        #expect(sheet.activeEntryIndexForTesting == nil)
+    }
+
+    @Test("Exact entry match still wins over the fallback")
+    func exactMatch_winsOverFallback() {
+        let loc = makeEPUBLocator(href: "covers/cover-prologue.xhtml", progression: 0.0)
+        let sheet = makeSheet(
+            tocEntries: halfSecondEntries, currentLocator: loc,
+            spineHrefs: halfSecondSpine)
+        #expect(sheet.activeEntryIndexForTesting == 2)
+    }
+
+    @Test("No spine order supplied -> no fallback (pre-#313-r2 behavior)")
+    func noSpineHrefs_noFallback() {
+        let loc = makeEPUBLocator(href: "prose/book/prologue.xhtml", progression: 0.4)
+        let sheet = makeSheet(tocEntries: halfSecondEntries, currentLocator: loc)
+        #expect(sheet.activeEntryIndexForTesting == nil)
+    }
+
+    @Test("An href absent from BOTH entries and spine stays nil")
+    func unknownHref_returnsNil() {
+        let loc = makeEPUBLocator(href: "not-in-this-book.xhtml", progression: 0.1)
+        let sheet = makeSheet(
+            tocEntries: halfSecondEntries, currentLocator: loc,
+            spineHrefs: halfSecondSpine)
+        #expect(sheet.activeEntryIndexForTesting == nil)
+    }
+
+    @Test("Percent-encoded hrefs match only on byte-identical forms (no silent decode)")
+    func encodedHref_matchesOnlyIdenticalForm() {
+        // The matcher is raw-String equality by design — both producers
+        // (EPUBParser spine + the position broadcast) emit the SAME form.
+        // Pin that an encoded variant of a spine href does NOT match, so a
+        // future one-sided decode shows up here instead of on devices.
+        let spine = ["c1.xhtml", "my chapter.xhtml", "c3.xhtml"]
+        let entries = [
+            TOCEntry(title: "One", level: 0,
+                     locator: makeEPUBLocator(href: "c1.xhtml", progression: 0)),
+            TOCEntry(title: "Two", level: 0,
+                     locator: makeEPUBLocator(href: "my chapter.xhtml", progression: 0)),
+        ]
+        // Identical form → exact match.
+        let same = makeSheet(
+            tocEntries: entries,
+            currentLocator: makeEPUBLocator(href: "my chapter.xhtml", progression: 0.2),
+            spineHrefs: spine)
+        #expect(same.activeEntryIndexForTesting == 1)
+        // Encoded variant → neither exact nor in the spine → nil (never guess).
+        let encoded = makeSheet(
+            tocEntries: entries,
+            currentLocator: makeEPUBLocator(href: "my%20chapter.xhtml", progression: 0.2),
+            spineHrefs: spine)
+        #expect(encoded.activeEntryIndexForTesting == nil)
+    }
+
+    @Test("Duplicate entry hrefs: the LAST matching entry wins (existing convention)")
+    func duplicateEntryHrefs_lastWins() {
+        let spine = ["a.xhtml", "b.xhtml"]
+        let entries = [
+            TOCEntry(title: "Part I", level: 0,
+                     locator: makeEPUBLocator(href: "a.xhtml", progression: 0)),
+            TOCEntry(title: "Part I — continued", level: 1,
+                     locator: makeEPUBLocator(href: "a.xhtml", progression: 0)),
+        ]
+        let sheet = makeSheet(
+            tocEntries: entries,
+            currentLocator: makeEPUBLocator(href: "a.xhtml", progression: 0.3),
+            spineHrefs: spine)
+        #expect(sheet.activeEntryIndexForTesting == 1)
+    }
+
+    @Test("Entries whose href is absent from the spine are skipped by the fallback")
+    func entryHrefAbsentFromSpine_isSkippedInFallback() {
+        let spine = ["c1.xhtml", "c2.xhtml", "c3.xhtml"]
+        let entries = [
+            TOCEntry(title: "One", level: 0,
+                     locator: makeEPUBLocator(href: "c1.xhtml", progression: 0)),
+            // A stale/foreign entry not in this spine — must not poison the walk.
+            TOCEntry(title: "Ghost", level: 0,
+                     locator: makeEPUBLocator(href: "ghost.xhtml", progression: 0)),
+        ]
+        let sheet = makeSheet(
+            tocEntries: entries,
+            currentLocator: makeEPUBLocator(href: "c3.xhtml", progression: 0.5),
+            spineHrefs: spine)
+        #expect(sheet.activeEntryIndexForTesting == 0,
+                "fallback resolves through the valid entry, ignoring the ghost")
     }
 
     // MARK: - Current-chapter for TXT (the Bug #248 user repro: charOffsetUTF16)

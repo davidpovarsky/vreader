@@ -158,12 +158,10 @@ extension ReaderContainerView {
 
         let vm = ChapterReTranslateViewModel(
             bookFingerprintKey: book.fingerprintKey,
-            promptVersion: "bilingual-v1",
             initialProviderProfileID: initialProfileID,
             initialModel: initialModel,
             resolver: aiService,
             runner: translationService,
-            store: ChapterTranslationStore.shared,
             sourceTextProvider: { [provider = translateBookTextProvider] unit in
                 // `ChapterTextProviding` is a `Sendable` value-or-actor
                 // protocol (not class-bound), so it's captured strongly here.

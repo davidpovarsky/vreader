@@ -35,6 +35,75 @@ extension FoliateBilingualContainerView {
         )
     }
 
+    /// Bug #345: lazily builds + starts the session lifecycle (mirrors
+    /// `ensurePositionController`). Begins the session immediately — the
+    /// reader is on screen by the time `.task` runs.
+    func ensureSessionLifecycle() {
+        guard sessionLifecycle == nil,
+              let fingerprint = DocumentFingerprint(canonicalKey: fingerprintKey) else { return }
+        let persistence = PersistenceActor(modelContainer: modelContext.container)
+        let lifecycle = ReaderLifecycleHelper(
+            bookFingerprint: fingerprint,
+            positionService: ReaderPositionService(
+                bookFingerprintKey: fingerprintKey,
+                deviceId: ReaderContainerView.deviceId,
+                persistence: persistence
+            ),
+            sessionTracker: ReadingSessionTracker(
+                clock: SystemClock(),
+                store: SwiftDataSessionStore(modelContainer: modelContext.container),
+                deviceId: ReaderContainerView.deviceId
+            ),
+            positionStore: persistence
+        )
+        try? lifecycle.beginSession()
+        Task { await lifecycle.updateLastOpened() }
+        sessionLifecycle = lifecycle
+    }
+
+    /// Bug #265 + #345 teardown: flush the last position, then end the
+    /// reading session (the helper ends the session row, recomputes stats,
+    /// and posts `.readerDidClose` — library-refresh parity with the other
+    /// formats). Codex round-1 Medium: guarded by a background task so a
+    /// fast dismiss / app-leave can't suspend before the writes land (the
+    /// legacy Foliate host's precedent).
+    func handleHostTeardown() {
+        positionRestoreTask?.cancel()
+        let controller = positionController
+        let lifecycle = sessionLifecycle
+        let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+        Task {
+            await controller?.flush()
+            await lifecycle?.close(locator: nil)
+            if bgTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+            }
+        }
+    }
+
+    /// Bug #345 (Codex round-1 High): scene-phase session pause/resume. The
+    /// position flush rides the same background-task guard as the legacy
+    /// hosts so iOS can't suspend mid-write.
+    func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        switch newPhase {
+        case .background, .inactive:
+            let controller = positionController
+            let lifecycle = sessionLifecycle
+            let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+            Task {
+                await controller?.flush()
+                await lifecycle?.onBackground(locator: nil)
+                if bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                }
+            }
+        case .active:
+            sessionLifecycle?.onForeground()
+        @unknown default:
+            break
+        }
+    }
+
     /// On the FIRST relocate (post-init; fires for every book), load the saved
     /// position, seek to it, then open the save gate. Gate-open follows the
     /// seek-post with no `await` between them, so the open→start relocate that
@@ -115,3 +184,23 @@ extension FoliateBilingualContainerView {
     }
 }
 #endif
+
+/// Bug #265 + #345: the Foliate host's lifecycle bundle — setup on mount,
+/// teardown on unmount, session pause/resume on scene-phase change. A single
+/// `ViewModifier` so the host body's modifier chain stays inside SwiftUI's
+/// type-inference budget (the `ReaderReTranslateObserver` precedent).
+struct FoliateSessionLifecycleModifier: ViewModifier {
+    let scenePhase: ScenePhase
+    let onSetup: () -> Void
+    let onTeardown: () -> Void
+    let onPhaseChange: (ScenePhase) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .task { onSetup() }
+            .onDisappear { onTeardown() }
+            .onChange(of: scenePhase) { _, newPhase in
+                onPhaseChange(newPhase)
+            }
+    }
+}

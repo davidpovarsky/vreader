@@ -79,14 +79,16 @@ enum ReaderSheetKind: String, CaseIterable, Sendable {
             // `AISheet`: the Summarize / Chat / Translate tab triple.
             return ["Summarize", "Chat", "Translate"]
         case .appSettings:
-            // `SettingsSheet`: the four grouped `SectionLabel`s. Note —
+            // `SettingsSheet`: the grouped `SectionLabel`s. Note —
             // the app's `SettingsView` declares Cloud & Sync / Reading
-            // / About itself and delegates the "AI" group to the
+            // / Support itself and delegates the "AI" group to the
             // feature-#50 `AISettingsSection` composite (which
             // internally sub-divides). This contract is the design's
-            // four-group spec; `SettingsView.sectionsForTesting`
-            // reports only the three directly-declared groups.
-            return ["Cloud & Sync", "AI", "Reading", "About"]
+            // group spec; `SettingsView.sectionsForTesting` reports the
+            // directly-declared groups. The #1597 design (feature #96
+            // WI-2) REGROUPED the former "About" group under "Support"
+            // (Diagnostics entry + the retained About rows).
+            return ["Cloud & Sync", "AI", "Reading", "Support"]
         }
     }
 }

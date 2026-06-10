@@ -165,9 +165,33 @@ private struct SelectionPopoverPresenterModifier: ViewModifier {
     /// already consumed, so `clear()` is an idempotent no-op.
     let onDismiss: (() -> Void)?
     @State private var pending: SelectionPopoverRequestPayload?
+    /// Bug #338 (Codex round-1 High): the card's frame in global space, kept
+    /// fresh by the overlay's `onGeometryChange`. The outside-tap dismissal
+    /// fires only for taps OUTSIDE this frame — a simultaneous recognizer on
+    /// the content tree also sees taps that land on the overlay card, and
+    /// dismissing on those would race the card's action handlers (the
+    /// EPUB/Readium token cache is cleared by `onDismiss`).
+    @State private var cardFrame: CGRect = .zero
 
     func body(content: Content) -> some View {
         content
+            // Bug #338: tap-outside-to-dismiss WITHOUT a hit-blocking overlay.
+            // The old full-screen `Color.clear` tap-catcher swallowed EVERY
+            // touch that wasn't a clean tap — selection-handle drags and reader
+            // scrolling were dead while the card was up, so a selection could
+            // never be refined. A SIMULTANEOUS TapGesture on the content
+            // observes taps without claiming them: a tap dismisses the card AND
+            // still reaches the reader (which clears its native selection — the
+            // same end state as before); drags / pans / long-presses are not
+            // taps, so handle refinement and scrolling flow to the underlying
+            // UIKit views untouched. A completed handle drag makes the bridge
+            // re-post `.readerSelectionPopoverRequested` (iOS re-requests the
+            // edit menu; Readium re-fires `shouldShowMenuForSelection`), so the
+            // card's quote refreshes to the expanded selection for free.
+            .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global).onEnded { value in
+                guard pending != nil, !cardFrame.contains(value.location) else { return }
+                dismiss()
+            })
             .onReceive(
                 NotificationCenter.default.publisher(for: .readerSelectionPopoverRequested)
             ) { note in
@@ -175,6 +199,10 @@ private struct SelectionPopoverPresenterModifier: ViewModifier {
                     return
                 }
                 pending = payload
+                // Bug #338 (Codex round-2): while the card is up, the reader's
+                // tap grammar is suppressed so the eventual outside tap is a
+                // PURE dismissal (no page-turn away from the selected text).
+                ReaderTapZoneRouter.selectionPopoverVisible = true
             }
             // Bug #317: present the designed FLOATING inset card — `left`/`right`
             // 18, ~100pt above the bottom, rounded (the card chrome lives in
@@ -188,50 +216,81 @@ private struct SelectionPopoverPresenterModifier: ViewModifier {
                 }
             }
             .animation(.spring(response: 0.32, dampingFraction: 0.86), value: pending != nil)
+            // Codex round-3 Medium: if the reader unmounts while the popover
+            // is visible, the global suppression must not leak into the next
+            // reader session. Unconditional reset — no grace.
+            .onDisappear {
+                if pending != nil {
+                    ReaderTapZoneRouter.selectionPopoverVisible = false
+                    ReaderTapZoneRouter.dismissGraceDeadline = .distantPast
+                }
+            }
     }
 
     @ViewBuilder
     private func floatingCard(_ payload: SelectionPopoverRequestPayload) -> some View {
-        ZStack(alignment: .bottom) {
-            // Tap-outside-to-dismiss catcher. The design floats the card over the
-            // live reader with no dimming, so the catcher is transparent — it only
-            // captures the outside tap that closes the popover.
-            Color.clear
-                .contentShape(Rectangle())
-                .ignoresSafeArea()
-                .onTapGesture { dismiss() }
-
-            SelectionPopoverView(
-                selectionText: payload.selection.selectedText,
-                theme: theme,
-                onAction: { action in
-                    let result = SelectionPopoverActionRouter.route(
-                        action: action,
-                        payload: payload
-                    )
-                    let next = SelectionPopoverDismissPolicy.nextPending(
-                        after: result,
-                        currentPayload: payload
-                    )
-                    pending = next
-                    // Preserve the old `.sheet(onDismiss:)` contract: fire onDismiss
-                    // whenever the popover actually closes (here, the action path
-                    // resolved to no follow-up).
-                    if next == nil { onDismiss?() }
-                },
-                onClose: { dismiss() }
-            )
-            .padding(.horizontal, 18)
-            .padding(.bottom, 100)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
+        // Bug #338: no ZStack tap-catcher — the card alone occupies the overlay,
+        // so every touch outside its bounds reaches the live reader beneath
+        // (handle drags, scrolling); tap-outside dismissal is handled by the
+        // simultaneous gesture on the content above.
+        SelectionPopoverView(
+            selectionText: payload.selection.selectedText,
+            theme: theme,
+            onAction: { action in
+                let result = SelectionPopoverActionRouter.route(
+                    action: action,
+                    payload: payload
+                )
+                let next = SelectionPopoverDismissPolicy.nextPending(
+                    after: result,
+                    currentPayload: payload
+                )
+                pending = next
+                // Preserve the old `.sheet(onDismiss:)` contract: fire onDismiss
+                // whenever the popover actually closes (here, the action path
+                // resolved to no follow-up). Codex round-3 High: the action
+                // path must also drop the tap-grammar suppression — with NO
+                // dismissal grace (the action tap landed ON the card; there is
+                // no in-flight reader tap to swallow).
+                if next == nil {
+                    ReaderTapZoneRouter.selectionPopoverVisible = false
+                    onDismiss?()
+                }
+            },
+            onClose: { dismiss() }
+        )
+        .padding(.horizontal, 18)
+        .padding(.bottom, 100)
+        .background(
+            // Track the card's global frame for the outside-tap exclusion
+            // (Codex round-1 High). GeometryReader in a background reports
+            // the framed card bounds without affecting layout.
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { cardFrame = proxy.frame(in: .global) }
+                    .onChange(of: proxy.size) { _, _ in
+                        cardFrame = proxy.frame(in: .global)
+                    }
+            }
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     /// Closes the popover by an outside tap or the close button, preserving the
     /// `onDismiss` callback the EPUB container uses to drop its token-cache entry.
     private func dismiss() {
         pending = nil
+        releaseTapSuppression()
         onDismiss?()
+    }
+
+    /// Drops the popover-visible tap suppression, arming a short one-shot
+    /// grace so the dismissing tap itself — whose bridge-side report arrives
+    /// asynchronously AFTER this gesture — is also swallowed (Codex round-2:
+    /// a side-zone dismiss tap must not page-turn away from the selection).
+    private func releaseTapSuppression() {
+        ReaderTapZoneRouter.selectionPopoverVisible = false
+        ReaderTapZoneRouter.dismissGraceDeadline = Date().addingTimeInterval(0.4)
     }
 }
 

@@ -24,21 +24,28 @@ enum ChapterSegmenter {
     /// more blank lines; a single line break inside a paragraph is a soft wrap
     /// and does not split. Each paragraph is trimmed; empty ones are dropped.
     static func paragraphs(in chapterText: String) -> [String] {
-        // Normalize line endings, then split on runs of >=2 newlines
-        // (a blank line — possibly with intervening whitespace).
-        let normalized = chapterText
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let blankLineSplitter = try? NSRegularExpression(pattern: "\\n[ \\t]*\\n+")
-        let pieces: [String]
-        if let blankLineSplitter {
-            pieces = splitOnRegex(normalized, regex: blankLineSplitter)
-        } else {
-            pieces = normalized.components(separatedBy: "\n\n")
+        // Bug #344 (Gate-4 Medium): derive from the SAME range scanner the
+        // TXT/MD display side uses, so the blank-line definition can never
+        // diverge between the two sides of the 1:1 contract. The old regex
+        // split only on `\\n[ \\t]*\\n+`, while the display scanner treats ANY
+        // whitespace-only line (incl. U+3000 / U+00A0 — common in CJK
+        // files) as a separator — that divergence made the display side
+        // count MORE paragraphs than the translation side and paint
+        // source-only. Each scan range contains at least one
+        // non-whitespace character by construction, so trimming never
+        // yields an empty (and no filter is applied — a filter could
+        // re-introduce a count skew against the raw ranges).
+        let ns = chapterText as NSString
+        return BilingualParagraphRanges.scan(sourceText: chapterText).map {
+            ns.substring(with: NSRange(
+                location: $0.lowerBound, length: $0.upperBound - $0.lowerBound))
+                // Preserve the pre-#344 contract: soft-wrap line endings
+                // inside a paragraph normalize to \n (Gate-4 round 2 —
+                // translation prompts + cached rows carried \n, never \r\n).
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return pieces
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     /// Splits chapter text into sentences. CJK-aware via
@@ -60,18 +67,47 @@ enum ChapterSegmenter {
         return result
     }
 
-    /// Splits `text` on every match of `regex`, returning the gaps.
-    private static func splitOnRegex(_ text: String, regex: NSRegularExpression) -> [String] {
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        var pieces: [String] = []
-        var cursor = 0
-        for match in regex.matches(in: text, range: fullRange) {
-            let gap = NSRange(location: cursor, length: match.range.location - cursor)
-            pieces.append(nsText.substring(with: gap))
-            cursor = match.range.location + match.range.length
+    /// Bug #344: UTF-16 half-open ranges of each sentence (trimmed bounds),
+    /// in source order — the display-side twin of `sentences(in:)`.
+    ///
+    /// COUNT-PARITY CONTRACT: `sentenceRanges(in: s).count ==
+    /// sentences(in: s).count` for every input. Both walk the same
+    /// `.bySentences` enumeration with the same trim + drop-empty rules, so
+    /// the TXT/MD sentence-interlinear renderer and the translation
+    /// segmentation pair 1:1 by construction (the #266/#343 contract).
+    static func sentenceRanges(in chapterText: String) -> [Range<Int>] {
+        var result: [Range<Int>] = []
+        let full = chapterText.startIndex..<chapterText.endIndex
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        chapterText.enumerateSubstrings(in: full, options: [.bySentences, .localized]) {
+            substring, substringRange, _, _ in
+            guard let substring else { return }
+            let nsRange = NSRange(substringRange, in: chapterText)
+            // Shrink the range to the trimmed bounds so the interlinear row
+            // lands flush after the sentence's last visible character —
+            // mirroring `sentences(in:)`'s trim. Surrogate halves are never
+            // whitespace, so per-UTF-16-unit scanning is safe.
+            let units = Array(substring.utf16)
+            var lead = 0
+            while lead < units.count,
+                  let scalar = Unicode.Scalar(UInt32(units[lead])),
+                  whitespace.contains(scalar) {
+                lead += 1
+            }
+            var trail = 0
+            while trail < units.count - lead,
+                  let scalar = Unicode.Scalar(UInt32(units[units.count - 1 - trail])),
+                  whitespace.contains(scalar) {
+                trail += 1
+            }
+            let start = nsRange.location + lead
+            let end = nsRange.location + nsRange.length - trail
+            // Whitespace-only fragments trim to nothing — `sentences(in:)`
+            // drops them, so the range scanner must too (count parity).
+            guard start < end else { return }
+            result.append(start..<end)
         }
-        pieces.append(nsText.substring(from: cursor))
-        return pieces
+        return result
     }
+
 }

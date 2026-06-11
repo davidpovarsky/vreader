@@ -157,8 +157,39 @@ extension ReadiumEPUBHost {
     /// run the first enumerate under the chosen settings. WI-12: bilingual is now
     /// supported in both layouts, so the post-confirm enumerate runs for the
     /// current spine regardless of paged/scroll.
+        /// Feature #99 WI-4: keyed `.readerMoreTranslationSettings` → present
+    /// the edit-framed settings sheet prefilled with the book's current
+    /// language/granularity; the cached-language badges land async
+    /// (generation-stamped — a dismissed presentation's result is dropped).
+    func handleTranslationSettingsRequest(bookTitle: String) {
+        ensureBilingualViewModel()
+        guard let vm = bilingualViewModel, vm.isEnabled else { return }
+        bilingualSetupState = BilingualSettingsEditRouter.prefillState(vm: vm)
+        bilingualSetupMode = .edit(bookTitle: bookTitle)
+        bilingualCachedLanguages = []
+        showBilingualSetupSheet = true
+        bilingualCachedLanguagesFetcher.fetch(bookFingerprintKey: fingerprint.canonicalKey) {
+            bilingualCachedLanguages = $0
+        }
+    }
+
     func confirmBilingualSetup() {
         guard let vm = bilingualViewModel else { return }
+        // Feature #99 WI-4: the edit frame routes through the shared
+        // router (dirty BEFORE apply; banner only for a new language);
+        // it never touches needsSetupSheet/setEnabled.
+        if case .edit = bilingualSetupMode {
+            let dirty = BilingualSettingsEditRouter.confirmEdit(
+                vm: vm, draft: bilingualSetupState,
+                cachedLanguages: bilingualCachedLanguages)
+            showBilingualSetupSheet = false
+            bilingualSetupMode = .firstEnable
+            bilingualCachedLanguagesFetcher.invalidate()
+            if dirty != .none {
+                runBilingualEnumerateForCurrentChapter()
+            }
+            return
+        }
         vm.setTargetLanguage(bilingualSetupState.languageKey)
         vm.setGranularity(bilingualSetupState.granularity)
         vm.dismissSetupSheet()
@@ -168,7 +199,38 @@ extension ReadiumEPUBHost {
 
     /// Dismiss the setup sheet without persisting and turn bilingual back off —
     /// the user opted out of first-enable.
+        /// Feature #99 WI-4 (Gate-4 r1 High): EVERY dismissal path — incl.
+    /// swipe-down, which never reaches Confirm/Cancel — funnels here via
+    /// the sheet's `onDismiss`. Idempotent: confirm/cancel run their
+    /// teardown first (mode already reset, `needsSetupSheet` cleared), so
+    /// this no-ops after them; a swipe-down arrives with the state still
+    /// dirty and gets the matching teardown.
+    func handleBilingualSheetDismiss() {
+        if case .edit = bilingualSetupMode {
+            // Edit swipe-down = Cancel: keep bilingual on, persist
+            // nothing, drop any in-flight cached-languages fetch.
+            bilingualSetupMode = .firstEnable
+            bilingualCachedLanguagesFetcher.invalidate()
+            return
+        }
+        // First-enable swipe-down = the existing Cancel semantics (the
+        // user never committed a configuration): turn bilingual back off.
+        if let vm = bilingualViewModel, vm.needsSetupSheet {
+            vm.dismissSetupSheet()
+            vm.setEnabled(false)
+        }
+    }
+
     func cancelBilingualSetup() {
+        // Feature #99 WI-4: edit-frame cancel just dismisses — bilingual
+        // stays ON and nothing persists (the first-enable path below
+        // disables, which would be wrong for an edit).
+        if case .edit = bilingualSetupMode {
+            showBilingualSetupSheet = false
+            bilingualSetupMode = .firstEnable
+            bilingualCachedLanguagesFetcher.invalidate()
+            return
+        }
         guard let vm = bilingualViewModel else { return }
         vm.dismissSetupSheet()
         vm.setEnabled(false)
@@ -219,6 +281,10 @@ extension ReadiumEPUBHost {
             .onReceive(NotificationCenter.default.publisher(for: .readerMoreBilingual)) { _ in
                 handleMoreBilingualToggle()
             }
+            // Feature #99 WI-4: keyed re-entry — the edit-framed sheet.
+            .bilingualTranslationSettingsObserver(
+                bookFingerprintKey: fingerprint.canonicalKey
+            ) { handleTranslationSettingsRequest(bookTitle: $0) }
             .onReceive(NotificationCenter.default.publisher(for: .readerBilingualDidChange)) { notification in
                 let key = notification.userInfo?["fingerprintKey"] as? String
                 guard key == fingerprint.canonicalKey else { return }
@@ -253,7 +319,8 @@ extension ReadiumEPUBHost {
                     await bilingualCommander.setStyle(bilingualStyleCSS())
                 }
             }
-            .sheet(isPresented: $showBilingualSetupSheet) { bilingualSetupSheetView }
+            .sheet(isPresented: $showBilingualSetupSheet,
+                   onDismiss: { handleBilingualSheetDismiss() }) { bilingualSetupSheetView }
             .modifier(debugBilingualObserver)
     }
 
@@ -292,7 +359,11 @@ extension ReadiumEPUBHost {
             onConfigured: { await bilingualViewModel?.refreshAIConfigured() },
             // Bug #344 (#1646 S-C): Readium injects per DOM block — sentence
             // mode can't hold the 1:1 contract; the control dims.
-            sentenceGranularityAvailable: false
+            sentenceGranularityAvailable: false,
+            mode: bilingualSetupMode,
+            cachedLanguages: bilingualCachedLanguages,
+            currentLanguageKey: bilingualViewModel?.targetLanguage,
+            currentGranularity: bilingualViewModel?.granularity
         )
         // Bug #301: re-resolve live AI readiness each time the sheet
         // appears, so the engine strip is truthful even if AI settings

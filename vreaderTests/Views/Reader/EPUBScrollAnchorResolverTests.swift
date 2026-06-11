@@ -55,3 +55,65 @@ struct EPUBScrollAnchorResolverTests {
             forStoredHref: "OEBPS/text/ch2.xhtml", spineHrefs: nested) == 1)
     }
 }
+
+// MARK: - Bug #349: percent-encoding tolerance + the nil-on-miss variant
+
+@Suite("EPUBScrollAnchorResolver — bug #349 additions")
+struct EPUBScrollAnchorResolverBug349Tests {
+
+    @Test func percentEncodedSavedHrefMatchesDecodedSpine() {
+        let spine = ["封面.xhtml", "第一章.xhtml", "第二章.xhtml"]
+        let encoded = "第二章.xhtml".addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed)!
+        #expect(EPUBScrollAnchorResolver.anchorIndex(
+            forStoredHref: encoded, spineHrefs: spine) == 2)
+    }
+
+    @Test func encodedContainerRelativeMatchesDecodedSpineSuffix() {
+        let spine = ["第一章.xhtml"]
+        let encoded = ("OEBPS/" + "第一章.xhtml").addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed)!
+        #expect(EPUBScrollAnchorResolver.anchorIndex(
+            forStoredHref: encoded, spineHrefs: spine) == 0)
+    }
+
+    @Test func matchIndexDistinguishesMissFromSpineZero() {
+        let spine = ["cover.xhtml", "ch1.xhtml"]
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: "cover.xhtml", spineHrefs: spine) == 0)
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: "missing.xhtml", spineHrefs: spine) == nil)
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: nil, spineHrefs: spine) == nil)
+    }
+}
+
+// MARK: - Bug #349 audit r1: fragments + decoded-ambiguity fallback
+
+@Suite("EPUBScrollAnchorResolver — fragments + ambiguity (bug #349 r1)")
+struct EPUBScrollAnchorResolverFragmentTests {
+
+    @Test func fragmentBearingSavedHrefMatches() {
+        let spine = ["cover.xhtml", "ch1.xhtml"]
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: "ch1.xhtml#p12", spineHrefs: spine) == 1)
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: "OEBPS/ch1.xhtml#frag", spineHrefs: spine) == 1)
+    }
+
+    @Test func encodedCJKWithFragmentMatches() {
+        let spine = ["第一章.xhtml"]
+        let encoded = "第一章.xhtml".addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed)! + "#loc"
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: encoded, spineHrefs: spine) == 0)
+    }
+
+    @Test func decodedCollisionFallsBackInsteadOfGuessing() {
+        // Two legal-but-distinct manifest entries collapse to the same
+        // decoded string — the resolver must NOT pick one arbitrarily.
+        let spine = ["a%2Fb.xhtml", "a/b.xhtml"]
+        #expect(EPUBScrollAnchorResolver.matchIndex(
+            forStoredHref: "a%2fb.xhtml", spineHrefs: spine) == nil)
+    }
+}

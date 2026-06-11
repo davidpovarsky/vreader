@@ -127,9 +127,22 @@ extension Notification.Name {
     /// re-translate row (design §#864); the host presents
     /// `ReTranslatePickerSheet`. The re-translate row is only visible
     /// when bilingual mode is on for the book.
+    ///
+    /// Feature #99: since the popover gained `bookFingerprintKey`, EVERY
+    /// More-menu row post carries `userInfo: ["fingerprintKey": String]`
+    /// when the key is available. Legacy observers ignore the payload;
+    /// only `.readerMoreTranslationSettings` REQUIRES key filtering.
     static let readerMoreReadAloud = Notification.Name("vreader.readerMoreReadAloud")
     static let readerMoreToggleAutoTurn = Notification.Name("vreader.readerMoreToggleAutoTurn")
     static let readerMoreBilingual = Notification.Name("vreader.readerMoreBilingual")
+
+    /// Feature #99: re-entry to the bilingual settings (edit-framed setup
+    /// sheet). Posted by BOTH affordances — the More-menu "Translation
+    /// settings" row and the top-chrome bilingual pill — ALWAYS with
+    /// `userInfo: ["fingerprintKey": String]`; every host observer
+    /// filters on the key (stricter than the payload-free
+    /// `.readerMoreBilingual` so the contract never needs a retrofit).
+    static let readerMoreTranslationSettings = Notification.Name("vreader.readerMoreTranslationSettings")
     static let readerMoreReTranslateChapter = Notification.Name("vreader.readerMoreReTranslateChapter")
     /// Feature #56 WI-14 (declared in WI-8 per plan): posted by
     /// `BookTranslationCoordinator` whenever a global-book-translation

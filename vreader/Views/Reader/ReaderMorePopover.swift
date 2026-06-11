@@ -63,6 +63,15 @@ struct ReaderMorePopover: View {
     /// `BilingualReadingViewModel.isEnabled` (plus a feature-flag /
     /// AI-provider availability check for `.unavailable`).
     let bilingualState: BilingualRowState
+    /// Feature #99 WI-3: display context for the bilingual cluster's
+    /// settings row sub-line. Presentation-only pass-through — the
+    /// container builds it (Gate-2 H2 seam). nil renders no sub-line.
+    let bilingualContext: ReaderMoreMenuBilingualContext?
+    /// Feature #99 WI-3: the open book's fingerprint key, attached to
+    /// every row-tap notification's userInfo so keyed observers (the
+    /// `.readerMoreTranslationSettings` contract) can filter. nil
+    /// (previews / legacy tests) posts no payload.
+    let bookFingerprintKey: String?
     /// Top inset (points) at which the popover floats — passed from
     /// the host so the popover clears the top chrome. The design's
     /// `top: 92` baseline is for the prototype's fixed-height chrome;
@@ -90,6 +99,8 @@ struct ReaderMorePopover: View {
         autoTurnInterval: Double,
         formatCapabilities: FormatCapabilities?,
         bilingualState: BilingualRowState = .off,
+        bilingualContext: ReaderMoreMenuBilingualContext? = nil,
+        bookFingerprintKey: String? = nil,
         topInset: CGFloat,
         onClose: @escaping () -> Void
     ) {
@@ -98,6 +109,8 @@ struct ReaderMorePopover: View {
         self.autoTurnOn = autoTurnOn
         self.autoTurnInterval = autoTurnInterval
         self.formatCapabilities = formatCapabilities
+        self.bilingualContext = bilingualContext
+        self.bookFingerprintKey = bookFingerprintKey
         self.bilingualState = bilingualState
         self.topInset = topInset
         self.onClose = onClose
@@ -154,7 +167,18 @@ struct ReaderMorePopover: View {
         let dividerAnchor = ReaderMoreMenuRow.dividerAnchor(in: rows)
         return VStack(spacing: 0) {
             ForEach(rows, id: \.self) { row in
-                rowButton(row)
+                // Feature #99: when the settings row is visible, it and
+                // the bilingual toggle render inside ONE accent-tinted
+                // cluster group (design BSMorePopover) — the settings
+                // row is skipped in the flat loop and drawn by the
+                // cluster at the bilingual row's position.
+                if row == .translationSettings {
+                    EmptyView()
+                } else if row == .bilingual, rows.contains(.translationSettings) {
+                    bilingualClusterGroup
+                } else {
+                    rowButton(row)
+                }
                 if let anchor = dividerAnchor, row == anchor {
                     divider
                 }
@@ -203,111 +227,6 @@ struct ReaderMorePopover: View {
             .frame(height: 0.5)
             .padding(.horizontal, 14)
             .padding(.vertical, 4)
-    }
-
-    // MARK: - Rows
-
-    private func rowButton(_ row: ReaderMoreMenuRow) -> some View {
-        let active = row.isActive(
-            ttsPlaying: ttsPlaying,
-            autoTurnOn: autoTurnOn,
-            bilingualState: bilingualState
-        )
-        let sub = row.subDetail(
-            ttsPlaying: ttsPlaying,
-            autoTurnOn: autoTurnOn,
-            autoTurnInterval: autoTurnInterval,
-            bilingualState: bilingualState
-        )
-        let muted = isMutedRow(row)
-        return Button {
-            // Post first, then dismiss — the host's notification
-            // observer and the popover teardown are independent.
-            NotificationCenter.default.post(name: row.notification, object: nil)
-            onClose()
-        } label: {
-            HStack(spacing: 12) {
-                iconChip(for: row, active: active, muted: muted)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.label)
-                        .font(.system(size: 14.5, weight: .medium))
-                        .foregroundStyle(Color(theme.inkColor).opacity(muted ? 0.4 : 1.0))
-                        .lineLimit(1)
-                    if let sub {
-                        Text(sub)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color(theme.subColor))
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                trailingAccessory(for: row)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(row.accessibilityIdentifier)
-    }
-
-    /// Whether the row renders with reduced opacity — design §2.3:
-    /// the bilingual row's `.unavailable` state uses 40% icon opacity
-    /// to signal "disabled but visible (one-tap fix)". No other row
-    /// uses this muted state.
-    private func isMutedRow(_ row: ReaderMoreMenuRow) -> Bool {
-        row == .bilingual && bilingualState == .unavailable
-    }
-
-    /// 28×28 rounded icon chip. Per the design, an active row lifts
-    /// the chip to a faint accent tint; a muted row (bilingual
-    /// unavailable) renders at 40% opacity; otherwise it's a neutral
-    /// low-contrast fill.
-    private func iconChip(
-        for row: ReaderMoreMenuRow,
-        active: Bool,
-        muted: Bool
-    ) -> some View {
-        let accent = Color(theme.accentColor)
-        let chipFill: Color = active
-            ? accent.opacity(theme.isDark ? 0.20 : 0.10)
-            : (theme.isDark
-                ? Color.white.opacity(0.05)
-                : Color.black.opacity(0.04))
-        return RoundedRectangle(cornerRadius: 8)
-            .fill(chipFill)
-            .frame(width: 28, height: 28)
-            .overlay(
-                Image(systemName: row.systemImage)
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(active ? accent : Color(theme.inkColor))
-            )
-            .opacity(muted ? 0.4 : 1.0)
-    }
-
-    /// Trailing accessory — driven by `ReaderMoreMenuRow.trailingControl`:
-    /// an inline toggle switch for the toggle rows (Auto-turn,
-    /// Bilingual off/on), a chevron for tap rows (including the
-    /// bilingual `.unavailable` state per design §2.3 — `trailingControl`
-    /// returns `.chevron` for that state, not `.none`). `.none`
-    /// renders no trailing accessory; no row currently uses it, but
-    /// the variant is preserved so the design's "no trailing control"
-    /// possibility remains expressible.
-    @ViewBuilder
-    private func trailingAccessory(for row: ReaderMoreMenuRow) -> some View {
-        switch row.trailingControl(
-            bilingualState: bilingualState,
-            autoTurnOn: autoTurnOn
-        ) {
-        case .toggle(let on):
-            ReaderMoreToggle(isOn: on, theme: theme)
-        case .chevron:
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(theme.subColor))
-        case .none:
-            EmptyView()
-        }
     }
 
     // MARK: - Theme-aware surface

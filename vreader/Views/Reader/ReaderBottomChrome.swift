@@ -38,8 +38,26 @@ struct ReaderBottomChrome: View {
     /// Leading position label under the scrubber (e.g. "Page 3" or
     /// "45%"). Format-supplied — the design's "Page N" is one instance.
     let leadingLabel: String
-    /// Trailing position label (e.g. "120 pages left" or session time).
+    /// Trailing PAGES readout (e.g. "414 pages left in book",
+    /// "Chapter 8 of 54", a percent) — the default readout. Feature #101:
+    /// session time no longer lives here; it moved inside the time readout.
     let trailingLabel: String
+
+    /// Feature #101: the combined time readout
+    /// ("12m read · 6h 40m total"). nil until session time accrues and the
+    /// book totals attach — the trailing label pins the pages readout and
+    /// the tap is inert.
+    var timeTrailingLabel: String? = nil
+
+    /// Feature #101: the book key + per-book settings base URL for the
+    /// persisted readout choice. nil (previews / non-book surfaces)
+    /// disables persistence — the choice is session-local.
+    var bookFingerprintKey: String? = nil
+    var perBookBaseURL: URL? = nil
+
+    /// Feature #101: the current readout. Seeded from the persisted
+    /// per-book choice on appear; toggled by tapping the trailing label.
+    @State private var metricsReadout: ReaderMetricsReadout = .pages
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,14 +102,63 @@ struct ReaderBottomChrome: View {
             )
             HStack {
                 Text(leadingLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text(trailingLabel)
+                // Feature #101: the trailing label is a tap target cycling
+                // page ↔ time readouts (design RTMetricsLine). It never
+                // wraps; the leading label truncates instead.
+                Button {
+                    let next = metricsReadout.toggled(
+                        hasTimeReadout: timeTrailingLabel != nil)
+                    guard next != metricsReadout else { return }
+                    metricsReadout = next
+                    persistReadoutChoice(next)
+                } label: {
+                    Text(metricsReadout.displayLabel(
+                        pages: trailingLabel, time: timeTrailingLabel))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                // Gate-4 r1 Medium: with no time readout the tap is inert —
+                // suppress the pressed flash too, not just the cycle.
+                .buttonStyle(MetricsReadoutButtonStyle(
+                    theme: theme, showsPressedFill: timeTrailingLabel != nil))
+                .layoutPriority(1)
+                .accessibilityIdentifier("readerMetricsReadout")
             }
             .font(.system(size: 11))
             .monospacedDigit()
             .foregroundStyle(Color(theme.subColor))
+            .onAppear { resolvePersistedReadout() }
+            // Gate-4 r1 Medium: the chrome instance can be reused for a
+            // different book (host swap under the same container) — re-resolve
+            // the persisted choice when the book identity changes.
+            .onChange(of: bookFingerprintKey) { resolvePersistedReadout() }
         }
         .padding(.horizontal, 22)
+    }
+
+    /// Feature #101: seeds `metricsReadout` from the book's persisted choice
+    /// (pages when absent / unknown / non-book surface).
+    private func resolvePersistedReadout() {
+        guard let bookFingerprintKey, let perBookBaseURL else {
+            metricsReadout = .pages
+            return
+        }
+        metricsReadout = ReaderMetricsReadout.resolve(
+            persisted: PerBookSettingsStore.settings(
+                for: bookFingerprintKey, baseURL: perBookBaseURL
+            )?.metricsReadout)
+    }
+
+    /// Feature #101: persists the readout choice per book through the shared
+    /// read-modify-write helper (Gate-2 M2 — never hand-merge the JSON).
+    private func persistReadoutChoice(_ readout: ReaderMetricsReadout) {
+        guard let bookFingerprintKey, let perBookBaseURL else { return }
+        try? PerBookSettingsStore.update(
+            for: bookFingerprintKey, baseURL: perBookBaseURL
+        ) { $0.metricsReadout = readout.rawValue }
     }
 
     // MARK: - Toolbar
@@ -161,105 +228,32 @@ struct ReaderBottomChrome: View {
     }
 }
 
-// MARK: - Scrubber
+// (Feature #60 WI-6b `ReaderScrubber` and `ReaderToolbarActionObservers`
+// moved to their own files for the ~300-line budget — see
+// ReaderScrubber.swift / ReaderToolbarActionObservers.swift.)
 
-/// Custom progress scrubber — a 3 pt track with an accent fill and a
-/// 14 pt draggable thumb, matching the design. Clamp + discrete-step
-/// snapping reuse `ReadingProgressBar`'s tested statics so WI-6b does
-/// not re-derive that logic.
-private struct ReaderScrubber: View {
+/// Feature #101: the design's pressed state — a subtle rounded fill behind
+/// the trailing label while the finger is down (RTMetricsLine `pressed`).
+/// `showsPressedFill` is false while the tap is inert (no time readout) so
+/// the pinned-pages state gives no pressed flash (Gate-4 r1 Medium).
+private struct MetricsReadoutButtonStyle: ButtonStyle {
     let theme: ReaderThemeV2
-    @Binding var progress: Double
-    let onSeek: (Double) -> Void
-    let discreteSteps: Int?
+    let showsPressedFill: Bool
 
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let clamped = ReadingProgressBar.clampedProgress(progress)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color(theme.ruleColor))
-                    .frame(height: 3)
-                Capsule()
-                    .fill(Color(theme.accentColor))
-                    .frame(width: max(0, width * clamped), height: 3)
-                Circle()
-                    .fill(Color(theme.accentColor))
-                    .frame(width: 14, height: 14)
-                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
-                    .offset(x: width * clamped - 7)
-            }
-            .frame(height: 24)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard width > 0 else { return }
-                        let fraction = max(0, min(1, value.location.x / width))
-                        let resolved = ReadingProgressBar.resolveSeekValue(
-                            fraction, discreteSteps: discreteSteps
-                        )
-                        progress = resolved
-                        onSeek(resolved)
-                    }
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 7).fill(
+                    configuration.isPressed && showsPressedFill
+                        ? (theme.isDark
+                            ? Color.white.opacity(0.08)
+                            : Color.black.opacity(0.06))
+                        : Color.clear
+                )
             )
-        }
-        .frame(height: 24)
-        .accessibilityElement()
-        .accessibilityLabel("Reading progress scrubber")
-        .accessibilityValue(ReadingProgressBar.formatLabel(
-            progress: ReadingProgressBar.clampedProgress(progress), label: nil
-        ))
-        .accessibilityIdentifier("readingProgressScrubber")
-    }
-}
-
-// MARK: - Toolbar action observers
-
-/// Feature #60 WI-6b: bundles the four bottom-chrome toolbar
-/// notification observers into a single modifier. `ReaderContainerView`
-/// applies it as one `.modifier(...)` rather than four chained
-/// `.onReceive`s — its `body` is already near the Swift type-checker's
-/// expression-complexity ceiling, and four more chain links tipped it
-/// over ("unable to type-check in reasonable time").
-struct ReaderToolbarActionObservers: ViewModifier {
-    let onContents: () -> Void
-    let onNotes: () -> Void
-    let onDisplay: () -> Void
-    let onAI: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .readerOpenContents)) { _ in
-                onContents()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .readerOpenNotes)) { _ in
-                onNotes()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .readerOpenDisplay)) { _ in
-                onDisplay()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .readerOpenAI)) { _ in
-                onAI()
-            }
-    }
-}
-
-extension View {
-    /// Attaches the four bottom-chrome toolbar observers (Feature #60
-    /// WI-6b). See `ReaderToolbarActionObservers`.
-    func readerToolbarActionObservers(
-        onContents: @escaping () -> Void,
-        onNotes: @escaping () -> Void,
-        onDisplay: @escaping () -> Void,
-        onAI: @escaping () -> Void
-    ) -> some View {
-        modifier(ReaderToolbarActionObservers(
-            onContents: onContents,
-            onNotes: onNotes,
-            onDisplay: onDisplay,
-            onAI: onAI
-        ))
+            .padding(.horizontal, -6)
+            .padding(.vertical, -1)
     }
 }

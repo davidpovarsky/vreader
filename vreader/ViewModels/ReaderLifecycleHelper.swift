@@ -15,11 +15,15 @@
 //   ReaderPositionService.swift, ReadingSessionTracker.swift
 
 import Foundation
+import Observation
 
 /// Shared lifecycle helper for reader ViewModels.
 /// Manages session tracking, position save/restore, stats recomputation,
 /// and periodic flush. Each format ViewModel composes one instance.
+/// Feature #101 (Gate-2 High): `@Observable` so the ticking displays are a
+/// reliable SwiftUI invalidation seam through the VMs' passthroughs.
 @MainActor
+@Observable
 final class ReaderLifecycleHelper {
 
     // MARK: - Constants
@@ -32,6 +36,12 @@ final class ReaderLifecycleHelper {
     /// Formatted session reading time (e.g., "5m"). VMs expose this to the UI.
     private(set) var sessionTimeDisplay: String?
 
+    /// Feature #101: the combined trailing time readout
+    /// ("12m read · 6h 40m total" / "4m read · first session"). nil until
+    /// session time accrues AND the book totals attach — the chrome pins
+    /// the pages readout meanwhile.
+    private(set) var timeReadoutDisplay: String?
+
     // MARK: - Dependencies
 
     let bookFingerprintKey: String
@@ -43,6 +53,21 @@ final class ReaderLifecycleHelper {
     // MARK: - Private State
 
     private var flushTask: Task<Void, Never>?
+    /// Feature #101: the book's total reading seconds at open (queried ONCE
+    /// from the stats store — never per tick) + whether this is the book's
+    /// first-ever session. The live total = this + the ticking session.
+    @ObservationIgnored private var totalSecondsAtOpen: Int?
+    @ObservationIgnored private var isFirstSession = false
+    /// Feature #101: the once-at-open stats fetch seam (production:
+    /// `PersistenceActor`; tests inject a stub). nil = totals never attach
+    /// (the time readout stays nil — pages pinned).
+    @ObservationIgnored private let statsStore: (any BookReadingStatsProviding)?
+    /// Feature #101 (Gate-4 r1 High): the in-flight stats fetch + a session
+    /// generation stamp. A slow fetch must not outlive `close()` or land on
+    /// a LATER session's state — the task is cancelled on close and its
+    /// result is dropped unless the generation still matches.
+    @ObservationIgnored private var statsFetchTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionGeneration = 0
     /// Date when the current active segment started (reset on background/resume).
     private var segmentStartDate: Date?
     /// Accumulated active reading seconds (excluding paused time).
@@ -54,8 +79,10 @@ final class ReaderLifecycleHelper {
         bookFingerprint: DocumentFingerprint,
         positionService: ReaderPositionService,
         sessionTracker: ReadingSessionTracker,
-        positionStore: any ReadingPositionPersisting
+        positionStore: any ReadingPositionPersisting,
+        statsStore: (any BookReadingStatsProviding)? = nil
     ) {
+        self.statsStore = statsStore
         self.bookFingerprint = bookFingerprint
         self.bookFingerprintKey = bookFingerprint.canonicalKey
         self.positionService = positionService
@@ -69,6 +96,25 @@ final class ReaderLifecycleHelper {
     /// Throws if session tracking fails (caller should handle rollback).
     func beginSession() throws {
         try sessionTracker.startSessionIfNeeded(bookFingerprint: bookFingerprint)
+        // Feature #101: query the book totals ONCE at session start. Until
+        // it lands, `timeReadoutDisplay` stays nil and the chrome pins the
+        // pages readout. The generation stamp drops a slow fetch that lands
+        // after close() or after a subsequent session began (Gate-4 r1 High).
+        sessionGeneration += 1
+        let generation = sessionGeneration
+        if totalSecondsAtOpen == nil, let statsStore {
+            statsFetchTask?.cancel()
+            statsFetchTask = Task { [weak self, bookFingerprintKey] in
+                let record = try? await statsStore.readingStats(forBookWithKey: bookFingerprintKey)
+                guard let self, !Task.isCancelled, self.sessionGeneration == generation else {
+                    return
+                }
+                self.attachBookTotals(
+                    totalSecondsAtOpen: record?.totalReadingSeconds ?? 0,
+                    isFirstSession: (record?.sessionCount ?? 0) == 0
+                )
+            }
+        }
         segmentStartDate = Date()
         accumulatedActiveSeconds = 0
         startPeriodicFlush()
@@ -90,6 +136,12 @@ final class ReaderLifecycleHelper {
     ///   Pass nil if no content was loaded (skips position save).
     func close(locator: Locator?) async {
         cancelFlush()
+        // Feature #101 (Gate-4 r1 High): a still-running stats fetch must not
+        // re-attach totals after the reset below — cancel it and invalidate
+        // its generation so a non-cancellable in-flight await drops its result.
+        statsFetchTask?.cancel()
+        statsFetchTask = nil
+        sessionGeneration += 1
 
         if let locator {
             await positionService.saveNow(locator: locator)
@@ -111,6 +163,9 @@ final class ReaderLifecycleHelper {
         segmentStartDate = nil
         accumulatedActiveSeconds = 0
         sessionTimeDisplay = nil
+        timeReadoutDisplay = nil
+        totalSecondsAtOpen = nil
+        isFirstSession = false
     }
 
     // MARK: - Background / Foreground
@@ -162,6 +217,14 @@ final class ReaderLifecycleHelper {
 
     // MARK: - Time Display
 
+    /// Feature #101: attach the once-at-open book totals; refreshes the
+    /// combined readout immediately so an already-ticking session picks it up.
+    func attachBookTotals(totalSecondsAtOpen: Int, isFirstSession: Bool) {
+        self.totalSecondsAtOpen = totalSecondsAtOpen
+        self.isFirstSession = isFirstSession
+        refreshTimeReadout(sessionSeconds: Int(totalActiveSeconds))
+    }
+
     /// Updates sessionTimeDisplay from accumulated + current segment time.
     func updateTimeDisplays() {
         var total = accumulatedActiveSeconds
@@ -170,6 +233,33 @@ final class ReaderLifecycleHelper {
         }
         let sessionSeconds = Int(total)
         sessionTimeDisplay = ReadingTimeFormatter.formatReadingTime(totalSeconds: sessionSeconds)
+        refreshTimeReadout(sessionSeconds: sessionSeconds)
+        // Feature #101 (WI-2b seam): mirror the live session display onto the
+        // bus so `ReaderContainerView` can feed the Book details "This
+        // session" row without reaching into host-private state. ~1 post per
+        // minute — negligible.
+        NotificationCenter.default.post(
+            name: .readerSessionTimeDidChange,
+            object: nil,
+            userInfo: [
+                "fingerprintKey": bookFingerprintKey,
+                "display": sessionTimeDisplay ?? "",
+            ])
+    }
+
+    /// Feature #101: rebuilds the combined readout. The live total = the
+    /// once-at-open total + the ticking session (pure arithmetic per tick —
+    /// no store query).
+    private func refreshTimeReadout(sessionSeconds: Int) {
+        guard let totalSecondsAtOpen else {
+            timeReadoutDisplay = nil
+            return
+        }
+        timeReadoutDisplay = ReadingTimeFormatter.combinedReadout(
+            sessionSeconds: sessionSeconds,
+            liveTotalSeconds: totalSecondsAtOpen + sessionSeconds,
+            isFirstSession: isFirstSession
+        )
     }
 
     /// Returns the total active seconds (accumulated + current segment).

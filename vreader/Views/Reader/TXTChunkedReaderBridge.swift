@@ -112,6 +112,9 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         // any pending/in-flight locate bloom when the reader tears down, so a
         // queued work item doesn't fire against a detached table / cell.
         coordinator.cancelLandingBloom()
+        // Bug #350 (Codex round 1, Medium): drop any pending fallback card
+        // post + dedup state so nothing fires against a detached cell.
+        coordinator.selectionCardFallback.cancel()
     }
 
     // MARK: - Chunk Resolution (pure, testable)
@@ -346,11 +349,21 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         }
 
         // Sync chunks and offsets if they changed (e.g., parent rebuilt chunks)
+        // Codex #350 round 2 (Low): count alone misses a same-count chunk
+        // rebuild; the start-offset array is cheap to compare and shifts
+        // whenever chunk text lengths change, so it catches those swaps
+        // (and runs the cancel + cache invalidation they need).
         let chunksChanged = context.coordinator.chunks.count != chunks.count
+            || context.coordinator.chunkStartOffsets != chunkStartOffsets
         if chunksChanged {
             context.coordinator.chunks = chunks
             context.coordinator.chunkStartOffsets = chunkStartOffsets
             context.coordinator.attrStringCache.removeAll()
+            // Bug #350 (Codex round 1, Medium): a chunk rebuild invalidates
+            // any pending fallback card post and its dedup state — global
+            // ranges from the old chunk layout must not suppress or fire
+            // against the new.
+            context.coordinator.selectionCardFallback.cancel()
             tableView.reloadData()
         }
 
@@ -515,6 +528,8 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
         /// highlight hit-tester. Feeds the `.readerHighlightTapped` post.
         var persistedHighlightLookup: [PersistedHighlightLookupEntry] = []
         weak var delegate: TXTTextViewBridgeDelegate?
+        /// Bug #350: the debounced selection-finalized card fallback.
+        let selectionCardFallback = SelectionCardFallback()
 
         /// LRU cache for attributed strings keyed by chunk index.
         var attrStringCache: [Int: NSAttributedString] = [:]
@@ -1099,7 +1114,13 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             // Suppress during text replacement to prevent crash (bug #47 v11)
             if let htv = textView as? HighlightableTextView, htv.isReplacingText { return }
             let nsRange = textView.selectedRange
-            guard nsRange.length > 0 else { return }
+            guard nsRange.length > 0 else {
+                // Bug #350: a collapsed selection clears the fallback's
+                // pending post + dedup state (re-selecting the same word
+                // later must post again).
+                selectionCardFallback.selectionChanged(range: nsRange) { _ in }
+                return
+            }
             let chunkIndex = textView.tag
             // Codex Gate 4 round 1 (Low) sibling of the editMenuForTextIn
             // fix: clamp negative tags too. Pre-WI-7c3 this was only
@@ -1112,6 +1133,29 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             let globalStart = chunkOffset + nsRange.location
             let globalEnd = globalStart + nsRange.length
             delegate?.selectionDidChange(utf16Range: UTF16Range(startUTF16: globalStart, endUTF16: globalEnd))
+            // Bug #350: the card no longer depends EXCLUSIVELY on UIKit
+            // requesting an edit menu — a finalized non-empty selection
+            // posts via the debounced fallback. Codex round 1 (High): the
+            // fallback is SHARED across all chunk cells, so dedup must key
+            // on the document-GLOBAL range (the same local range in two
+            // different chunks is two distinct selections); the post
+            // re-derives the local range from the live tag at fire time.
+            let globalRange = NSRange(location: globalStart, length: nsRange.length)
+            selectionCardFallback.selectionChanged(range: globalRange) { [weak self, weak textView] armed in
+                guard let self, let textView else { return }
+                let idx = textView.tag
+                let offset = (idx >= 0 && idx < self.chunkStartOffsets.count)
+                    ? self.chunkStartOffsets[idx]
+                    : 0
+                let local = NSRange(location: armed.location - offset, length: armed.length)
+                guard textView.selectedRange == local else { return }
+                TXTBridgeShared.postSelectionNotification(
+                    .readerSelectionPopoverRequested,
+                    from: textView,
+                    range: local,
+                    chunkOffset: offset
+                )
+            }
         }
 
         // Edit Menu (Bug #48)
@@ -1140,6 +1184,9 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
             // `cellForRowAt`). Out-of-range tags fall back to
             // offset 0 — defensive but should never fire in
             // production.
+            // Bug #350: dedup against the debounced selection fallback,
+            // keyed on the document-GLOBAL range (the shared fallback
+            // serves every chunk cell — local ranges alias across chunks).
             if range.length > 0 {
                 let chunkIndex = textView.tag
                 // Codex Gate 4 round 1 (Low): clamp on both ends.
@@ -1153,12 +1200,18 @@ struct TXTChunkedReaderBridge: UIViewRepresentable {
                 let chunkOffset = (chunkIndex >= 0 && chunkIndex < chunkStartOffsets.count)
                     ? chunkStartOffsets[chunkIndex]
                     : 0
-                TXTBridgeShared.postSelectionNotification(
-                    .readerSelectionPopoverRequested,
-                    from: textView,
-                    range: range,
-                    chunkOffset: chunkOffset
+                let globalRange = NSRange(
+                    location: chunkOffset + range.location, length: range.length
                 )
+                if selectionCardFallback.shouldMenuPathPost(range: globalRange) {
+                    selectionCardFallback.recordMenuPathPost(range: globalRange)
+                    TXTBridgeShared.postSelectionNotification(
+                        .readerSelectionPopoverRequested,
+                        from: textView,
+                        range: range,
+                        chunkOffset: chunkOffset
+                    )
+                }
             }
             return UIMenu(children: [])
         }

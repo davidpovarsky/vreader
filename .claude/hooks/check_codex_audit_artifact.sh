@@ -89,16 +89,35 @@ esac
 # changed since it diverged from origin/main.
 #
 # Fail open if the diff itself fails (offline, no upstream main, etc.).
-SWIFT_TOUCHED="no"
+#
+# Feature #103 WI-1 (Android Phase 0): code-path classification is now
+# factored into `.claude/hooks/lib/code-paths.sh` and matches by ROOT —
+# iOS (vreader/, vreaderTests/), Android/Kotlin (android/, spikes/,
+# buildSrc/, Gradle / manifest / res / *.kt[s]), and the shared
+# `contracts/` surface — so an `android/`/`contracts/` PR can no longer
+# bypass this gate as docs-only. Contract pinned by
+# `.claude/hooks/__tests__/check_codex_audit_artifact.test.sh`.
+CODE_TOUCHED="no"
 git fetch origin main --quiet 2>/dev/null || true
 DIFF_BASE="origin/main"
 git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || DIFF_BASE="main"
+# shellcheck source=.claude/hooks/lib/code-paths.sh
+# shellcheck disable=SC1091
+source "$REPO_ROOT/.claude/hooks/lib/code-paths.sh" 2>/dev/null || true
 if CHANGED="$(git diff "${DIFF_BASE}...HEAD" --name-only 2>/dev/null)"; then
-    if echo "$CHANGED" | grep -qE '^(vreader/|vreaderTests/)'; then
-        SWIFT_TOUCHED="yes"
+    if declare -F code_paths_touched >/dev/null 2>&1; then
+        if printf '%s\n' "$CHANGED" | code_paths_touched; then
+            CODE_TOUCHED="yes"
+        fi
+    else
+        # Classifier lib missing/unloadable (corrupt/partial checkout) —
+        # fail CLOSED: require an audit rather than risk letting a code PR
+        # bypass the gate. Duplicating the classifier inline would only
+        # risk drift; refusing to skip is the safe default.
+        CODE_TOUCHED="yes"
     fi
 fi
-if [[ "$SWIFT_TOUCHED" == "no" ]]; then
+if [[ "$CODE_TOUCHED" == "no" ]]; then
     # Docs / hooks / config / rules only — audit not required.
     exit 0
 fi
@@ -111,12 +130,13 @@ if [[ ! -f "$AUDIT_FILE" ]]; then
     cat >&2 <<EOF
 [codex-audit-merge-gate] BLOCKED.
 
-Branch \`$BRANCH\` touches Swift files but has no Codex audit log at:
+Branch \`$BRANCH\` touches code paths (iOS Swift, Android/Kotlin, or the
+shared contracts/ surface) but has no Codex audit log at:
 
   $AUDIT_FILE
 
 Per .claude/rules/47-feature-workflow.md Gate 4 and the /fix-issue
-skill's Phase 4, every PR that ships Swift code must run through a
+skill's Phase 4, every PR that ships code must run through a
 Codex audit loop before merge. Two ways to proceed:
 
   1. Run the audit. The cheap path:

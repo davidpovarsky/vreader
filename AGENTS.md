@@ -2,6 +2,36 @@
 
 Shared instructions for all AI agents (Claude, Codex, etc.).
 
+## Platforms (iOS + Android)
+
+vreader is a **native iOS app** (Swift, at the repo root: `vreader/` +
+`*.xcodeproj`) and — as of the ADR-0001 Android port — a **native Android
+app** (Kotlin + Compose, under `android/`). They are two independently
+shippable apps sharing identity/library/backup contracts, NOT a
+cross-platform rewrite. **Source of truth for the Android strategy:
+`docs/decisions/0001-android-port-strategy.md`.**
+
+- **Path ownership** — iOS code = `vreader/`, `vreaderTests/`,
+  `*.xcodeproj`, `project.yml`; Android code = `android/`, `spikes/`,
+  `buildSrc/`, `gradle/`, root Gradle files, `gradlew*`, `gradle.properties`,
+  `*.kt[s]`, `AndroidManifest.xml`, any `res/` tree; shared = `docs/`,
+  `contracts/`, `dev-docs/`, `.claude/`, this file. (The audit gate's
+  code-vs-docs classifier `.claude/hooks/lib/code-paths.sh` decides which
+  PRs need a Codex audit — it covers the Android/Kotlin/`contracts/` code
+  paths but is a boolean gate, not a full ownership taxonomy; `project.yml`
+  / `*.xcodeproj` are owned-by-iOS here but ride along with `vreader/`
+  changes.) Write isolation is binding — see
+  `.claude/rules/48-parallel-execution.md` ("Cross-platform write isolation").
+- **Tests**: iOS via `scripts/run-tests.sh` (xcodebuild). Android via
+  Gradle (`./gradlew test` / `connectedAndroidTest`) — *the Android module
+  lands in Phase 2 (#106); not wired yet.*
+- **Release semantics**: per-platform version files + tags (iOS plain
+  `vX.Y.Z`, Android `android/vX.Y.Z`) — see
+  `.claude/rules/40-version-bump.md` ("Multi-platform").
+- The Android port runs through the same 6-gate feature workflow; Phase 0
+  (#103) path-scopes the automation so an `android/` PR is gated, not
+  bypassed.
+
 - You are an AI assistant working on the project.
 - **Read `docs/architecture.md` before making any code changes. Update it when adding new layers, patterns, services, or changing how components communicate.**
 - Use English unless another language is requested.

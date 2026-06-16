@@ -88,3 +88,53 @@ git diff vreader.xcodeproj/project.pbxproj | grep -E "MARKETING_VERSION|CURRENT_
 ## Verification
 
 After a bump, the App's About / TestFlight build number both should reflect the new `MARKETING_VERSION`. The build number from `CURRENT_PROJECT_VERSION` is shown in TestFlight's release lists.
+
+## Multi-platform (Android port — feature #103 Phase 0)
+
+vreader is becoming two independently-shippable native apps (iOS at the
+repo root, Android under `android/`). A single `vX.Y.Z` tag space and one
+`project.yml` version cannot represent both. The policy:
+
+### Which platform does a PR bump?
+
+**Bump the version file of the platform whose code the PR touched.** This
+routing table is owned here (rule 40). Its iOS / Android / shared path
+sets are kept aligned with `.claude/hooks/lib/code-paths.sh`, but that
+file is only the audit gate's boolean code-vs-docs predicate — it does NOT
+itself decide platform/version ownership; this table does:
+
+| PR touches | Bump |
+|---|---|
+| iOS code (`vreader/`, `vreaderTests/`) | `project.yml` `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` (the existing iOS flow above) |
+| Android **app** code (`android/`, once the Phase-2 shell exists) | `android/version.properties` (`versionName` + `versionCode`) |
+| Android **spike/harness** code pre-Phase-2 (`spikes/`, contracts harnesses) | bump the **iOS** `project.yml` version — these are throwaway, non-shippable harnesses and there is no Android app to version yet; the iOS version keeps the repo's single shippable version monotonic |
+| Shared only (`docs/`, `contracts/`, `.claude/`, design) | bump the iOS version (iOS is the default release vehicle while Android is pre-foundation); a shared change that is part of an Android-app PR bumps Android |
+| Both platforms' code in one PR | avoid — split per the write-isolation rule (rule 48). If genuinely unavoidable, bump both files. |
+
+### Tag namespace (DECIDED — feature #103 plan, Gate-2 clean)
+
+- **iOS keeps plain `vX.Y.Z`, UNCHANGED.** The ~100 existing `v3.66.x`
+  tags are NOT retagged. A plain `vX.Y.Z` tag means iOS by definition.
+- **Android uses prefixed `android/vX.Y.Z`.** Any `android/`-prefixed tag
+  means Android.
+- No plain tag is ever cut for an Android-only release; no `android/` tag
+  for an iOS-only release.
+- **Rationale**: retagging a long iOS history is pointless churn, and the
+  namespace asymmetry (iOS plain, Android prefixed) deliberately mirrors
+  the directory asymmetry (iOS at root, Android in a subdir) — the ADR's
+  "right pragmatic call." Rejected: a single unified product version
+  (re-couples two independently-shippable cadences — the ADR's "biggest
+  miss").
+
+### Close-gate comment
+
+The GH "shipped in vX.Y.Z" closure comment (AGENTS.md close gate +
+`/fix-issue` Phase 9) is platform-namespaced for Android:
+"shipped in `android/vX.Y.Z`". The iOS wording is unchanged.
+
+> **Status**: this policy is documented; `android/version.properties` and
+> the Android bump mechanics land with the Phase-2 app shell (feature
+> #106). Until then there is no Android *app* to version — iOS, shared,
+> AND pre-Phase-2 Android spike/harness PRs (`spikes/`) all bump the iOS
+> `project.yml` version via the existing iOS flow; Android tags
+> (`android/vX.Y.Z`) begin only when the Phase-2 shell ships.

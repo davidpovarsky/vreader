@@ -35,8 +35,10 @@ sound (the v2 addition is `reading-history`, the v3 addition is
 
 - Every cross-book reference is by **`fingerprintKey`** (the canonical
   book identity). A backup written on iOS references books by the same
-  fingerprint Kotlin computes — which is exactly why `fingerprint.md` +
-  the libmobi determinism spike (WI-3) gate this whole contract.
+  fingerprint Kotlin computes — which is exactly why the `fingerprint.md`
+  + `locator.md` contracts gate this whole contract. (Backup identity does
+  NOT depend on converter determinism: for converted-Kindle formats the
+  canonical key is the SOURCE bytes, per `fingerprint.md` / `DECISION.md`.)
 - Locators inside annotations/positions are serialized as **plain
   `Locator` JSON** (the `locatorJSON` String field), NOT the
   `VReaderLocator` envelope — the backup wire format encodes a `Locator`
@@ -47,8 +49,12 @@ sound (the v2 addition is `reading-history`, the v3 addition is
   engine restores on the
   other at least to progression+quote precision.
 - `library-manifest.json` (schema 1) is the materializing-restore index:
-  `fingerprintKey → blob path`. Blob bytes are the original (converted)
-  file, re-fingerprinted on restore to confirm identity.
+  `fingerprintKey → blob path`. The canonical `fingerprintKey` is the
+  **SOURCE-bytes** key for converted-Kindle formats (`.azw3`/`.mobi`/`.prc`) —
+  see `fingerprint.md` + `DECISION.md`. On restore, identity is confirmed by
+  re-fingerprinting the **source bytes** (not the converted EPUB), so a Kindle
+  book backed up on one platform restores under the same identity on the other
+  without requiring byte-identical conversion.
 
 ## Cross-platform requirement
 

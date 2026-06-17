@@ -113,6 +113,13 @@ struct Locator: Codable, Hashable, Sendable {
         pairs.append(("bookFingerprint.fileByteCount", "\(bookFingerprint.fileByteCount)"))
         pairs.append(("bookFingerprint.format", jsonQuoted(bookFingerprint.format.rawValue)))
 
+        // NOTE (bug #356): the canonical CONTRACT (contracts/identity/locator.md)
+        // requires NFC-normalizing string fields before escaping so NFD/NFC forms
+        // hash identically cross-platform. iOS does NOT apply it yet — doing so
+        // changes the persisted canonicalHash (18 profileKey/locatorHash sites),
+        // so it needs a recompute migration + non-finite persistence guarding,
+        // tracked as feature #109. The Kotlin reference (CanonicalLocator) already
+        // normalizes; this iOS side is the contract-ahead-of-impl gap.
         if let cfi { pairs.append(("cfi", jsonQuoted(cfi))) }
         if let charOffsetUTF16 { pairs.append(("charOffsetUTF16", "\(charOffsetUTF16)")) }
         if let charRangeEndUTF16 { pairs.append(("charRangeEndUTF16", "\(charRangeEndUTF16)")) }

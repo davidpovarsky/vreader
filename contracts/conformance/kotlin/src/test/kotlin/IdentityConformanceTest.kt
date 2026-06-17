@@ -4,6 +4,7 @@ import kotlinx.serialization.json.*
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -61,6 +62,7 @@ class IdentityConformanceTest {
     @Test fun locatorVectors() {
         val data = load("locator.json")
         var n = 0
+        val emitted = StringBuilder()
         for (v in data["vectors"]!!.jsonArray) {
             val o = v.jsonObject
             fun str(k: String) = o[k]?.jsonPrimitive?.contentOrNull
@@ -83,27 +85,61 @@ class IdentityConformanceTest {
                 totalProgression = dbl("totalProgression"),
             )
             assertEquals(o["expectedCanonicalJSON"]!!.jsonPrimitive.content, got)
+            emitted.appendLine(got)
             n++
         }
         assertTrue(n > 0, "no locator vectors loaded")
+        // Emit this platform's ACTUAL canonical output so run.sh can byte-diff it
+        // against the Swift output (bug #355 — proves the two platforms agree
+        // directly, not only each-vs-the-shared-vector).
+        val outDir = File(vectorsDir.parentFile, "conformance/.out").apply { mkdirs() }
+        File(outDir, "kotlin-locator.txt").writeText(emitted.toString())
     }
 
-    @Test fun canonicalLocatorOmitsNonFinite() {
-        // NaN/Inf can't be JSON vectors (Codex Gate-4) — assert in code that the
-        // finite gate omits them, mirroring Swift `if let p, p.isFinite`.
+    @Test fun canonicalLocatorNormalizesNFC() {
+        // The canonical reference NFC-normalizes string fields (bug #356): NFD
+        // input (base letter + U+0301 combining acute) must produce the NFC
+        // precomposed form. Kotlin-only: iOS Locator.swift's matching NFC change
+        // is migration-sensitive and tracked as feature #109, so the cross-platform
+        // NFD vector isn't in the shared set yet (contract target: locator.md).
+        val fromNfd = CanonicalLocator.canonicalJson(
+            contentSHA256 = "d".repeat(64), fileByteCount = 3, format = "epub",
+            href = "a\u0301.html", textQuote = "cafe\u0301",   // NFD: base + U+0301
+        )
+        val fromNfc = CanonicalLocator.canonicalJson(
+            contentSHA256 = "d".repeat(64), fileByteCount = 3, format = "epub",
+            href = "\u00e1.html", textQuote = "caf\u00e9",      // NFC: precomposed
+        )
+        assertEquals(fromNfc, fromNfd, "NFD input must canonicalize to the NFC form")
+        assertTrue(fromNfd.contains("\u00e1") && fromNfd.contains("\u00e9"), "precomposed")
+        assertTrue(!fromNfd.contains("\u0301"), "no combining mark in output")
+    }
+
+    @Test fun canonicalLocatorRejectsNonFinite() {
+        // NaN/Inf can't be JSON vectors (bug #356) — assert the reference REJECTS
+        // non-finite (require -> IllegalArgumentException) rather than silently
+        // omitting it (which would collide an invalid locator with a valid
+        // missing-progression one). Swift's guard is Locator.validate().
         for (p in listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
-            val js = CanonicalLocator.canonicalJson(
-                contentSHA256 = "a".repeat(64), fileByteCount = 1, format = "epub",
-                progression = p, totalProgression = p,
-            )
-            // "progression" is a substring of "totalProgression", so its absence covers both.
-            assertTrue(!js.contains("progression"), "non-finite progression must be omitted: $js")
+            assertFailsWith<IllegalArgumentException> {
+                CanonicalLocator.canonicalJson(
+                    contentSHA256 = "a".repeat(64), fileByteCount = 1, format = "epub",
+                    progression = p,
+                )
+            }
+            assertFailsWith<IllegalArgumentException> {
+                CanonicalLocator.canonicalJson(
+                    contentSHA256 = "a".repeat(64), fileByteCount = 1, format = "epub",
+                    totalProgression = p,
+                )
+            }
         }
     }
 
     @Test fun cacheKeyVectors() {
         val data = load("cache-key.json")
         var n = 0
+        val emitted = StringBuilder()
         for (v in data["vectors"]!!.jsonArray) {
             val o = v.jsonObject
             val got = Identity.lookupKey(
@@ -113,8 +149,11 @@ class IdentityConformanceTest {
                 o["promptVersion"]!!.jsonPrimitive.content,
             )
             assertEquals(o["expectedLookupKey"]!!.jsonPrimitive.content, got)
+            emitted.appendLine(got)
             n++
         }
         assertTrue(n > 0, "no cache-key vectors loaded")
+        val outDir = File(vectorsDir.parentFile, "conformance/.out").apply { mkdirs() }
+        File(outDir, "kotlin-cachekey.txt").writeText(emitted.toString())
     }
 }

@@ -58,6 +58,49 @@ class IdentityConformanceTest {
         assertNull(Identity.parseCanonicalKey("missing:parts"))
     }
 
+    @Test fun locatorVectors() {
+        val data = load("locator.json")
+        var n = 0
+        for (v in data["vectors"]!!.jsonArray) {
+            val o = v.jsonObject
+            fun str(k: String) = o[k]?.jsonPrimitive?.contentOrNull
+            fun int(k: String) = o[k]?.jsonPrimitive?.intOrNull
+            fun dbl(k: String) = o[k]?.jsonPrimitive?.doubleOrNull
+            val got = CanonicalLocator.canonicalJson(
+                contentSHA256 = o["contentSHA256"]!!.jsonPrimitive.content,
+                fileByteCount = o["fileByteCount"]!!.jsonPrimitive.long,
+                format = o["format"]!!.jsonPrimitive.content,
+                cfi = str("cfi"),
+                charOffsetUTF16 = int("charOffsetUTF16"),
+                charRangeEndUTF16 = int("charRangeEndUTF16"),
+                charRangeStartUTF16 = int("charRangeStartUTF16"),
+                href = str("href"),
+                page = int("page"),
+                progression = dbl("progression"),
+                textContextAfter = str("textContextAfter"),
+                textContextBefore = str("textContextBefore"),
+                textQuote = str("textQuote"),
+                totalProgression = dbl("totalProgression"),
+            )
+            assertEquals(o["expectedCanonicalJSON"]!!.jsonPrimitive.content, got)
+            n++
+        }
+        assertTrue(n > 0, "no locator vectors loaded")
+    }
+
+    @Test fun canonicalLocatorOmitsNonFinite() {
+        // NaN/Inf can't be JSON vectors (Codex Gate-4) — assert in code that the
+        // finite gate omits them, mirroring Swift `if let p, p.isFinite`.
+        for (p in listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
+            val js = CanonicalLocator.canonicalJson(
+                contentSHA256 = "a".repeat(64), fileByteCount = 1, format = "epub",
+                progression = p, totalProgression = p,
+            )
+            // "progression" is a substring of "totalProgression", so its absence covers both.
+            assertTrue(!js.contains("progression"), "non-finite progression must be omitted: $js")
+        }
+    }
+
     @Test fun cacheKeyVectors() {
         val data = load("cache-key.json")
         var n = 0

@@ -64,6 +64,52 @@ struct IdentityConformanceTests {
         }
     }
 
+    @Test("Locator.canonicalJSON matches the golden vectors (cross-platform resume contract)")
+    func locatorVectors() throws {
+        let json = try Self.loadJSON("locator.json")
+        let vectors = try #require(json["vectors"] as? [[String: Any]])
+        #expect(!vectors.isEmpty)
+        for v in vectors {
+            let format = try #require(BookFormat(rawValue: v["format"] as! String))
+            let fp = DocumentFingerprint(
+                contentSHA256: v["contentSHA256"] as! String,
+                fileByteCount: Int64(v["fileByteCount"] as! Int),
+                format: format
+            )
+            let loc = Locator(
+                bookFingerprint: fp,
+                href: v["href"] as? String,
+                progression: v["progression"] as? Double,
+                totalProgression: v["totalProgression"] as? Double,
+                cfi: v["cfi"] as? String,
+                page: v["page"] as? Int,
+                charOffsetUTF16: v["charOffsetUTF16"] as? Int,
+                charRangeStartUTF16: v["charRangeStartUTF16"] as? Int,
+                charRangeEndUTF16: v["charRangeEndUTF16"] as? Int,
+                textQuote: v["textQuote"] as? String,
+                textContextBefore: v["textContextBefore"] as? String,
+                textContextAfter: v["textContextAfter"] as? String
+            )
+            #expect(loc.canonicalJSON() == v["expectedCanonicalJSON"] as! String)
+        }
+    }
+
+    @Test("Locator.canonicalJSON omits non-finite progression (NaN/Inf — cannot be JSON vectors)")
+    func locatorOmitsNonFinite() {
+        let fp = DocumentFingerprint(
+            contentSHA256: String(repeating: "a", count: 64), fileByteCount: 1, format: .epub
+        )
+        for p in [Double.nan, Double.infinity, -Double.infinity] {
+            let loc = Locator(
+                bookFingerprint: fp, href: nil, progression: p, totalProgression: p,
+                cfi: nil, page: nil, charOffsetUTF16: nil, charRangeStartUTF16: nil,
+                charRangeEndUTF16: nil, textQuote: nil, textContextBefore: nil, textContextAfter: nil
+            )
+            // "progression" is a substring of "totalProgression"; its absence covers both.
+            #expect(!loc.canonicalJSON().contains("progression"))
+        }
+    }
+
     @Test("ChapterTranslationRecord.lookupKey matches the golden vectors")
     func cacheKeyVectors() throws {
         let json = try Self.loadJSON("cache-key.json")

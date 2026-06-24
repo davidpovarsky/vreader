@@ -1,0 +1,55 @@
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'project.yml'
+      - 'vreader/**'
+      - 'scripts/package-unsigned-ipa.sh'
+      - 'scripts/ci-common.sh'
+      - '.github/workflows/ios-unsigned-ipa.yml'
+
+jobs:
+  unsigned-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Build unsigned IPA
+        shell: bash
+        run: bash scripts/package-unsigned-ipa.sh
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vreader-unsigned-ipa
+          path: |
+            build/artifacts/vreader-unsigned.ipa
+            build/logs/*.log
+          if-no-files-found: warn
+          retention-days: 14

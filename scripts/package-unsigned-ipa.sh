@@ -42,10 +42,14 @@ section "Environment" | tee "${LOG_FILE}"
   echo "Swift: $(xcrun swift --version | head -n 1)"
 } | tee -a "${LOG_FILE}"
 
+require_command python3
 require_command xcodegen
 require_command xcodebuild
 require_command xcrun
 require_command zip
+
+section "Apply CI preview compile patches" | tee -a "${LOG_FILE}"
+run_logged "${LOG_FILE}" python3 "${ROOT_DIR}/scripts/ci-preview-compile-patches.py"
 
 section "Generate Xcode project" | tee -a "${LOG_FILE}"
 run_logged "${LOG_FILE}" xcodegen generate --spec "${ROOT_DIR}/project.yml"

@@ -15,6 +15,15 @@ PROJECT_PATH="${ROOT_DIR}/vreader.xcodeproj"
 SCHEME="${SCHEME:-vreader}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 
+# VReader's project.yml currently opts into Swift 6 + complete strict concurrency.
+# That is useful for app development, but the public fork currently fails under
+# Xcode 16.4 before we can produce a preview IPA because of existing actor/
+# Sendable diagnostics. For this preview artifact only, default to Swift 5
+# compatibility and minimal concurrency checking. Override these env vars if
+# you want to test the stricter upstream configuration.
+VREADER_SWIFT_VERSION="${VREADER_SWIFT_VERSION:-5.0}"
+VREADER_SWIFT_STRICT_CONCURRENCY="${VREADER_SWIFT_STRICT_CONCURRENCY:-minimal}"
+
 on_error() {
   local status=$?
   print_error_summary "${LOG_FILE}" "${status}"
@@ -27,6 +36,8 @@ section "Environment" | tee "${LOG_FILE}"
   echo "Root: ${ROOT_DIR}"
   echo "Scheme: ${SCHEME}"
   echo "Configuration: ${CONFIGURATION}"
+  echo "Swift version override: ${VREADER_SWIFT_VERSION}"
+  echo "Strict concurrency override: ${VREADER_SWIFT_STRICT_CONCURRENCY}"
   echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
   echo "Swift: $(xcrun swift --version | head -n 1)"
 } | tee -a "${LOG_FILE}"
@@ -59,6 +70,8 @@ run_logged "${LOG_FILE}" xcodebuild \
   -destination "generic/platform=iOS" \
   -derivedDataPath "${DERIVED_DATA_DIR}" \
   -clonedSourcePackagesDirPath "${SOURCE_PACKAGES_DIR}" \
+  SWIFT_VERSION="${VREADER_SWIFT_VERSION}" \
+  SWIFT_STRICT_CONCURRENCY="${VREADER_SWIFT_STRICT_CONCURRENCY}" \
   CODE_SIGNING_ALLOWED=NO \
   clean build
 

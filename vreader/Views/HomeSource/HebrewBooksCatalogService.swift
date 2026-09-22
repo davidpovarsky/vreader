@@ -16,8 +16,8 @@
 // Catalog release:
 // https://github.com/Otzaria/otzar-HB_catalog/releases/latest
 //
-// PDF transport mirrors Otzaria's current HebrewBooks download service. The
-// user has confirmed permission from the HebrewBooks developers for this use.
+// PDF transport uses HebrewBooks' own direct download endpoint. The user has
+// confirmed permission from the HebrewBooks developers for this integration.
 
 import Foundation
 import SQLite3
@@ -34,7 +34,7 @@ struct HebrewBooksCatalogBook: Identifiable, Hashable, Sendable {
     var stableCoverKey: String { "hb:\(id)" }
 
     var metadataLine: String? {
-        let parts = [author, printingPlace, printingYear]
+        let parts = [printingPlace, printingYear]
             .compactMap { value -> String? in
                 guard let value else { return nil }
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -52,12 +52,10 @@ actor HebrewBooksCatalogService {
     )!
     static let databaseAssetName = "otzar-HB_catalog.db.zst"
 
-    // This is the same PDF endpoint + application header used by Otzaria's
-    // desktop/mobile integration for HebrewBooks.
-    private static let pdfBaseURL =
-        "https://files.hebrewbooksoffline.dpdns.org/HebrewBooks/books"
-    private static let pdfAppKeyHeader = "x-app-key"
-    private static let pdfAppKeyValue = "otzariatokendownload"
+    // HebrewBooks' direct public PDF endpoint. Keep PDF delivery independent
+    // from the Otzaria catalog host: Otzaria supplies metadata only.
+    private static let pdfDownloadURL =
+        "https://download.hebrewbooks.org/downloadhandler.ashx"
 
     private static let cachedReleaseTagKey =
         "homeSource.hebrewBooks.cachedReleaseTag"
@@ -249,24 +247,46 @@ actor HebrewBooksCatalogService {
     /// Downloads one HebrewBooks PDF to a temporary URL. The caller owns the
     /// returned file and may move/import/delete it.
     func downloadPDF(bookID: Int) async throws -> URL {
-        guard let url = URL(string: "\(Self.pdfBaseURL)/\(bookID).pdf") else {
+        guard var components = URLComponents(string: Self.pdfDownloadURL) else {
+            throw HebrewBooksCatalogError.invalidPDFURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "req", value: String(bookID))
+        ]
+        guard let url = components.url else {
             throw HebrewBooksCatalogError.invalidPDFURL
         }
 
-        let data = try await fetchData(
-            from: url,
-            headers: [Self.pdfAppKeyHeader: Self.pdfAppKeyValue]
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 180
+        request.setValue(
+            "VReader/1.0 (+HebrewBooks)",
+            forHTTPHeaderField: "User-Agent"
         )
 
-        guard data.count >= 5,
-              String(decoding: data.prefix(5), as: UTF8.self) == "%PDF-" else {
+        // Use URLSession's file-backed download path instead of holding a
+        // potentially large scanned sefer in memory.
+        let (temporaryURL, response) = try await URLSession.shared.download(
+            for: request
+        )
+        try validateDownloadedHTTP(response)
+
+        let handle = try FileHandle(forReadingFrom: temporaryURL)
+        defer { try? handle.close() }
+        let prefix = try handle.read(upToCount: 5) ?? Data()
+        guard prefix.count == 5,
+              String(decoding: prefix, as: UTF8.self) == "%PDF-" else {
             throw HebrewBooksCatalogError.invalidPDFResponse
         }
 
         let target = fileManager.temporaryDirectory
-            .appendingPathComponent("vreader-hebrewbooks-\(bookID)-\(UUID().uuidString)")
+            .appendingPathComponent(
+                "vreader-hebrewbooks-\(bookID)-\(UUID().uuidString)"
+            )
             .appendingPathExtension("pdf")
-        try data.write(to: target, options: .atomic)
+
+        try? fileManager.removeItem(at: target)
+        try fileManager.moveItem(at: temporaryURL, to: target)
         return target
     }
 
@@ -354,6 +374,18 @@ actor HebrewBooksCatalogService {
             throw HebrewBooksCatalogError.http(
                 status: http.statusCode,
                 preview: preview
+            )
+        }
+    }
+
+    private func validateDownloadedHTTP(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw HebrewBooksCatalogError.invalidHTTPResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw HebrewBooksCatalogError.http(
+                status: http.statusCode,
+                preview: ""
             )
         }
     }

@@ -106,8 +106,7 @@ actor HebrewBooksCatalogService {
         let release = try await fetchLatestRelease()
         defaults.set(now, forKey: Self.lastUpdateCheckKey)
 
-        if !force,
-           databaseExists(),
+        if databaseExists(),
            defaults.string(forKey: Self.cachedReleaseTagKey) == release.tagName {
             return false
         }

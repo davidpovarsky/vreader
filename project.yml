@@ -21,6 +21,12 @@ packages:
   Readium:
     url: https://github.com/readium/swift-toolkit
     exactVersion: "3.9.0"
+  # HomeSource/HebrewBooks: Otzaria publishes the shared HebrewBooks catalog
+  # as a Zstandard-compressed SQLite database. Keep the decompressor as an SPM
+  # dependency rather than vendoring C into the upstream application tree.
+  Zstd:
+    url: https://github.com/facebook/zstd
+    exactVersion: "1.5.7"
 
 targets:
   vreader:
@@ -100,6 +106,9 @@ targets:
         product: ReadiumStreamer
       - package: Readium
         product: ReadiumNavigator
+      # Isolated HomeSource/HebrewBooks catalog support.
+      - package: Zstd
+        product: libzstd
     preBuildScripts:
       # Bug #111: Copy DebugFixtures into the bundle ONLY when building Debug.
       # Release builds get nothing — verified by running `find vreader.app -name
@@ -229,7 +238,7 @@ targets:
         GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) USE_LIBXML2=1"
         HEADER_SEARCH_PATHS: "$(inherited) $(SDKROOT)/usr/include/libxml2 $(SRCROOT)/vreader/Services/Libmobi/src"
         SWIFT_OBJC_BRIDGING_HEADER: "vreader/SupportingFiles/Libmobi-Bridging-Header.h"
-        OTHER_LDFLAGS: "$(inherited) -lxml2"
+        OTHER_LDFLAGS: "$(inherited) -lxml2 -lsqlite3"
     info:
       # XcodeGen writes vreader/SupportingFiles/Info.plist with this content.
       # We need a real Info.plist (not Xcode's auto-generated one) because

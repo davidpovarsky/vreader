@@ -35,6 +35,5 @@ struct SettingsSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .foregroundStyle(Color(Self.color(for: theme)))
     }
 }

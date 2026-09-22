@@ -13,6 +13,7 @@ import SwiftUI
 
 enum HomeSourceSelection: Hashable {
     case library
+    case hebrewBooks
     case catalog(UUID)
 }
 
@@ -25,6 +26,8 @@ struct HomeSourceTitleMenu: View {
         switch selection {
         case .library:
             return "Library"
+        case .hebrewBooks:
+            return "HebrewBooks"
         case .catalog(let id):
             return catalogs.first(where: { $0.id == id })?.name ?? "Catalog"
         }
@@ -38,6 +41,17 @@ struct HomeSourceTitleMenu: View {
                 Label(
                     "Library",
                     systemImage: selection == .library ? "checkmark" : "books.vertical"
+                )
+            }
+
+            Button {
+                selection = .hebrewBooks
+            } label: {
+                Label(
+                    "HebrewBooks",
+                    systemImage: selection == .hebrewBooks
+                        ? "checkmark"
+                        : "book.closed"
                 )
             }
 

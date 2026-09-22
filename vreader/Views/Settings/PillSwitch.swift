@@ -121,6 +121,6 @@ struct PillSwitch: View {
     var body: some View {
         Toggle("", isOn: $isOn)
             .labelsHidden()
-            .toggleStyle(PillSwitchStyle(theme: theme))
+            .toggleStyle(.switch)
     }
 }

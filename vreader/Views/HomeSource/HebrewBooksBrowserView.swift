@@ -17,6 +17,11 @@ private struct HebrewBooksOpenRoute: Identifiable {
     var id: String { book.fingerprintKey }
 }
 
+private struct HebrewBooksSearchTaskKey: Hashable {
+    let query: String
+    let catalogReady: Bool
+}
+
 struct HebrewBooksBrowserView: View {
     let viewMode: LibraryViewMode
     let searchQuery: String
@@ -59,11 +64,18 @@ struct HebrewBooksBrowserView: View {
         .task {
             await bootstrapCatalog()
         }
-        .task(id: searchQuery) {
+        .task(
+            id: HebrewBooksSearchTaskKey(
+                query: searchQuery,
+                catalogReady: catalogReady
+            )
+        ) {
             guard catalogReady else { return }
 
             // Small debounce so typing in the existing LibrarySearchBar does not
-            // issue a SQLite query for every keystroke.
+            // issue a SQLite query for every keystroke. Including catalogReady
+            // in the task identity also covers the edge case where the user
+            // begins typing while the first catalog download is still running.
             try? await Task.sleep(for: .milliseconds(220))
             guard !Task.isCancelled else { return }
             await reloadBooks()
@@ -336,10 +348,9 @@ struct HebrewBooksBrowserView: View {
             await refreshBookCount()
 
             // Check for a newer catalog after cached results are already on
-            // screen. This keeps subsequent source switches instantaneous.
-            Task {
-                await checkForCatalogUpdate(force: forceRefresh)
-            }
+            // screen. Awaiting here still leaves the UI responsive, and keeps
+            // the work attached to SwiftUI's cancellable .task lifecycle.
+            await checkForCatalogUpdate(force: forceRefresh)
             return
         }
 

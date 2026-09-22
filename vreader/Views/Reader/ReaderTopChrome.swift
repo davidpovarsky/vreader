@@ -54,6 +54,9 @@ struct ReaderTopChrome: View {
     /// the chrome wraps the (still presentational) pill in a Button
     /// with the designed press state; nil keeps today's static pill.
     let onBilingualPillTap: (() -> Void)?
+    /// Optional catalog-origin save affordance. nil for every normal library book.
+    /// The concrete pill lives in the isolated HomeSource feature layer.
+    let onCatalogSave: (() -> Void)?
     let onBack: () -> Void
     let onSearch: () -> Void
     let onBookmark: () -> Void
@@ -75,7 +78,8 @@ struct ReaderTopChrome: View {
         onBack: @escaping () -> Void,
         onSearch: @escaping () -> Void,
         onBookmark: @escaping () -> Void,
-        onMore: @escaping () -> Void
+        onMore: @escaping () -> Void,
+        onCatalogSave: (() -> Void)? = nil
     ) {
         self.theme = theme
         self.title = title
@@ -84,6 +88,7 @@ struct ReaderTopChrome: View {
         self.bilingualActive = bilingualActive
         self.bilingualLanguage = bilingualLanguage
         self.onBilingualPillTap = onBilingualPillTap
+        self.onCatalogSave = onCatalogSave
         self.onBack = onBack
         self.onSearch = onSearch
         self.onBookmark = onBookmark
@@ -205,6 +210,13 @@ struct ReaderTopChrome: View {
                 } else {
                     pill
                 }
+            }
+
+            if let onCatalogSave {
+                CatalogReaderSavePill(
+                    theme: theme,
+                    action: onCatalogSave
+                )
             }
         }
     }

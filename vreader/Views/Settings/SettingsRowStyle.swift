@@ -143,7 +143,7 @@ struct SettingsIconRow<Trailing: View>: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .foregroundStyle(isDestructive ? .red : .primary)
+                    .foregroundStyle(isDestructive ? Color.red : Color.primary)
                 if let detail {
                     Text(detail)
                         .font(.caption)

@@ -50,26 +50,13 @@ struct ContinueReadingRail: View {
 
     /// `Continue reading` title + the design's static "See all" label.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Continue reading")
-                .font(LibraryCardTokens.serifTitleFont(
-                    size: LibraryCardTokens.sectionHeaderFontSize
-                ))
-                .fontWeight(.semibold)
-                .foregroundStyle(LibraryCardTokens.ink)
-
-            Spacer(minLength: 0)
-
-            // Design `See all` is a non-interactive label (no onClick).
-            Text("See all")
-                .font(.system(
-                    size: LibraryCardTokens.subtitleFontSize,
-                    weight: .medium
-                ))
-                .foregroundStyle(LibraryCardTokens.seeAllAccent)
+        HStack {
+            Text("Continue Reading")
+                .font(.headline)
+            Spacer()
         }
-        .padding(.horizontal, LibraryCardTokens.shellContentPadding)
-        .padding(.bottom, 10)
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Rail
@@ -88,7 +75,7 @@ struct ContinueReadingRail: View {
                     )
                 }
             }
-            .padding(.horizontal, LibraryCardTokens.shellContentPadding)
+            .padding(.horizontal)
         }
     }
 }

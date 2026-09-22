@@ -179,6 +179,7 @@ struct LibraryView: View {
                 resolvedGeneralChatVM: resolvedGeneralChatVM
             ))
         }
+        .modifier(HomeSourceLayer())
     }
 
     // MARK: - Constants

@@ -129,6 +129,10 @@ struct LibraryView: View {
                 // Reset chrome visibility when returning from reader (bug #72)
                 if newPath.isEmpty { isPushingReader = false }
             }
+            .onChange(of: homeSourceSelection) { _, _ in
+                isSearchVisible = false
+                searchQuery = ""
+            }
             .onChange(of: viewModel.isEmpty) { _, isEmpty in
                 // When the last book is removed, the Search pill is
                 // dropped from the nav bar — clear any open search so
@@ -234,6 +238,7 @@ struct LibraryView: View {
                         viewMode: viewModel.viewMode,
                         searchQuery: searchQuery
                     )
+                    .id(catalog.id)
                 } else {
                     catalogUnavailableState
                 }

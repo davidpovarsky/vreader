@@ -61,6 +61,11 @@ struct AIProviderEditSheet: View {
     /// editor sheet).
     let onSaveSuccess: ((UUID, _ wasAdd: Bool) -> Void)?
 
+    /// Stable key for the in-memory editor draft. Add-mode deliberately uses
+    /// one session key so a SwiftUI presentation rebuild restores the same
+    /// unsaved form instead of generating a fresh blank draft.
+    let draftKey: String
+
     @Environment(\.dismiss) private var dismiss
 
     // MARK: - Form State
@@ -77,7 +82,7 @@ struct AIProviderEditSheet: View {
     @State var temperature: Double
     @State var maxTokens: Int
 
-    @State var apiKey: String = ""
+    @State var apiKey: String
     @State var isAPIKeySaved: Bool
 
     @State var baseURLError: String?
@@ -112,7 +117,22 @@ struct AIProviderEditSheet: View {
         self.existing = existing
         self.onSaveSuccess = onSaveSuccess
 
-        if let existing {
+        let draftKey = existing.map { "edit:\($0.id.uuidString)" } ?? "add:new"
+        self.draftKey = draftKey
+
+        if let draft = AIProviderDraftSession.shared.snapshot(for: draftKey) {
+            // Restore the exact unsaved form after a SwiftUI presentation rebuild
+            // (for example when the app leaves the foreground and returns).
+            _profileID = State(initialValue: draft.profileID)
+            _name = State(initialValue: draft.name)
+            _kind = State(initialValue: draft.kind)
+            _baseURLText = State(initialValue: draft.baseURLText)
+            _model = State(initialValue: draft.model)
+            _temperature = State(initialValue: draft.temperature)
+            _maxTokens = State(initialValue: draft.maxTokens)
+            _apiKey = State(initialValue: draft.apiKey)
+            _isAPIKeySaved = State(initialValue: draft.isAPIKeySaved)
+        } else if let existing {
             _profileID = State(initialValue: existing.id)
             _name = State(initialValue: existing.name)
             _kind = State(initialValue: existing.kind)
@@ -120,6 +140,7 @@ struct AIProviderEditSheet: View {
             _model = State(initialValue: existing.model)
             _temperature = State(initialValue: existing.temperature)
             _maxTokens = State(initialValue: existing.maxTokens)
+            _apiKey = State(initialValue: "")
             // Probe keychain for an existing key by id; presence vs absence
             // is the only signal we care about (we don't read the key text
             // back into the SecureField — that would defeat the purpose).
@@ -139,6 +160,7 @@ struct AIProviderEditSheet: View {
             _model = State(initialValue: "")
             _temperature = State(initialValue: 0.7)
             _maxTokens = State(initialValue: 2048)
+            _apiKey = State(initialValue: "")
             _isAPIKeySaved = State(initialValue: false)
         }
     }
@@ -216,8 +238,11 @@ struct AIProviderEditSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .accessibilityIdentifier("editProviderCancel")
+                    Button("Cancel") {
+                        discardDraft()
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("editProviderCancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
@@ -241,6 +266,16 @@ struct AIProviderEditSheet: View {
                 Text(viewModel.editorError ?? "")
             }
         }
+        // Keep the unsaved form alive outside the sheet's transient @State.
+        // These writes are memory-only; the API key is not persisted to disk.
+        .onChange(of: name) { _, _ in persistDraft() }
+        .onChange(of: kind) { _, _ in persistDraft() }
+        .onChange(of: baseURLText) { _, _ in persistDraft() }
+        .onChange(of: model) { _, _ in persistDraft() }
+        .onChange(of: temperature) { _, _ in persistDraft() }
+        .onChange(of: maxTokens) { _, _ in persistDraft() }
+        .onChange(of: apiKey) { _, _ in persistDraft() }
+        .onChange(of: isAPIKeySaved) { _, _ in persistDraft() }
     }
 
     // Form sections live in AIProviderEditSheet+Sections.swift —
@@ -248,6 +283,29 @@ struct AIProviderEditSheet: View {
     // the ~300-line guideline.
 
     // MARK: - Actions
+
+    /// Writes the current editor values to process memory so a sheet rebuild
+    /// does not destroy the user's work. Nothing here is written to disk.
+    func persistDraft() {
+        AIProviderDraftSession.shared.save(
+            AIProviderDraftSnapshot(
+                profileID: profileID,
+                name: name,
+                kind: kind,
+                baseURLText: baseURLText,
+                model: model,
+                temperature: temperature,
+                maxTokens: maxTokens,
+                apiKey: apiKey,
+                isAPIKeySaved: isAPIKeySaved
+            ),
+            for: draftKey
+        )
+    }
+
+    func discardDraft() {
+        AIProviderDraftSession.shared.discard(draftKey)
+    }
 
     var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -287,6 +345,7 @@ struct AIProviderEditSheet: View {
             // can activate it as the bilingual engine + pop. `existing ==
             // nil` distinguishes add from edit. Library path: nil → no-op.
             onSaveSuccess?(profileID, existing == nil)
+            discardDraft()
             dismiss()
         }
     }

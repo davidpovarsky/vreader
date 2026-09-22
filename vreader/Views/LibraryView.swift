@@ -228,6 +228,13 @@ struct LibraryView: View {
             case .library:
                 librarySourceContent
 
+            case .hebrewBooks:
+                HebrewBooksBrowserView(
+                    viewMode: viewModel.viewMode,
+                    searchQuery: searchQuery
+                )
+                .id("hebrewbooks")
+
             case .catalog(let id):
                 if let catalog = savedOPDSCatalogs.first(where: { $0.id == id }),
                    let url = URL(string: catalog.url) {
@@ -342,6 +349,8 @@ struct LibraryView: View {
             switch homeSourceSelection {
             case .library:
                 return subtitleText(for: counts)
+            case .hebrewBooks:
+                return "HebrewBooks catalog"
             case .catalog:
                 return "OPDS catalog"
             }

@@ -117,7 +117,7 @@ struct LibraryView: View {
     private var libraryNavigationStack: some View {
         NavigationStack(path: $navigationPath) {
                     ZStack {
-                        LibraryCardTokens.shellBackground
+                        Color(uiColor: .systemGroupedBackground)
                             .ignoresSafeArea()
         
                         if viewModel.isInitialLoad {

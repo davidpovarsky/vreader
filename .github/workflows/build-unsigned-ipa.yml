@@ -1,30 +1,47 @@
-name: Build unsigned iOS IPA
+name: Build original UI iOS 26 IPA
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - chatgpt/unsigned-ipa-latest
+      - chatgpt/original-ui-ios26
 
 permissions:
   contents: read
 
+concurrency:
+  group: original-ui-ios26-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Build unsigned IPA
-    runs-on: macos-15
+    name: Build original UI with Xcode 26
+    runs-on: macos-26
     timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show toolchain
+      - name: Select Xcode 26
         shell: bash
         run: |
           set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | tail -n 1)"
+          if [ -z "$XCODE_APP" ]; then
+            echo "No Xcode 26 installation found on runner."
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
           xcrun swift --version
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iPhoneOS SDK: $SDK_VERSION"
+          case "$SDK_VERSION" in
+            26.*) ;;
+            *) echo "Expected an iOS 26 SDK, got $SDK_VERSION"; exit 1 ;;
+          esac
 
       - name: Install XcodeGen
         shell: bash
@@ -47,7 +64,7 @@ jobs:
           set -euo pipefail
           xcodegen generate --spec project.yml
 
-      - name: Build unsigned app
+      - name: Build unsigned app against iOS 26 SDK
         shell: bash
         run: |
           set -euo pipefail
@@ -86,18 +103,18 @@ jobs:
 
           (
             cd build/ipa
-            /usr/bin/zip -qry ../vreader-unsigned.ipa Payload
+            /usr/bin/zip -qry ../vreader-original-ui-ios26-unsigned.ipa Payload
           )
 
-          ls -lh build/vreader-unsigned.ipa
+          ls -lh build/vreader-original-ui-ios26-unsigned.ipa
 
       - name: Upload build artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vreader-unsigned-ipa
+          name: vreader-original-ui-ios26-unsigned
           path: |
-            build/vreader-unsigned.ipa
+            build/vreader-original-ui-ios26-unsigned.ipa
             build/xcodebuild.log
           if-no-files-found: warn
           retention-days: 14

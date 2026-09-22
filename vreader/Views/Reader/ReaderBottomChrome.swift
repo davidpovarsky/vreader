@@ -63,20 +63,13 @@ struct ReaderBottomChrome: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 14) {
+            VStack(spacing: 10) {
                 scrubberSection
                 toolbar
             }
-            .padding(.top, 14)
-            // Design baseline is 28pt (`vreader-reader.jsx` paddingBottom).
-            // On home-indicator devices the real inset (~34) is larger and
-            // wins; on zero-inset layouts we keep the 28pt design baseline
-            // rather than collapsing to a too-low value.
-            .padding(.bottom, max(ReaderSafeAreaResolver.windowSafeAreaBottom, 28))
-            .background(chromeBackground)
-            .overlay(alignment: .top) {
-                Color(theme.ruleColor).frame(height: 0.5)
-            }
+            .padding(.top, 10)
+            .padding(.bottom, max(ReaderSafeAreaResolver.windowSafeAreaBottom, 10))
+            .background(.bar)
         }
     }
 
@@ -122,14 +115,13 @@ struct ReaderBottomChrome: View {
                 }
                 // Gate-4 r1 Medium: with no time readout the tap is inert —
                 // suppress the pressed flash too, not just the cycle.
-                .buttonStyle(MetricsReadoutButtonStyle(
-                    theme: theme, showsPressedFill: timeTrailingLabel != nil))
+                .buttonStyle(.plain)
                 .layoutPriority(1)
                 .accessibilityIdentifier("readerMetricsReadout")
             }
-            .font(.system(size: 11))
+            .font(.caption)
             .monospacedDigit()
-            .foregroundStyle(Color(theme.subColor))
+            .foregroundStyle(.secondary)
             .onAppear { resolvePersistedReadout() }
             // Gate-4 r1 Medium: the chrome instance can be reused for a
             // different book (host swap under the same container) — re-resolve
@@ -174,25 +166,14 @@ struct ReaderBottomChrome: View {
     }
 
     private func toolbarButton(_ button: ReaderBottomChromeButton) -> some View {
-        // Per the design, a non-accent button draws its icon in `ink`
-        // but its label in the dimmer `sub` token; the accent button
-        // (AI) draws both in `accent`.
-        let iconColor = button.isAccent ? Color(theme.accentColor) : Color(theme.inkColor)
-        let labelColor = button.isAccent ? Color(theme.accentColor) : Color(theme.subColor)
-        return Button {
+        Button {
             NotificationCenter.default.post(name: Self.notification(for: button), object: nil)
         } label: {
-            VStack(spacing: 3) {
-                Image(systemName: Self.symbol(for: button))
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(iconColor)
-                Text(Self.label(for: button))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(labelColor)
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            Label(Self.label(for: button), systemImage: Self.symbol(for: button))
+                .font(.callout)
+                .lineLimit(1)
         }
+        .buttonStyle(.borderless)
         .accessibilityIdentifier(button.accessibilityIdentifier)
     }
 

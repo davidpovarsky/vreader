@@ -99,24 +99,26 @@ struct SettingsToggleRow: View {
     }
 
     var body: some View {
-        HStack(spacing: SettingsRowMetrics.tileToTitleSpacing) {
-            iconTile
-            VStack(alignment: .leading, spacing: SettingsToggleRowMetrics.titleToDetailSpacing) {
+        HStack(spacing: 12) {
+            icon
+                .foregroundStyle(.accent)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: SettingsRowMetrics.titleFontSize))
-                    .foregroundStyle(Color(theme.inkColor))
+                    .foregroundStyle(.primary)
                 if let detail {
                     Text(detail)
-                        .font(.system(size: SettingsRowMetrics.detailFontSize))
-                        .foregroundStyle(Color(theme.subColor))
-                        .lineSpacing(SettingsToggleRowMetrics.detailLineSpacing)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
             Spacer(minLength: 8)
             pillSwitch
         }
-        .padding(.vertical, SettingsRowMetrics.verticalPadding)
+        .contentShape(Rectangle())
     }
 
     /// The trailing `PillSwitch`, carrying the caller's toggle
@@ -134,13 +136,9 @@ struct SettingsToggleRow: View {
     /// The 30pt rounded-square brand-colored icon tile — identical
     /// vocabulary to `SettingsIconRow`'s tile.
     private var iconTile: some View {
-        RoundedRectangle(cornerRadius: SettingsRowMetrics.iconTileCornerRadius, style: .continuous)
-            .fill(iconBackground)
-            .frame(width: SettingsRowMetrics.iconTileSize, height: SettingsRowMetrics.iconTileSize)
-            .overlay {
-                icon
-                    .font(.system(size: SettingsRowMetrics.iconGlyphSize, weight: .regular))
-                    .foregroundStyle(.white)
-            }
+        icon
+            .foregroundStyle(.accent)
+            .frame(width: 24)
     }
+
 }

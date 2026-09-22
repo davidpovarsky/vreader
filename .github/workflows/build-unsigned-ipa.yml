@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - chatgpt/unsigned-ipa-latest
+      - chatgpt/native-ios-shell
 
 permissions:
   contents: read

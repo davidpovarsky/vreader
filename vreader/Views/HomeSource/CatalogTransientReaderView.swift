@@ -11,6 +11,7 @@
 // is killed while a transient catalog book is open, the next home appearance
 // removes the abandoned transient import.
 
+import Foundation
 import SwiftUI
 
 struct CatalogTransientReaderView: View {
@@ -60,52 +61,51 @@ struct CatalogTransientReaderView: View {
 }
 
 enum CatalogTransientStore {
-    private static let defaultsKey = "catalog.transientFingerprintKeys"
-    private static let lock = NSLock()
+    private static let defaultsKey = "catalog.transientFingerprintSessions"
+
+    /// Stable for the lifetime of this process. A SwiftUI view rebuild while
+    /// backgrounding keeps the same id, so currently-open transient books are
+    /// never mistaken for stale leftovers. A real process relaunch gets a new
+    /// id, making abandoned prior-session imports eligible for cleanup.
+    private static let currentSessionID = UUID().uuidString
 
     static func mark(_ fingerprintKey: String) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        var keys = storedKeys()
-        keys.insert(fingerprintKey)
-        write(keys)
+        var sessions = storedSessions()
+        sessions[fingerprintKey] = currentSessionID
+        write(sessions)
     }
 
     static func unmark(_ fingerprintKey: String) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        var keys = storedKeys()
-        keys.remove(fingerprintKey)
-        write(keys)
+        var sessions = storedSessions()
+        sessions.removeValue(forKey: fingerprintKey)
+        write(sessions)
     }
 
     static func cleanupStale(using persistenceActor: PersistenceActor?) async {
         guard let persistenceActor else { return }
 
-        let keys: Set<String> = {
-            lock.lock()
-            defer { lock.unlock() }
-            return storedKeys()
-        }()
-
-        guard !keys.isEmpty else { return }
+        let sessions = storedSessions()
+        let staleKeys = Set(
+            sessions.compactMap { key, sessionID in
+                sessionID == currentSessionID ? nil : key
+            }
+        )
+        guard !staleKeys.isEmpty else { return }
 
         guard let books = try? await persistenceActor.fetchAllLibraryBooks() else {
             return
         }
 
-        for book in books where keys.contains(book.fingerprintKey) {
+        for book in books where staleKeys.contains(book.fingerprintKey) {
             await removeTransientBook(book, using: persistenceActor)
         }
 
-        // Remove markers for records that no longer exist too.
-        lock.lock()
-        var remaining = storedKeys()
-        remaining.subtract(keys)
+        // Also clear markers whose database rows are already gone.
+        var remaining = storedSessions()
+        for key in staleKeys {
+            remaining.removeValue(forKey: key)
+        }
         write(remaining)
-        lock.unlock()
     }
 
     static func removeTransientBook(
@@ -119,17 +119,36 @@ enum CatalogTransientStore {
             format: book.format
         )
 
+        // EPUB imports may already have a persistent extraction cache. Resolve
+        // it before deleting the file, because the cache key reads file attrs.
+        let epubCacheURL: URL? = {
+            guard book.format.lowercased() == "epub" else { return nil }
+            return try? EPUBPreExtractor.cacheDirectory(for: fileURL)
+        }()
+
         try? await persistenceActor.deleteBook(fingerprintKey: book.fingerprintKey)
         try? FileManager.default.removeItem(at: fileURL)
+        if let epubCacheURL {
+            try? FileManager.default.removeItem(at: epubCacheURL)
+        }
 
         unmark(book.fingerprintKey)
+
+        // LibraryView's existing observer treats bookDidImport as a generic
+        // "reload books" signal; reuse it rather than adding another upstream
+        // notification seam solely for transient cleanup.
+        NotificationCenter.default.post(
+            name: .bookDidImport,
+            object: nil,
+            userInfo: ["fingerprintKey": book.fingerprintKey]
+        )
     }
 
-    private static func storedKeys() -> Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: defaultsKey) ?? [])
+    private static func storedSessions() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
     }
 
-    private static func write(_ keys: Set<String>) {
-        UserDefaults.standard.set(Array(keys), forKey: defaultsKey)
+    private static func write(_ sessions: [String: String]) {
+        UserDefaults.standard.set(sessions, forKey: defaultsKey)
     }
 }

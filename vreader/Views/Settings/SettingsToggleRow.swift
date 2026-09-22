@@ -101,7 +101,7 @@ struct SettingsToggleRow: View {
     var body: some View {
         HStack(spacing: 12) {
             icon
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -137,7 +137,7 @@ struct SettingsToggleRow: View {
     /// vocabulary to `SettingsIconRow`'s tile.
     private var iconTile: some View {
         icon
-            .foregroundStyle(.accent)
+            .foregroundStyle(Color.accentColor)
             .frame(width: 24)
     }
 

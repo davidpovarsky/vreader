@@ -109,6 +109,7 @@ struct LibraryView: View {
                 libraryNavigationStack
             }
         }
+        .modifier(HomeSourceLayer())
     }
 
     /// The existing library navigation stack is retained as the detail column.
@@ -263,7 +264,6 @@ struct LibraryView: View {
                 .accessibilityLabel("Manage collections")
             }
         }
-        .modifier(HomeSourceLayer())
     }
 
     // MARK: - Constants

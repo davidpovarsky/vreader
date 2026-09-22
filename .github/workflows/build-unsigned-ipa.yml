@@ -35,6 +35,12 @@ jobs:
           fi
           xcodegen --version
 
+      - name: Apply preview compile patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci-preview-compile-patches.py
+
       - name: Generate Xcode project
         shell: bash
         run: |

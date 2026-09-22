@@ -31,17 +31,53 @@ struct LibraryFilterChips: View {
     let collections: [CollectionRecord]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: LibraryCardTokens.filterChipSpacing) {
-                chip(for: .allBooks, label: "All Books")
-                ForEach(collections, id: \.name) { collection in
-                    chip(
-                        for: .collection(collection.name),
-                        label: collection.name
+        HStack {
+            Menu {
+                Button {
+                    activeFilter = .allBooks
+                } label: {
+                    Label(
+                        "All Books",
+                        systemImage: activeFilter == .allBooks ? "checkmark" : "books.vertical"
                     )
                 }
+
+                if !collections.isEmpty {
+                    Divider()
+                }
+
+                ForEach(collections, id: \.name) { collection in
+                    Button {
+                        activeFilter = .collection(collection.name)
+                    } label: {
+                        Label(
+                            collection.name,
+                            systemImage: activeFilter == .collection(collection.name)
+                                ? "checkmark"
+                                : "rectangle.stack"
+                        )
+                    }
+                }
+            } label: {
+                Label(activeFilterLabel, systemImage: "line.3.horizontal.decrease.circle")
             }
-            .padding(.horizontal, LibraryCardTokens.shellEdgePadding)
+            .buttonStyle(.bordered)
+
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+
+    private var activeFilterLabel: String {
+        switch activeFilter {
+        case .allBooks:
+            return "All Books"
+        case .collection(let name):
+            return name
+        case .tag(let name):
+            return name
+        case .series(let name):
+            return name
         }
     }
 
@@ -51,33 +87,12 @@ struct LibraryFilterChips: View {
     /// filter — selected draws the near-black fill / shell-colour text,
     /// unselected the warm wash / dark-brown text (design parity).
     private func chip(for filter: LibraryFilter, label: String) -> some View {
-        let isSelected = activeFilter == filter
-        return Button {
+        Button(label) {
             activeFilter = filter
-        } label: {
-            Text(label)
-                .font(.system(
-                    size: LibraryCardTokens.filterChipFontSize,
-                    weight: .medium
-                ))
-                .lineLimit(1)
-                .foregroundStyle(
-                    isSelected
-                        ? LibraryCardTokens.filterChipSelectedText
-                        : LibraryCardTokens.filterChipText
-                )
-                .padding(.horizontal, LibraryCardTokens.filterChipHorizontalPadding)
-                .padding(.vertical, LibraryCardTokens.filterChipVerticalPadding)
-                .background(
-                    Capsule().fill(
-                        isSelected
-                            ? LibraryCardTokens.filterChipSelectedBackground
-                            : LibraryCardTokens.filterChipBackground
-                    )
-                )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(activeFilter == filter ? .borderedProminent : .bordered)
         .accessibilityIdentifier("libraryFilterChip_\(label)")
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityAddTraits(activeFilter == filter ? [.isSelected] : [])
     }
+
 }

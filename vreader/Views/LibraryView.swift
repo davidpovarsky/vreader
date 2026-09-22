@@ -38,6 +38,7 @@ import UniformTypeIdentifiers
 
 /// Main library view for the book collection.
 struct LibraryView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     // NOTE: several `@State` / `@Environment` members below are
     // `internal` (no `private`) rather than `private` so the
     // `LibraryView+Body.swift` extension file (grid / list / context
@@ -96,98 +97,171 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            ZStack {
-                LibraryCardTokens.shellBackground
-                    .ignoresSafeArea()
+        Group {
+            if horizontalSizeClass == .regular {
+                NavigationSplitView {
+                    nativeLibrarySidebar
+                } detail: {
+                    libraryNavigationStack
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                libraryNavigationStack
+            }
+        }
+    }
 
-                if viewModel.isInitialLoad {
-                    ProgressView()
-                        .controlSize(.large)
-                        .accessibilityIdentifier("libraryLoadingIndicator")
-                } else {
-                    libraryContent
+    /// The existing library navigation stack is retained as the detail column.
+    /// On iPad the surrounding NavigationSplitView supplies a real system
+    /// sidebar; on compact-width devices this is the whole interface.
+    private var libraryNavigationStack: some View {
+        NavigationStack(path: $navigationPath) {
+                    ZStack {
+                        LibraryCardTokens.shellBackground
+                            .ignoresSafeArea()
+        
+                        if viewModel.isInitialLoad {
+                            ProgressView()
+                                .controlSize(.large)
+                                .accessibilityIdentifier("libraryLoadingIndicator")
+                        } else {
+                            libraryContent
+                        }
+                    }
+                    .navigationDestination(for: LibraryBookItem.self) { book in
+                        ReaderContainerView(book: book)
+                    }
+                    .refreshable {
+                        await viewModel.refresh()
+                        await checkForBookSourceUpdates()
+                    }
+                    .navigationTitle("Library")
+                    .navigationBarTitleDisplayMode(.large)
+                    .searchable(
+                        text: $searchQuery,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "Search books"
+                    )
+                    .toolbar {
+                        nativeLibraryToolbar
+                    }
+                    .toolbar(isPushingReader ? .hidden : .visible, for: .navigationBar)
+                    .task {
+                        await viewModel.loadBooks()
+                        // Load collections eagerly for the chip row + context
+                        // menu "Add to Collection" (bug #85; feature #60 WI-9).
+                        let persistence = PersistenceActor(modelContainer: modelContext.container)
+                        collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
+                    }
+                    .onChange(of: navigationPath) { _, newPath in
+                        // Reset chrome visibility when returning from reader (bug #72)
+                        if newPath.isEmpty { isPushingReader = false }
+                    }
+                    .onChange(of: viewModel.isEmpty) { _, isEmpty in
+                        // When the last book is removed, the Search pill is
+                        // dropped from the nav bar — clear any open search so
+                        // a re-import in the same session doesn't return with
+                        // the search bar unexpectedly expanded (Gate 4 round 2).
+                        if isEmpty {
+                            isSearchVisible = false
+                            searchQuery = ""
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(
+                        for: .readerBookTranslationProgressDidChange)) { notification in
+                        // Feature #56 WI-14 — mirror translate-entire-book
+                        // progress so each library card's
+                        // `LibraryCardTranslateBadge` overlay reflects the live
+                        // job state. Filter by `fingerprintKey`; a notification
+                        // missing the key (defensive) is ignored.
+                        guard let key = notification.userInfo?["fingerprintKey"] as? String,
+                              let completed = notification.userInfo?["completed"] as? Int,
+                              let total = notification.userInfo?["total"] as? Int,
+                              let phaseRaw = notification.userInfo?["phase"] as? String,
+                              let phase = BookTranslationProgress.Phase(rawValue: phaseRaw)
+                        else { return }
+                        translationProgressByBook[key] = BookTranslationProgress(
+                            phase: phase, completed: completed, total: total)
+                    }
+                    .modifier(LibraryViewObservers(
+                        viewModel: viewModel,
+                        bookForDownloadSheet: $bookForDownloadSheet,
+                        isPushingReader: $isPushingReader,
+                        navigationPath: $navigationPath
+                    ))
+                    .modifier(LibraryViewSheets(
+                        viewModel: viewModel,
+                        bookToDelete: $bookToDelete,
+                        bookForInfo: $bookForInfo,
+                        bookToShare: $bookToShare,
+                        bookForDownloadSheet: $bookForDownloadSheet,
+                        isShowingImporter: $isShowingImporter,
+                        isShowingSettings: $isShowingSettings,
+                        isShowingAIChat: $isShowingAIChat,
+                        isShowingOPDSCatalogs: $isShowingOPDSCatalogs,
+                        isShowingCollections: $isShowingCollections,
+                        activeFilter: $activeFilter,
+                        collectionRecords: $collectionRecords,
+                        allTags: $allTags,
+                        allSeries: $allSeries,
+                        coverPickCoordinator: coverPickCoordinator,
+                        resolvedGeneralChatVM: resolvedGeneralChatVM
+                    ))
+                }
+    }
+
+    /// Native iPad sidebar for high-level library filtering. Collection
+    /// management itself remains in the existing Collections sheet; this column
+    /// is intentionally a lightweight system List so it behaves like Files,
+    /// Notes and other first-party iPad apps.
+    private var nativeLibrarySidebar: some View {
+        List {
+            Section {
+                Button {
+                    activeFilter = .allBooks
+                } label: {
+                    HStack {
+                        Label("All Books", systemImage: "books.vertical")
+                        Spacer()
+                        if activeFilter == .allBooks {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+
+            if !collectionRecords.isEmpty {
+                Section("Collections") {
+                    ForEach(collectionRecords, id: \.name) { collection in
+                        Button {
+                            activeFilter = .collection(collection.name)
+                        } label: {
+                            HStack {
+                                Label(collection.name, systemImage: "folder")
+                                Spacer()
+                                if activeFilter == .collection(collection.name) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
                 }
             }
-            .navigationDestination(for: LibraryBookItem.self) { book in
-                ReaderContainerView(book: book)
-            }
-            .refreshable {
-                await viewModel.refresh()
-                await checkForBookSourceUpdates()
-            }
-            .navigationTitle("Library")
-            .navigationBarTitleDisplayMode(.large)
-            .searchable(
-                text: $searchQuery,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: "Search books"
-            )
-            .toolbar {
-                nativeLibraryToolbar
-            }
-            .toolbar(isPushingReader ? .hidden : .visible, for: .navigationBar)
-            .task {
-                await viewModel.loadBooks()
-                // Load collections eagerly for the chip row + context
-                // menu "Add to Collection" (bug #85; feature #60 WI-9).
-                let persistence = PersistenceActor(modelContainer: modelContext.container)
-                collectionRecords = (try? await persistence.fetchAllCollections()) ?? []
-            }
-            .onChange(of: navigationPath) { _, newPath in
-                // Reset chrome visibility when returning from reader (bug #72)
-                if newPath.isEmpty { isPushingReader = false }
-            }
-            .onChange(of: viewModel.isEmpty) { _, isEmpty in
-                // When the last book is removed, the Search pill is
-                // dropped from the nav bar — clear any open search so
-                // a re-import in the same session doesn't return with
-                // the search bar unexpectedly expanded (Gate 4 round 2).
-                if isEmpty {
-                    isSearchVisible = false
-                    searchQuery = ""
+        }
+        .navigationTitle("Library")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    openCollections()
+                } label: {
+                    Image(systemName: "plus")
                 }
+                .accessibilityLabel("Manage collections")
             }
-            .onReceive(NotificationCenter.default.publisher(
-                for: .readerBookTranslationProgressDidChange)) { notification in
-                // Feature #56 WI-14 — mirror translate-entire-book
-                // progress so each library card's
-                // `LibraryCardTranslateBadge` overlay reflects the live
-                // job state. Filter by `fingerprintKey`; a notification
-                // missing the key (defensive) is ignored.
-                guard let key = notification.userInfo?["fingerprintKey"] as? String,
-                      let completed = notification.userInfo?["completed"] as? Int,
-                      let total = notification.userInfo?["total"] as? Int,
-                      let phaseRaw = notification.userInfo?["phase"] as? String,
-                      let phase = BookTranslationProgress.Phase(rawValue: phaseRaw)
-                else { return }
-                translationProgressByBook[key] = BookTranslationProgress(
-                    phase: phase, completed: completed, total: total)
-            }
-            .modifier(LibraryViewObservers(
-                viewModel: viewModel,
-                bookForDownloadSheet: $bookForDownloadSheet,
-                isPushingReader: $isPushingReader,
-                navigationPath: $navigationPath
-            ))
-            .modifier(LibraryViewSheets(
-                viewModel: viewModel,
-                bookToDelete: $bookToDelete,
-                bookForInfo: $bookForInfo,
-                bookToShare: $bookToShare,
-                bookForDownloadSheet: $bookForDownloadSheet,
-                isShowingImporter: $isShowingImporter,
-                isShowingSettings: $isShowingSettings,
-                isShowingAIChat: $isShowingAIChat,
-                isShowingOPDSCatalogs: $isShowingOPDSCatalogs,
-                isShowingCollections: $isShowingCollections,
-                activeFilter: $activeFilter,
-                collectionRecords: $collectionRecords,
-                allTags: $allTags,
-                allSeries: $allSeries,
-                coverPickCoordinator: coverPickCoordinator,
-                resolvedGeneralChatVM: resolvedGeneralChatVM
-            ))
         }
     }
 

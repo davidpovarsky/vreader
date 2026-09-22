@@ -1,16 +1,9 @@
 // Purpose: Isolated home-source switcher for Library + saved OPDS catalogs.
 //
-// This layer intentionally sits OUTSIDE the upstream Library / OPDS screens.
-// The only integration point is one ViewModifier attached to LibraryView's
-// root content. Keeping catalog-source navigation here makes future upstream
-// merges low-conflict: the original LibraryView, OPDSCatalogListView and
-// OPDSBrowserView remain functionally untouched.
-//
-// Behavior:
-// - Saved OPDS catalogs appear beside Library in a native Menu on the home screen.
-// - Selecting a catalog replaces the home content with a first-class catalog view.
-// - "Manage Catalogs…" reuses the existing upstream catalog-management sheet.
-// - Catalog changes are reloaded after that sheet dismisses.
+// This feature intentionally lives outside the upstream Library / OPDS screens.
+// The only integration point is one ViewModifier on LibraryView's root. Keeping
+// source selection, catalog presentation and catalog management here minimizes
+// merge conflicts when pulling future upstream changes.
 
 import SwiftUI
 
@@ -20,10 +13,12 @@ enum HomeSourceSelection: Hashable {
 }
 
 struct HomeSourceLayer: ViewModifier {
-    @Binding var isShowingCatalogManager: Bool
+    @Environment(\.persistenceActor) private var persistenceActor
 
     @State private var selection: HomeSourceSelection = .library
     @State private var catalogs: [OPDSSavedCatalog] = []
+    @State private var isShowingCatalogManager = false
+    @State private var didRunTransientCleanup = false
 
     func body(content: Content) -> some View {
         Group {
@@ -35,12 +30,13 @@ struct HomeSourceLayer: ViewModifier {
                 }
 
             case .catalog(let id):
-                if let catalog = catalogs.first(where: { $0.id == id }) {
+                if let catalog = catalogs.first(where: { $0.id == id }),
+                   let url = URL(string: catalog.url) {
                     NavigationStack {
                         VStack(spacing: 0) {
                             sourceBar
                             HomeCatalogBrowserView(
-                                catalogURL: URL(string: catalog.url),
+                                catalogURL: url,
                                 catalogName: catalog.name,
                                 credentials: HomeCatalogStore.credentials(for: catalog)
                             )
@@ -52,7 +48,7 @@ struct HomeSourceLayer: ViewModifier {
                         ContentUnavailableView(
                             "Catalog Unavailable",
                             systemImage: "globe.badge.chevron.backward",
-                            description: Text("The selected catalog is no longer saved.")
+                            description: Text("The selected catalog is no longer available.")
                         )
                     }
                     .onAppear {
@@ -61,10 +57,28 @@ struct HomeSourceLayer: ViewModifier {
                 }
             }
         }
-        .onAppear(perform: reloadCatalogs)
-        .onChange(of: isShowingCatalogManager) { oldValue, newValue in
-            guard oldValue, !newValue else { return }
+        .onAppear {
             reloadCatalogs()
+
+            guard !didRunTransientCleanup else { return }
+            didRunTransientCleanup = true
+            Task {
+                await CatalogTransientStore.cleanupStale(using: persistenceActor)
+            }
+        }
+        .sheet(isPresented: $isShowingCatalogManager, onDismiss: reloadCatalogs) {
+            NavigationStack {
+                OPDSCatalogListView()
+                    .navigationTitle("OPDS Catalogs")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") {
+                                isShowingCatalogManager = false
+                            }
+                        }
+                    }
+            }
         }
     }
 
@@ -173,10 +187,8 @@ private struct HomeSourceBar: View {
 
 /// Read-only projection of the existing upstream OPDS catalog storage.
 ///
-/// We deliberately do not refactor OPDSCatalogListView's persistence code:
-/// that would create a large upstream merge surface. This layer only needs
-/// to READ the already-stable storage contract and reuses the same UserDefaults
-/// key + Keychain service identifier.
+/// The upstream manager remains the sole writer. This layer reads the same
+/// UserDefaults contract and hydrates passwords from the same Keychain service.
 enum HomeCatalogStore {
     private static let storageKey = "opds.savedCatalogs"
     private static let keychainServiceIdentifier = "com.vreader.opds"
@@ -194,9 +206,6 @@ enum HomeCatalogStore {
 
         return decoded.map { catalog in
             var hydrated = catalog
-
-            // Newer upstream builds keep the password in Keychain. Older rows may
-            // still contain plaintext during migration; preserve whichever exists.
             if let stored = try? keychain.readString(forAccount: catalog.id.uuidString),
                !stored.isEmpty {
                 hydrated.password = stored

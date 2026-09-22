@@ -138,7 +138,7 @@ struct SettingsIconRow<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             icon
-                .foregroundStyle(isDestructive ? .red : .accent)
+                .foregroundStyle(isDestructive ? Color.red : Color.accentColor)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -171,7 +171,7 @@ struct SettingsIconRow<Trailing: View>: View {
     /// The 30pt rounded-square brand-colored icon tile.
     private var iconTile: some View {
         icon
-            .foregroundStyle(isDestructive ? .red : .accent)
+            .foregroundStyle(isDestructive ? Color.red : Color.accentColor)
             .frame(width: 24)
     }
 

@@ -283,12 +283,6 @@ struct ReaderContainerView: View {
                 }
             }
 
-            // Custom chrome overlay — floats on top of content, never changes layout. (bug #62 v3)
-            if isChromeVisible {
-                readerChromeOverlay
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
             // Feature #56 WI-14: reader-side translate-entire-book
             // banner — appears when a global translate job is in flight
             // for the open book. Tapping the banner body opens the
@@ -322,24 +316,9 @@ struct ReaderContainerView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            // Feature #60 WI-6c: the reader More-menu popover, anchored
-            // to the `⋯` button in the top chrome. Floats above all
-            // content + chrome; only present while the chrome is too,
-            // so hiding the chrome dismisses it.
-            if showMorePopover && isChromeVisible {
-                readerMorePopoverOverlay
-                    .transition(.opacity)
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
-            // A content tap toggles the chrome. If the More popover is
-            // open, the tap should dismiss it rather than (also)
-            // flipping the chrome out from under it.
-            if showMorePopover {
-                showMorePopover = false
-            } else {
-                toggleChrome()
-            }
+            toggleChrome()
         }
         // Feature #60 WI-6b: the shared `ReaderBottomChrome` toolbar
         // posts these instead of threading handler closures through
@@ -385,7 +364,42 @@ struct ReaderContainerView: View {
         .accessibilityAction(named: isChromeVisible ? "Hide toolbar" : "Show toolbar") {
             toggleChrome()
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle(book.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(isChromeVisible ? .visible : .hidden, for: .navigationBar)
+        .toolbar {
+            NativeReaderToolbar(
+                bookTitle: book.title,
+                bilingualActive: bilingualActive,
+                bilingualLanguage: bilingualLanguage,
+                moreRows: ReaderMoreMenuRow.visibleRows(
+                    for: BookFormat(rawValue: book.format.lowercased())?.capabilities,
+                    bilingualOn: bilingualActive
+                ),
+                autoTurnOn: settingsStore.autoPageTurn,
+                ttsPlaying: ttsService.state != .idle,
+                onSearch: { showSearch = true },
+                onBookmark: {
+                    NotificationCenter.default.post(
+                        name: .readerBookmarkRequested,
+                        object: nil
+                    )
+                },
+                onBilingualSettings: {
+                    NotificationCenter.default.post(
+                        name: .readerMoreTranslationSettings,
+                        object: nil,
+                        userInfo: [
+                            "fingerprintKey": book.fingerprintKey,
+                            "bookTitle": book.title,
+                        ]
+                    )
+                },
+                onMoreAction: { row in
+                    handleMoreMenuAction(row)
+                }
+            )
+        }
         .statusBarHidden(!isChromeVisible)
         // Feature #60 WI-10: tint the status bar to match the reader
         // theme. `preferredColorScheme` resolves to `.dark` for the
@@ -394,7 +408,6 @@ struct ReaderContainerView: View {
         // it stays dark-on-light. WI-11 migrated `theme` to
         // `ReaderThemeV2`, so the token is read directly.
         .preferredColorScheme(settingsStore.theme.preferredColorScheme)
-        .ignoresSafeArea(edges: .top)
         .sheet(isPresented: $showAIPanel, onDismiss: {
             aiInitialTab = .summarize
             #if DEBUG

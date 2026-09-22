@@ -109,7 +109,6 @@ struct LibraryView: View {
                     libraryContent
                 }
             }
-            .navigationBarHidden(true)
             .navigationDestination(for: LibraryBookItem.self) { book in
                 ReaderContainerView(book: book)
             }
@@ -117,6 +116,17 @@ struct LibraryView: View {
                 await viewModel.refresh()
                 await checkForBookSourceUpdates()
             }
+            .navigationTitle("Library")
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(
+                text: $searchQuery,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: "Search books"
+            )
+            .toolbar {
+                nativeLibraryToolbar
+            }
+            .toolbar(isPushingReader ? .hidden : .visible, for: .navigationBar)
             .task {
                 await viewModel.loadBooks()
                 // Load collections eagerly for the chip row + context
@@ -211,24 +221,78 @@ struct LibraryView: View {
     /// the grid / list body.
     private var libraryContent: some View {
         VStack(spacing: 0) {
-            navBar
-            titleBlock
-
             if viewModel.isEmpty {
                 emptyState
             } else {
-                if isSearchVisible {
-                    LibrarySearchBar(query: $searchQuery)
-                        .padding(.bottom, 12)
-                }
                 LibraryFilterChips(
                     activeFilter: $activeFilter,
                     collections: collectionRecords
                 )
-                .padding(.bottom, 14)
+                .padding(.vertical, 8)
 
                 scrollableBody
             }
+        }
+    }
+
+    /// Native iOS/iPadOS navigation chrome. The library content keeps its
+    /// reading-focused visual identity, while navigation, menus, search and
+    /// import affordances are system controls so they inherit platform spacing,
+    /// hover, keyboard, accessibility and future iOS appearance updates.
+    @ToolbarContentBuilder
+    private var nativeLibraryToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                isShowingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("Settings")
+            .accessibilityIdentifier("settingsToolbarButton")
+
+            Menu {
+                Button {
+                    openCollections()
+                } label: {
+                    Label("Collections", systemImage: "rectangle.stack")
+                }
+
+                Button {
+                    isShowingOPDSCatalogs = true
+                } label: {
+                    Label("OPDS Catalogs", systemImage: "globe")
+                }
+
+                if isAIChatAvailable {
+                    Button {
+                        isShowingAIChat = true
+                    } label: {
+                        Label("AI Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
+                }
+
+                Divider()
+
+                Button {
+                    viewModel.toggleViewMode()
+                } label: {
+                    Label(
+                        viewModel.viewMode == .grid ? "List View" : "Grid View",
+                        systemImage: viewModel.viewMode == .grid ? "list.bullet" : "square.grid.2x2"
+                    )
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .accessibilityLabel("Library options")
+
+            Button {
+                isShowingImporter = true
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("Import books")
+            .accessibilityIdentifier("importBooksToolbarButton")
         }
     }
 

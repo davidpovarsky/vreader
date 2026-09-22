@@ -389,7 +389,17 @@ extension ReaderContainerView {
                         providerDisplayName = name
                     }
                 }
-            }
+            },
+            onCatalogSave: CatalogTransientStore.isMarked(book.fingerprintKey)
+                ? {
+                    CatalogTransientStore.unmark(book.fingerprintKey)
+                    NotificationCenter.default.post(
+                        name: .catalogBookSavedToLibrary,
+                        object: nil,
+                        userInfo: ["fingerprintKey": book.fingerprintKey]
+                    )
+                }
+                : nil
         )
     }
 

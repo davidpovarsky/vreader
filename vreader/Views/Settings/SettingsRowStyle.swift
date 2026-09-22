@@ -136,51 +136,45 @@ struct SettingsIconRow<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: SettingsRowMetrics.tileToTitleSpacing) {
-            iconTile
-            VStack(alignment: .leading, spacing: SettingsRowMetrics.titleToDetailSpacing) {
+        HStack(spacing: 12) {
+            icon
+                .foregroundStyle(isDestructive ? .red : .accent)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: SettingsRowMetrics.titleFontSize))
-                    .foregroundStyle(resolvedTitleColorForTesting)
+                    .foregroundStyle(isDestructive ? .red : .primary)
                 if let detail {
                     Text(detail)
-                        .font(.system(size: SettingsRowMetrics.detailFontSize))
-                        .foregroundStyle(Color(theme.subColor))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
+
             Spacer(minLength: 8)
             trailing
+
             if let trailingValue {
                 Text(trailingValue)
-                    .font(.system(size: SettingsRowMetrics.trailingValueFontSize))
-                    .foregroundStyle(Color(theme.subColor))
-                    // Design `Row`: `marginRight: 4` between the value
-                    // and the chevron.
-                    .padding(.trailing, showsChevron ? SettingsRowMetrics.trailingValueGap : 0)
+                    .foregroundStyle(.secondary)
             }
+
             if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: SettingsRowMetrics.chevronSize, weight: .semibold))
-                    .foregroundStyle(Color(theme.subColor))
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
         }
-        // Design `Row` `padding: '12px 14px'` — the 12pt vertical is the
-        // row's own contract; the 14pt horizontal is supplied by WI-4's
-        // `.listRowInsets` so it is not double-applied inside the `Form`.
-        .padding(.vertical, SettingsRowMetrics.verticalPadding)
+        .contentShape(Rectangle())
     }
 
     /// The 30pt rounded-square brand-colored icon tile.
     private var iconTile: some View {
-        RoundedRectangle(cornerRadius: SettingsRowMetrics.iconTileCornerRadius, style: .continuous)
-            .fill(iconBackground)
-            .frame(width: SettingsRowMetrics.iconTileSize, height: SettingsRowMetrics.iconTileSize)
-            .overlay {
-                icon
-                    .font(.system(size: SettingsRowMetrics.iconGlyphSize, weight: .regular))
-                    .foregroundStyle(.white)
-            }
+        icon
+            .foregroundStyle(isDestructive ? .red : .accent)
+            .frame(width: 24)
     }
+
 }
 
 // MARK: - Convenience init (value-string-only rows)

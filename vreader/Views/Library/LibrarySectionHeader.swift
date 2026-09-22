@@ -29,20 +29,16 @@ struct LibrarySectionHeader: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("All books")
-                .font(LibraryCardTokens.serifTitleFont(
-                    size: LibraryCardTokens.sectionHeaderFontSize
-                ))
-                .fontWeight(.semibold)
-                .foregroundStyle(LibraryCardTokens.ink)
+            Text("All Books")
+                .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
 
             sortMenu
         }
-        .padding(.horizontal, LibraryCardTokens.shellContentPadding)
-        .padding(.bottom, 14)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     /// The sort dropdown — design `Recent ⌄` affordance, wired to the
@@ -55,14 +51,9 @@ struct LibrarySectionHeader: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(sortOrder.label)
-                    .font(.system(size: LibraryCardTokens.subtitleFontSize))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(LibraryCardTokens.subText)
+            Label(sortOrder.label, systemImage: "arrow.up.arrow.down")
         }
+        .buttonStyle(.borderless)
         .accessibilityLabel("Sort books")
         .accessibilityIdentifier("sortPicker")
     }

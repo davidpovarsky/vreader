@@ -1,9 +1,13 @@
-// Purpose: Isolated home-source switcher for Library + saved OPDS catalogs.
+// Purpose: Low-conflict home-source UI for Library + saved OPDS catalogs.
 //
-// This feature intentionally lives outside the upstream Library / OPDS screens.
-// The only integration point is one ViewModifier on LibraryView's root. Keeping
-// source selection, catalog presentation and catalog management here minimizes
-// merge conflicts when pulling future upstream changes.
+// This file deliberately reuses the committed Library visual language:
+// Source Serif title typography, warm-paper palette, and the existing
+// LibraryCardTokens. The menu behavior is native SwiftUI Menu, while its label
+// renders exactly where the original "Library" title lives.
+//
+// Upstream integration is intentionally tiny: LibraryView owns one selection
+// state, renders HomeSourceTitleMenu in its existing title block, and swaps only
+// the content region below that title.
 
 import SwiftUI
 
@@ -12,97 +16,7 @@ enum HomeSourceSelection: Hashable {
     case catalog(UUID)
 }
 
-struct HomeSourceLayer: ViewModifier {
-    @Environment(\.persistenceActor) private var persistenceActor
-
-    @State private var selection: HomeSourceSelection = .library
-    @State private var catalogs: [OPDSSavedCatalog] = []
-    @State private var isShowingCatalogManager = false
-    @State private var didRunTransientCleanup = false
-
-    func body(content: Content) -> some View {
-        Group {
-            switch selection {
-            case .library:
-                VStack(spacing: 0) {
-                    sourceBar
-                    content
-                }
-
-            case .catalog(let id):
-                if let catalog = catalogs.first(where: { $0.id == id }),
-                   let url = URL(string: catalog.url) {
-                    NavigationStack {
-                        VStack(spacing: 0) {
-                            sourceBar
-                            HomeCatalogBrowserView(
-                                catalogURL: url,
-                                catalogName: catalog.name,
-                                credentials: HomeCatalogStore.credentials(for: catalog)
-                            )
-                        }
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        sourceBar
-                        ContentUnavailableView(
-                            "Catalog Unavailable",
-                            systemImage: "globe.badge.chevron.backward",
-                            description: Text("The selected catalog is no longer available.")
-                        )
-                    }
-                    .onAppear {
-                        selection = .library
-                    }
-                }
-            }
-        }
-        .onAppear {
-            reloadCatalogs()
-
-            guard !didRunTransientCleanup else { return }
-            didRunTransientCleanup = true
-            Task {
-                await CatalogTransientStore.cleanupStale(using: persistenceActor)
-            }
-        }
-        .sheet(isPresented: $isShowingCatalogManager, onDismiss: reloadCatalogs) {
-            NavigationStack {
-                OPDSCatalogListView()
-                    .navigationTitle("OPDS Catalogs")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Done") {
-                                isShowingCatalogManager = false
-                            }
-                        }
-                    }
-            }
-        }
-    }
-
-    private var sourceBar: some View {
-        HomeSourceBar(
-            selection: $selection,
-            catalogs: catalogs,
-            onManageCatalogs: {
-                isShowingCatalogManager = true
-            }
-        )
-    }
-
-    private func reloadCatalogs() {
-        catalogs = HomeCatalogStore.loadCatalogs()
-
-        if case .catalog(let id) = selection,
-           !catalogs.contains(where: { $0.id == id }) {
-            selection = .library
-        }
-    }
-}
-
-private struct HomeSourceBar: View {
+struct HomeSourceTitleMenu: View {
     @Binding var selection: HomeSourceSelection
     let catalogs: [OPDSSavedCatalog]
     let onManageCatalogs: () -> Void
@@ -116,79 +30,68 @@ private struct HomeSourceBar: View {
         }
     }
 
-    private var currentSymbol: String {
-        switch selection {
-        case .library:
-            return "books.vertical"
-        case .catalog:
-            return "globe"
-        }
-    }
-
     var body: some View {
-        HStack {
-            Menu {
-                Button {
-                    selection = .library
-                } label: {
-                    Label(
-                        "Library",
-                        systemImage: selection == .library ? "checkmark" : "books.vertical"
-                    )
-                }
+        Menu {
+            Button {
+                selection = .library
+            } label: {
+                Label(
+                    "Library",
+                    systemImage: selection == .library ? "checkmark" : "books.vertical"
+                )
+            }
 
-                if !catalogs.isEmpty {
-                    Divider()
+            if !catalogs.isEmpty {
+                Divider()
 
-                    Section("Catalogs") {
-                        ForEach(catalogs) { catalog in
-                            Button {
-                                selection = .catalog(catalog.id)
-                            } label: {
-                                Label(
-                                    catalog.name,
-                                    systemImage: selection == .catalog(catalog.id)
-                                        ? "checkmark"
-                                        : "globe"
-                                )
-                            }
+                Section("Catalogs") {
+                    ForEach(catalogs) { catalog in
+                        Button {
+                            selection = .catalog(catalog.id)
+                        } label: {
+                            Label(
+                                catalog.name,
+                                systemImage: selection == .catalog(catalog.id)
+                                    ? "checkmark"
+                                    : "globe"
+                            )
                         }
                     }
                 }
-
-                Divider()
-
-                Button(action: onManageCatalogs) {
-                    Label("Manage Catalogs…", systemImage: "slider.horizontal.3")
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: currentSymbol)
-                    Text(currentTitle)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
             }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("Reading source")
-            .accessibilityValue(currentTitle)
-            .accessibilityIdentifier("homeSourceMenu")
 
-            Spacer()
+            Divider()
+
+            Button(action: onManageCatalogs) {
+                Label("Manage Catalogs…", systemImage: "slider.horizontal.3")
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(currentTitle)
+                    .font(LibraryCardTokens.serifTitleFont(
+                        size: LibraryCardTokens.titleFontSize
+                    ))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(LibraryCardTokens.ink)
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LibraryCardTokens.subText)
+            }
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.thinMaterial)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Reading source")
+        .accessibilityValue(currentTitle)
+        .accessibilityIdentifier("homeSourceMenu")
     }
 }
 
 /// Read-only projection of the existing upstream OPDS catalog storage.
 ///
-/// The upstream manager remains the sole writer. This layer reads the same
-/// UserDefaults contract and hydrates passwords from the same Keychain service.
+/// OPDSCatalogListView remains the sole writer. Keeping storage ownership there
+/// avoids duplicating upstream behavior and makes future merges low-conflict.
 enum HomeCatalogStore {
     private static let storageKey = "opds.savedCatalogs"
     private static let keychainServiceIdentifier = "com.vreader.opds"

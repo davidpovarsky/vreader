@@ -77,15 +77,30 @@ struct ReaderSheetChrome<Body: View, Leading: View, Trailing: View>: View {
         self.content = content
     }
 
+    @ViewBuilder
     var body: some View {
-        VStack(spacing: 0) {
-            if let title {
-                titleBar(title)
+        if let title {
+            NavigationStack {
+                content()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            leading
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            trailingSlot
+                        }
+                    }
             }
+        } else {
+            // Some feature surfaces (notably the AI reader panel) own
+            // their own header. Keep those untouched rather than adding
+            // a second navigation bar.
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(theme.sheetSurfaceColor).ignoresSafeArea())
     }
 
     // MARK: - Title bar
@@ -134,16 +149,6 @@ struct ReaderSheetChrome<Body: View, Leading: View, Trailing: View>: View {
     private func closeButton(_ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(theme.subColor))
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle().fill(
-                        theme.isDark
-                            ? Color.white.opacity(0.08)
-                            : Color.black.opacity(0.06)
-                    )
-                )
         }
         .accessibilityLabel("Close")
         .accessibilityIdentifier("sheetCloseButton")

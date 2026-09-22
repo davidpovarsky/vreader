@@ -14,6 +14,40 @@
 import Foundation
 import SwiftUI
 
+extension Notification.Name {
+    static let catalogBookSavedToLibrary =
+        Notification.Name("vreader.catalog.savedToLibrary")
+}
+
+/// Save affordance intentionally mirrors the existing BilingualPill language:
+/// accent-tinted capsule, compact type, and the same pressed-state style.
+/// It is rendered INSIDE ReaderTopChrome, not as a foreign floating button.
+struct CatalogReaderSavePill: View {
+    let theme: ReaderThemeV2
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 10, weight: .bold))
+                Text("Save")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(Color(theme.accentColor))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(Color(theme.accentColor).opacity(0.10))
+            )
+            .padding(.leading, 6)
+        }
+        .buttonStyle(BilingualPillButtonStyle(theme: theme))
+        .accessibilityLabel("Save to Library")
+        .accessibilityIdentifier("catalogSaveToLibrary")
+    }
+}
+
 struct CatalogTransientReaderView: View {
     let book: LibraryBookItem
     let isTransient: Bool
@@ -31,20 +65,12 @@ struct CatalogTransientReaderView: View {
 
     var body: some View {
         ReaderContainerView(book: book)
-            .overlay(alignment: .bottomTrailing) {
-                if isTransient && !keepBook {
-                    Button {
-                        keepBook = true
-                        CatalogTransientStore.unmark(book.fingerprintKey)
-                    } label: {
-                        Label("Save to Library", systemImage: "square.and.arrow.down")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .padding(.trailing, 18)
-                    .padding(.bottom, 108)
-                    .accessibilityIdentifier("catalogSaveToLibrary")
-                }
+            .onReceive(NotificationCenter.default.publisher(
+                for: .catalogBookSavedToLibrary
+            )) { notification in
+                guard let key = notification.userInfo?["fingerprintKey"] as? String,
+                      key == book.fingerprintKey else { return }
+                keepBook = true
             }
             .onDisappear {
                 guard isTransient, !keepBook, !cleanupStarted else { return }
@@ -68,6 +94,10 @@ enum CatalogTransientStore {
     /// never mistaken for stale leftovers. A real process relaunch gets a new
     /// id, making abandoned prior-session imports eligible for cleanup.
     private static let currentSessionID = UUID().uuidString
+
+    static func isMarked(_ fingerprintKey: String) -> Bool {
+        storedSessions()[fingerprintKey] != nil
+    }
 
     static func mark(_ fingerprintKey: String) {
         var sessions = storedSessions()

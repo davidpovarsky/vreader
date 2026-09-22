@@ -263,6 +263,7 @@ struct LibraryView: View {
                 .accessibilityLabel("Manage collections")
             }
         }
+        .modifier(HomeSourceLayer())
     }
 
     // MARK: - Constants

@@ -27,7 +27,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | tail -n 1)"
+          if [ -z "$XCODE_APP" ]; then
+            echo "No Xcode 26 installation found on runner."
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
           xcrun swift --version
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"

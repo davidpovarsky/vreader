@@ -60,6 +60,7 @@ struct LibraryView: View {
     /// for the rest of the LibraryView's lifetime.
     @State private var generalChatVM: AIChatViewModel?
     @State private var isShowingOPDSCatalogs = false
+    @State private var homeSourceSelection: HomeSourceSelection = .library
     @State private var isShowingCollections = false
     @State private var activeFilter: LibraryFilter = .allBooks
     /// Feature #60 WI-9: raw search text. Empty unless the search bar
@@ -179,7 +180,6 @@ struct LibraryView: View {
                 resolvedGeneralChatVM: resolvedGeneralChatVM
             ))
         }
-        .modifier(HomeSourceLayer())
     }
 
     // MARK: - Constants
@@ -215,22 +215,75 @@ struct LibraryView: View {
             navBar
             titleBlock
 
-            if viewModel.isEmpty {
-                emptyState
-            } else {
-                if isSearchVisible {
-                    LibrarySearchBar(query: $searchQuery)
-                        .padding(.bottom, 12)
-                }
-                LibraryFilterChips(
-                    activeFilter: $activeFilter,
-                    collections: collectionRecords
-                )
-                .padding(.bottom, 14)
+            if isSearchVisible {
+                LibrarySearchBar(query: $searchQuery)
+                    .padding(.bottom, 12)
+            }
 
-                scrollableBody
+            switch homeSourceSelection {
+            case .library:
+                librarySourceContent
+
+            case .catalog(let id):
+                if let catalog = savedOPDSCatalogs.first(where: { $0.id == id }),
+                   let url = URL(string: catalog.url) {
+                    HomeCatalogBrowserView(
+                        catalogURL: url,
+                        catalogName: catalog.name,
+                        credentials: HomeCatalogStore.credentials(for: catalog),
+                        viewMode: viewModel.viewMode,
+                        searchQuery: searchQuery
+                    )
+                } else {
+                    catalogUnavailableState
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private var librarySourceContent: some View {
+        if viewModel.isEmpty {
+            emptyState
+        } else {
+            LibraryFilterChips(
+                activeFilter: $activeFilter,
+                collections: collectionRecords
+            )
+            .padding(.bottom, 14)
+
+            scrollableBody
+        }
+    }
+
+    private var savedOPDSCatalogs: [OPDSSavedCatalog] {
+        HomeCatalogStore.loadCatalogs()
+    }
+
+    private var catalogUnavailableState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "globe")
+                .font(.system(size: 64))
+                .foregroundStyle(LibraryCardTokens.subText)
+
+            Text("Catalog Unavailable")
+                .font(LibraryCardTokens.serifTitleFont(size: 22))
+                .fontWeight(.semibold)
+                .foregroundStyle(LibraryCardTokens.ink)
+
+            Text("This catalog is no longer available. Choose Library or another catalog.")
+                .font(.body)
+                .foregroundStyle(LibraryCardTokens.subText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Button("Back to Library") {
+                homeSourceSelection = .library
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(LibraryCardTokens.accent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Pure derivation layer for the current search + filter state.
@@ -257,7 +310,7 @@ struct LibraryView: View {
         LibraryNavBar(
             viewMode: viewModel.viewMode,
             isAIChatAvailable: isAIChatAvailable,
-            isSearchEnabled: !viewModel.isEmpty,
+            isSearchEnabled: homeSourceSelection != .library || !viewModel.isEmpty,
             syncMonitor: syncMonitor,
             onSettings: { isShowingSettings = true },
             onSearchToggle: {
@@ -280,18 +333,26 @@ struct LibraryView: View {
     /// taupe subtitle — design `LibraryScreen` title block.
     private var titleBlock: some View {
         let counts = containerModel.subtitleCounts(for: viewModel.books)
-        return VStack(alignment: .leading, spacing: 0) {
-            Text("Library")
-                .font(LibraryCardTokens.serifTitleFont(
-                    size: LibraryCardTokens.titleFontSize
-                ))
-                .fontWeight(.semibold)
-                .foregroundStyle(LibraryCardTokens.ink)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-                .accessibilityAddTraits(.isHeader)
+        let subtitle: String = {
+            switch homeSourceSelection {
+            case .library:
+                return subtitleText(for: counts)
+            case .catalog:
+                return "OPDS catalog"
+            }
+        }()
 
-            Text(subtitleText(for: counts))
+        return VStack(alignment: .leading, spacing: 0) {
+            HomeSourceTitleMenu(
+                selection: $homeSourceSelection,
+                catalogs: savedOPDSCatalogs,
+                onManageCatalogs: { isShowingOPDSCatalogs = true }
+            )
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .accessibilityAddTraits(.isHeader)
+
+            Text(subtitle)
                 .font(.system(size: LibraryCardTokens.subtitleFontSize))
                 .foregroundStyle(LibraryCardTokens.subText)
                 .padding(.bottom, 16)

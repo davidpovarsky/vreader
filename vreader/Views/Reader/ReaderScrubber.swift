@@ -19,43 +19,31 @@ struct ReaderScrubber: View {
     let discreteSteps: Int?
 
     var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let clamped = ReadingProgressBar.clampedProgress(progress)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color(theme.ruleColor))
-                    .frame(height: 3)
-                Capsule()
-                    .fill(Color(theme.accentColor))
-                    .frame(width: max(0, width * clamped), height: 3)
-                Circle()
-                    .fill(Color(theme.accentColor))
-                    .frame(width: 14, height: 14)
-                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
-                    .offset(x: width * clamped - 7)
-            }
-            .frame(height: 24)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard width > 0 else { return }
-                        let fraction = max(0, min(1, value.location.x / width))
-                        let resolved = ReadingProgressBar.resolveSeekValue(
-                            fraction, discreteSteps: discreteSteps
-                        )
-                        progress = resolved
-                        onSeek(resolved)
-                    }
+        Slider(
+            value: Binding(
+                get: {
+                    ReadingProgressBar.clampedProgress(progress)
+                },
+                set: { rawValue in
+                    let resolved = ReadingProgressBar.resolveSeekValue(
+                        rawValue,
+                        discreteSteps: discreteSteps
+                    )
+                    progress = resolved
+                    onSeek(resolved)
+                }
+            ),
+            in: 0...1
+        )
+        .tint(Color(theme.accentColor))
+        .accessibilityLabel("Reading progress")
+        .accessibilityValue(
+            ReadingProgressBar.formatLabel(
+                progress: ReadingProgressBar.clampedProgress(progress),
+                label: nil
             )
-        }
-        .frame(height: 24)
-        .accessibilityElement()
-        .accessibilityLabel("Reading progress scrubber")
-        .accessibilityValue(ReadingProgressBar.formatLabel(
-            progress: ReadingProgressBar.clampedProgress(progress), label: nil
-        ))
+        )
         .accessibilityIdentifier("readingProgressScrubber")
     }
+
 }

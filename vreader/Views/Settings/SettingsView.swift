@@ -133,17 +133,16 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ReaderSheetChrome(
-            theme: theme,
-            title: ReaderSheetKind.appSettings.designTitle,
-            trailing: {
-                Button("Done") { dismiss() }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color(theme.accentColor))
-                    .accessibilityIdentifier("settingsDoneButton")
-            }
-        ) {
+        NavigationStack {
             settingsStack
+                .navigationTitle("Settings")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                            .accessibilityIdentifier("settingsDoneButton")
+                    }
+                }
         }
         .accessibilityIdentifier("settingsView")
         .task {
@@ -155,11 +154,6 @@ struct SettingsView: View {
         .sheet(
             isPresented: $statsPresenter.isShowing,
             onDismiss: {
-                // Clear the VM on swipe-dismiss so the next open
-                // allocates a fresh presenter. The Done button's
-                // explicit `.dismiss()` path clears too, but `.sheet`'s
-                // native swipe-down bypasses that closure — this
-                // `onDismiss:` covers it.
                 statsPresenter.handleSheetOnDismiss()
             }
         ) {
@@ -174,18 +168,12 @@ struct SettingsView: View {
     /// bar replaces it — but pushed detail screens keep their own nav
     /// bar so the back button works.
     private var settingsStack: some View {
-        NavigationStack {
-            Form {
-                profileCardSection
-                cloudAndSyncSection
-                aiSection
-                readingSection
-                supportSection
-            }
-            .scrollContentBackground(.hidden)
-            .background(Color(theme.sheetSurfaceColor))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .navigationBar)
+        Form {
+            profileCardSection
+            cloudAndSyncSection
+            aiSection
+            readingSection
+            supportSection
         }
     }
 

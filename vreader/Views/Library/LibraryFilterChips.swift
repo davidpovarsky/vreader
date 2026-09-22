@@ -90,7 +90,7 @@ struct LibraryFilterChips: View {
         Button(label) {
             activeFilter = filter
         }
-        .buttonStyle(activeFilter == filter ? .borderedProminent : .bordered)
+        .buttonStyle(.bordered)
         .accessibilityIdentifier("libraryFilterChip_\(label)")
         .accessibilityAddTraits(activeFilter == filter ? [.isSelected] : [])
     }

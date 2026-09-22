@@ -225,7 +225,7 @@ struct LibraryView: View {
                         Spacer()
                         if activeFilter == .allBooks {
                             Image(systemName: "checkmark")
-                                .foregroundStyle(.tint)
+                                .foregroundStyle(Color.accentColor)
                         }
                     }
                 }
@@ -243,7 +243,7 @@ struct LibraryView: View {
                                 Spacer()
                                 if activeFilter == .collection(collection.name) {
                                     Image(systemName: "checkmark")
-                                        .foregroundStyle(.tint)
+                                        .foregroundStyle(Color.accentColor)
                                 }
                             }
                         }

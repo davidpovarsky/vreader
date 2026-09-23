@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Developer/Xcode/DerivedData
-          key: feature-177-xcode27-${{ hashFiles('project.yml') }}
+          key: feature-177-release-xcode27-${{ hashFiles('project.yml') }}
 
       - name: Apply preview compile patches
         shell: bash
@@ -136,6 +136,7 @@ jobs:
         env:
           TEST_UDID: ${{ env.FEATURE_TEST_UDID }}
           TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-core-tests.log
+          TEST_CONFIGURATION: Release
           TIMEOUT_SECS: 1200
         run: |
           set -euo pipefail
@@ -154,7 +155,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/Library/Developer/Xcode/DerivedData
-          key: feature-177-xcode27-${{ hashFiles('project.yml') }}
+          key: feature-177-release-xcode27-${{ hashFiles('project.yml') }}
 
       - name: Package unsigned IPA
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}

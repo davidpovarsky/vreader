@@ -25,6 +25,7 @@ set -uo pipefail
 TIMEOUT_SECS="${TIMEOUT_SECS:-900}"
 PROJECT="vreader.xcodeproj"
 SCHEME="vreader"
+CONFIGURATION="${TEST_CONFIGURATION:-Debug}"
 
 # Accept one or more -only-testing targets (default: the whole vreaderTests
 # suite). Prefer passing the TARGETED suites that cover your change — the full
@@ -48,11 +49,12 @@ mkdir -p "$(dirname "$LOG")"
 # wrapper exit after the watchdog created it would leak it; a leaked sentinel
 # is harmless to LATER runs — the path is per-mktemp — but untidy).
 trap 'rm -f "$LOG.timedout"' EXIT
-echo "[run-tests] targets=${ONLY_ARGS[*]} udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
+echo "[run-tests] targets=${ONLY_ARGS[*]} configuration=$CONFIGURATION udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
 
 ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" xcodebuild test \
   -project "$PROJECT" -scheme "$SCHEME" \
+  -configuration "$CONFIGURATION" \
   -destination "platform=iOS Simulator,id=$UDID" \
   -skipPackagePluginValidation \
   -skipMacroValidation \

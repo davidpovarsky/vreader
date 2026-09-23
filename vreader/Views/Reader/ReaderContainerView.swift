@@ -1021,7 +1021,12 @@ struct ReaderContainerView: View {
             let service = ttsService
             probe.ttsProbe = { @MainActor in
                 let state = service.state
-                let offset: Int? = (state == .idle) ? nil : service.currentOffsetUTF16
+                let offset: Int?
+                if state == .idle {
+                    offset = nil
+                } else {
+                    offset = service.currentOffsetUTF16
+                }
                 return (state: state.publicName, offsetUTF16: offset)
             }
             debugProbe = probe

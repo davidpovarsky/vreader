@@ -433,11 +433,7 @@ struct EPUBReaderContainerView: View {
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerAnnotationRequested)) { note in
-            let token = note.userInfo?["selectionRequestToken"] as? UUID
-            guard let event = selectionTokenCache.resolve(token: token) else { return }
-            pendingSelectionEvent = event
-            noteText = ""
-            showNoteSheet = true
+            handleAnnotationRequest(note)
         }
         .sheet(isPresented: $showNoteSheet) {
             noteInputSheet
@@ -514,6 +510,17 @@ struct EPUBReaderContainerView: View {
         // type-inference budget. Release builds replace it with an
         // `EmptyModifier` so no DebugBridge symbols leak.
         .modifier(debugBridgeScrollBoundaryObserverModifier)
+    }
+
+    /// Kept outside the long SwiftUI modifier chain so Swift 6.4 does not
+    /// need to infer the notification payload and three State writes while
+    /// solving the complete reader body expression.
+    private func handleAnnotationRequest(_ note: Notification) {
+        let token = note.userInfo?["selectionRequestToken"] as? UUID
+        guard let event = selectionTokenCache.resolve(token: token) else { return }
+        pendingSelectionEvent = event
+        noteText = ""
+        showNoteSheet = true
     }
 
     // MARK: - Subviews

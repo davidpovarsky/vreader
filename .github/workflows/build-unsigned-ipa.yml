@@ -68,8 +68,13 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
         uses: actions/cache@v4
         with:
-          path: ~/Library/Developer/Xcode/DerivedData
-          key: feature-177-release-xcode27-${{ hashFiles('project.yml') }}
+          # Cache only reusable build/package products. Caching all of
+          # DerivedData also captures CompilationCache.noindex; its expanded
+          # form exhausts the hosted runner while actions/cache is restoring it.
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/**/Build
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}
 
       - name: Apply preview compile patches
         shell: bash
@@ -158,8 +163,10 @@ jobs:
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
         uses: actions/cache/save@v4
         with:
-          path: ~/Library/Developer/Xcode/DerivedData
-          key: feature-177-release-xcode27-${{ hashFiles('project.yml') }}
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/**/Build
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}
 
       - name: Package unsigned IPA
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}

@@ -149,6 +149,13 @@ jobs:
         run: |
           xcrun simctl shutdown "${FEATURE_TEST_UDID}" 2>/dev/null || true
 
+      - name: Save Feature 177 Xcode build cache after RED or GREEN
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: feature-177-xcode27-${{ hashFiles('project.yml') }}
+
       - name: Package unsigned IPA
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
         shell: bash

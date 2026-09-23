@@ -370,7 +370,12 @@ struct EPUBReaderContainerView: View {
             guard let locator = Locator.validated(
                 bookFingerprint: fingerprint, href: href, progression: fraction
             ) else { return }
-            NotificationCenter.default.post(name: .readerNavigateToLocator, object: locator)
+            // Keep the concrete types outside the overloaded `post` call.
+            // Swift 6.2/Xcode 27 can otherwise time out type-checking this
+            // expression inside the view's long modifier chain in Debug.
+            let notificationName: Notification.Name = .readerNavigateToLocator
+            let notificationCenter: NotificationCenter = .default
+            notificationCenter.post(name: notificationName, object: locator)
         }
         // Feature #75: the CU-free EPUB layout-switch observer moved UP to the
         // dispatcher (`ReaderContainerView+DebugBridgeSetLayout`) so it reaches

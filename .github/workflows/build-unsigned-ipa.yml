@@ -52,6 +52,12 @@ jobs:
           fi
           xcodegen --version
 
+      - name: Install Metal Toolchain for MLX
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -downloadComponent MetalToolchain
+
       - name: Apply preview compile patches
         shell: bash
         run: |

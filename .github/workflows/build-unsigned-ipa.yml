@@ -74,7 +74,10 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/**/Build
             ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}
+          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}-${{ github.run_id }}
+          restore-keys: |
+            feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}-
+            feature-177-release-build-v2-xcode27-
 
       - name: Apply preview compile patches
         shell: bash
@@ -108,6 +111,27 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             clean build 2>&1 | tee build/xcodebuild.log
+
+      - name: Compile Feature 177 contracts against iOS 27 SDK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild build-for-testing \
+            -project vreader.xcodeproj \
+            -scheme vreader \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -only-testing:vreaderTests/AIDocumentModelsTests \
+            -only-testing:vreaderTests/AIReadingBoundaryPolicyTests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee build/feature-177-contract-compile.log
 
       - name: Boot iOS 27 Simulator for Feature 177 tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
@@ -166,7 +190,7 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/**/Build
             ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}
+          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}-${{ github.run_id }}
 
       - name: Package unsigned IPA
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
@@ -201,6 +225,7 @@ jobs:
           path: |
             build/vreader-original-ui-ios27-unsigned.ipa
             build/xcodebuild.log
+            build/feature-177-contract-compile.log
             build/feature-177-core-tests.log
             vreader.xcodeproj/project.pbxproj
             vreader.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

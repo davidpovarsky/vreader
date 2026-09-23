@@ -64,6 +64,13 @@ jobs:
           set -euo pipefail
           xcodebuild -downloadComponent MetalToolchain
 
+      - name: Restore Feature 177 Xcode build cache
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: feature-177-xcode27-${{ hashFiles('project.yml') }}
+
       - name: Apply preview compile patches
         shell: bash
         run: |

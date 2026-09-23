@@ -137,7 +137,11 @@ jobs:
           TEST_UDID: ${{ env.FEATURE_TEST_UDID }}
           TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-core-tests.log
           TEST_CONFIGURATION: Release
-          TIMEOUT_SECS: 1200
+          # A cold Release simulator build compiles MLX's C++ backend and can
+          # exceed 20 minutes on the Xcode 27 runner. DerivedData is cached, but
+          # the watchdog must still allow the first cache-populating build to
+          # finish instead of reporting false simulator contention.
+          TIMEOUT_SECS: 1800
         run: |
           set -euo pipefail
           scripts/run-tests.sh \

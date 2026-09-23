@@ -26,6 +26,7 @@ TIMEOUT_SECS="${TIMEOUT_SECS:-900}"
 PROJECT="vreader.xcodeproj"
 SCHEME="vreader"
 CONFIGURATION="${TEST_CONFIGURATION:-Debug}"
+TEST_ENABLE_TESTABILITY="${TEST_ENABLE_TESTABILITY:-NO}"
 
 # Accept one or more -only-testing targets (default: the whole vreaderTests
 # suite). Prefer passing the TARGETED suites that cover your change — the full
@@ -35,6 +36,11 @@ if [ "$#" -eq 0 ]; then
   ONLY_ARGS=(-only-testing:vreaderTests)
 else
   for t in "$@"; do ONLY_ARGS+=(-only-testing:"$t"); done
+fi
+
+BUILD_SETTING_ARGS=()
+if [ "$TEST_ENABLE_TESTABILITY" = "YES" ]; then
+  BUILD_SETTING_ARGS+=(ENABLE_TESTABILITY=YES)
 fi
 
 UDID="${TEST_UDID:-$(xcrun simctl list devices booted 2>/dev/null | grep -Eo '[0-9A-Fa-f-]{36}' | head -1)}"
@@ -49,7 +55,7 @@ mkdir -p "$(dirname "$LOG")"
 # wrapper exit after the watchdog created it would leak it; a leaked sentinel
 # is harmless to LATER runs — the path is per-mktemp — but untidy).
 trap 'rm -f "$LOG.timedout"' EXIT
-echo "[run-tests] targets=${ONLY_ARGS[*]} configuration=$CONFIGURATION udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
+echo "[run-tests] targets=${ONLY_ARGS[*]} configuration=$CONFIGURATION testability=$TEST_ENABLE_TESTABILITY udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
 
 ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" xcodebuild test \
@@ -58,6 +64,7 @@ DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" xcodebuild test \
   -destination "platform=iOS Simulator,id=$UDID" \
   -skipPackagePluginValidation \
   -skipMacroValidation \
+  "${BUILD_SETTING_ARGS[@]}" \
   "${ONLY_ARGS[@]}" >"$LOG" 2>&1 &
 pid=$!
 

@@ -42,16 +42,20 @@ if [ -z "$UDID" ]; then
   exit 2
 fi
 
-LOG="$(mktemp -t run-tests.XXXXXX)"
+LOG="${TEST_LOG_PATH:-$(mktemp -t run-tests.XXXXXX)}"
+mkdir -p "$(dirname "$LOG")"
 # The timeout sentinel must not outlive this run (Gate-4 Low: an abnormal
 # wrapper exit after the watchdog created it would leak it; a leaked sentinel
 # is harmless to LATER runs — the path is per-mktemp — but untidy).
 trap 'rm -f "$LOG.timedout"' EXIT
 echo "[run-tests] targets=${ONLY_ARGS[*]} udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
 
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
+ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
+DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" xcodebuild test \
   -project "$PROJECT" -scheme "$SCHEME" \
   -destination "platform=iOS Simulator,id=$UDID" \
+  -skipPackagePluginValidation \
+  -skipMacroValidation \
   "${ONLY_ARGS[@]}" >"$LOG" 2>&1 &
 pid=$!
 

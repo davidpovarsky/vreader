@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT="$ROOT/project.yml"
 WORKFLOW="$ROOT/.github/workflows/build-unsigned-ipa.yml"
+TEST_RUNNER="$ROOT/scripts/run-tests.sh"
 
 assert_contains() {
     local file="$1"
@@ -31,6 +32,13 @@ assert_contains "$WORKFLOW" 'Build unsigned app against iOS 27 SDK'
 assert_contains "$WORKFLOW" '-skipPackagePluginValidation'
 assert_contains "$WORKFLOW" '-skipMacroValidation'
 assert_contains "$WORKFLOW" 'xcodebuild -downloadComponent MetalToolchain'
+assert_contains "$WORKFLOW" 'run_feature_177_core_tests:'
+assert_contains "$WORKFLOW" 'Run Feature 177 core contract tests'
+assert_contains "$WORKFLOW" 'vreaderTests/AIDocumentModelsTests'
+assert_contains "$WORKFLOW" 'vreaderTests/AIReadingBoundaryPolicyTests'
+assert_contains "$TEST_RUNNER" 'ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"'
+assert_contains "$TEST_RUNNER" '-skipPackagePluginValidation'
+assert_contains "$TEST_RUNNER" '-skipMacroValidation'
 
 # USearch 2.26.2 resolves NumKong 7.8.2, whose header-only CNumKong target
 # triggers swift-package-manager#5706 in Xcode's transitive linker. Keep the

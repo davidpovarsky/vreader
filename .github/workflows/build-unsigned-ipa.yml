@@ -76,6 +76,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/build/DerivedData" \
             -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
             SWIFT_VERSION=5.0 \
             SWIFT_STRICT_CONCURRENCY=minimal \
             CODE_SIGNING_ALLOWED=NO \
@@ -116,5 +118,7 @@ jobs:
           path: |
             build/vreader-original-ui-ios27-unsigned.ipa
             build/xcodebuild.log
+            vreader.xcodeproj/project.pbxproj
+            vreader.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
           if-no-files-found: warn
           retention-days: 14

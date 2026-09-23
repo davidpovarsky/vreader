@@ -28,6 +28,8 @@ assert_contains "$WORKFLOW" 'runs-on: xcode-27'
 assert_contains "$WORKFLOW" 'Select Xcode 27'
 assert_contains "$WORKFLOW" '27.*) ;;'
 assert_contains "$WORKFLOW" 'Build unsigned app against iOS 27 SDK'
+assert_contains "$WORKFLOW" '-skipPackagePluginValidation'
+assert_contains "$WORKFLOW" '-skipMacroValidation'
 
 if grep -Fq 'runs-on: macos-26' "$WORKFLOW"; then
     echo "workflow still targets macos-26" >&2

@@ -32,6 +32,14 @@ assert_contains "$WORKFLOW" '-skipPackagePluginValidation'
 assert_contains "$WORKFLOW" '-skipMacroValidation'
 assert_contains "$WORKFLOW" 'xcodebuild -downloadComponent MetalToolchain'
 
+# USearch 2.26.2 resolves NumKong 7.8.2, whose header-only CNumKong target
+# triggers swift-package-manager#5706 in Xcode's transitive linker. Keep the
+# deterministic one-object workaround until NumKong ships an upstream source.
+NUMKONG_SHIM="$ROOT/scripts/xcode/cnumkong-link-shim.c"
+assert_contains "$PROJECT" 'Generate CNumKong linker shim'
+assert_contains "$PROJECT" '$(BUILT_PRODUCTS_DIR)/CNumKong.o'
+assert_contains "$NUMKONG_SHIM" 'nk_vreader_cnumkong_linker_shim'
+
 if grep -Fq 'runs-on: macos-26' "$WORKFLOW"; then
     echo "workflow still targets macos-26" >&2
     exit 1

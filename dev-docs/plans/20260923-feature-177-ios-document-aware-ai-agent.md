@@ -129,6 +129,14 @@ No placeholder or HIG-default substitute will be added under #177.
 | FoundationModels | iOS 27 SDK | first-class Apple backend |
 | Vision/PDFKit | iOS 27 SDK | OCR and exact PDF pages |
 
+USearch 2.26.2 resolves NumKong 7.8.2. Its `CNumKong` SwiftPM target is
+header-only, which triggers the open transitive-linking bug
+`swift-package-manager#5706` (`NumKong#353`) under Xcode and leaves a missing
+`CNumKong.o` in the app link file list. WI-1 therefore compiles the repository's
+single-symbol `scripts/xcode/cnumkong-link-shim.c` into that expected path for
+the active device or Simulator target. Remove the phase as soon as NumKong ships
+an equivalent source file in `CNumKong`.
+
 The embedding model is `intfloat/multilingual-e5-small`, dimension 384, max input 512 tokens;
 queries use `query: ` and documents use `passage: ` for every language. Model/license metadata is
 stored with the installation record and index version.
@@ -253,4 +261,3 @@ reason and approximate LOC delta.
   `workspace is out of credits` before analysis. Rule 47's genuine-unavailability fallback is
   recorded in `.claude/codex-audits/plan-feature-177-gate2-audit.md`.
 - Gate 3 begins only after that audit reaches `proceed` and the tracker row is `IN PROGRESS`.
-

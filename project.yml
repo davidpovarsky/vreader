@@ -139,6 +139,43 @@ targets:
       - package: Zstd
         product: libzstd
     preBuildScripts:
+      # USearch 2.26.2 -> NumKong 7.8.2 exposes CNumKong as a header-only
+      # transitive C target. Xcode's SwiftPM linker nevertheless requires a
+      # CNumKong.o (swift-package-manager#5706 / NumKong#353). Compile one real
+      # marker symbol for the active SDK/architecture until upstream ships the
+      # equivalent source. Keep the output path exact: it is the path Xcode
+      # already places in the app's LinkFileList.
+      - name: "Generate CNumKong linker shim"
+        script: |
+          set -euo pipefail
+          SOURCE="${SRCROOT}/scripts/xcode/cnumkong-link-shim.c"
+          OUTPUT="${BUILT_PRODUCTS_DIR}/CNumKong.o"
+
+          ARCH="${CURRENT_ARCH:-}"
+          if [ -z "${ARCH}" ] || [ "${ARCH}" = "undefined_arch" ]; then
+            ARCH="${ARCHS%% *}"
+          fi
+
+          case "${PLATFORM_NAME}" in
+            iphoneos) TARGET="${ARCH}-apple-ios${IPHONEOS_DEPLOYMENT_TARGET}" ;;
+            iphonesimulator) TARGET="${ARCH}-apple-ios${IPHONEOS_DEPLOYMENT_TARGET}-simulator" ;;
+            *)
+              echo "error: unsupported platform for CNumKong shim: ${PLATFORM_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "${BUILT_PRODUCTS_DIR}"
+          xcrun clang \
+            -target "${TARGET}" \
+            -isysroot "${SDKROOT}" \
+            -c "${SOURCE}" \
+            -o "${OUTPUT}"
+          echo "Generated ${OUTPUT} for ${TARGET}"
+        inputFiles:
+          - "$(SRCROOT)/scripts/xcode/cnumkong-link-shim.c"
+        outputFiles:
+          - "$(BUILT_PRODUCTS_DIR)/CNumKong.o"
       # Bug #111: Copy DebugFixtures into the bundle ONLY when building Debug.
       # Release builds get nothing — verified by running `find vreader.app -name
       # 'war-and-peace*'` after a Release build (should return zero results).

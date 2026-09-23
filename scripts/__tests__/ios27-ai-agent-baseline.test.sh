@@ -36,4 +36,14 @@ if grep -Fq 'runs-on: macos-26' "$WORKFLOW"; then
     exit 1
 fi
 
+if grep -Fq 'SWIFT_VERSION=5.0' "$WORKFLOW"; then
+    echo "workflow must not force Swift 5 onto Swift 6 package dependencies" >&2
+    exit 1
+fi
+
+if grep -Fq 'SWIFT_STRICT_CONCURRENCY=minimal' "$WORKFLOW"; then
+    echo "workflow must not weaken the project's complete-concurrency setting" >&2
+    exit 1
+fi
+
 echo "ios27-ai-agent-baseline: PASS"

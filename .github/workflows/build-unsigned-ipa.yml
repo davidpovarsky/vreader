@@ -78,8 +78,6 @@ jobs:
             -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
-            SWIFT_VERSION=5.0 \
-            SWIFT_STRICT_CONCURRENCY=minimal \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \

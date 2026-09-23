@@ -128,6 +128,7 @@ jobs:
             -only-testing:vreaderTests/AIDocumentModelsTests \
             -only-testing:vreaderTests/AIReadingBoundaryPolicyTests \
             ENABLE_TESTABILITY=YES \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -168,6 +169,7 @@ jobs:
           TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-core-tests.log
           TEST_CONFIGURATION: Release
           TEST_ENABLE_TESTABILITY: YES
+          TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
           # A cold Release simulator build compiles MLX's C++ backend and can
           # exceed 20 minutes on the Xcode 27 runner. DerivedData is cached, but
           # the watchdog must still allow the first cache-populating build to

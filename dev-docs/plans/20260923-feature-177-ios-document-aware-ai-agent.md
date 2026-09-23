@@ -132,10 +132,12 @@ No placeholder or HIG-default substitute will be added under #177.
 USearch 2.26.2 resolves NumKong 7.8.2. Its `CNumKong` SwiftPM target is
 header-only, which triggers the open transitive-linking bug
 `swift-package-manager#5706` (`NumKong#353`) under Xcode and leaves a missing
-`CNumKong.o` in the app link file list. WI-1 therefore compiles the repository's
-single-symbol `scripts/xcode/cnumkong-link-shim.c` into that expected path for
-the active device or Simulator target. Remove the phase as soon as NumKong ships
-an equivalent source file in `CNumKong`.
+`CNumKong.o` in the link file list. A target-level output workaround builds in
+Release but creates a package dependency cycle in Debug/Simulator. WI-1 instead
+pins `davidpovarsky/NumKong` at immutable commit
+`cb62f80c80e1a9357eda94e98c03db91a3e5e037`: exactly the 7.8.2 tag plus one
+substantive C marker source in the owning `CNumKong` target. Remove the override
+as soon as upstream ships the equivalent fix.
 
 The embedding model is `intfloat/multilingual-e5-small`, dimension 384, max input 512 tokens;
 queries use `query: ` and documents use `passage: ` for every language. Model/license metadata is

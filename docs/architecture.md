@@ -233,6 +233,22 @@ Bridge-internal coordinators (`EPUBWebViewBridgeCoordinator`, `FoliateViewCoordi
 | `PDFBilingualPanelState` (`Views/Reader/Bilingual/`) | `BilingualReadingViewModel`, `PDFChapterTextProvider` | Feature #56 WI-13 — pure synchronous derivation of the panel's 5-state matrix from the bilingual VM + the PDF's `(currentPage, pagesPerUnit, totalPages)` triple. Computes the current `TranslationUnitID` synchronously (mirrors `PDFChapterTextProvider.pageRanges` arithmetic) instead of reading the VM's async-updated `lastTriggerUnit`, so page-turn-in-flight doesn't flash stale translations (Gate-2 v5 round-1 H1). `.empty` keyed on "translated segments empty after fetch" OR "totalPages <= 0", NOT `unit == nil` (which would never fire for a real PDF — Gate-2 v5 round-1 M1) |
 | `PDFReaderContainerView+Bilingual` (`Views/Reader/`) | `BilingualReadingViewModel`, `PDFChapterTextProvider`, `PDFBilingualPanel`, `PDFBilingualPanelState` | Feature #56 WI-13 — PDF host extension owning the bilingual VM lifecycle (lazy construction gated on `viewModel.isDocumentLoaded` + `totalPages > 0`), the `PDFChapterTextProvider` build, the prefetcher build (mirrors TXT/EPUB `makePrefetcher`), the first-enable setup sheet, the More-menu toggle observer, the retry observer (`.readerBilingualRetry`), and the `.safeAreaInset`-attached panel. On reopen of an already-enabled book, `ensureBilingualViewModel` kicks the initial `handlePositionChange` so the panel doesn't stick in `.loading` for the open page (Gate-4 round-1 H1). Mirrors `TXTReaderContainerView+Bilingual` / `MDReaderContainerView+Bilingual` / `EPUBReaderContainerView+Bilingual` structurally |
 
+#### AI structured-document providers (`Features/AIAgent/Document/`)
+
+Feature #177 WI-3 maps each mounted reader into `AIDocumentChunk` and
+`AIDocumentSnapshot` values without flattening away source identity. TXT uses
+document-global UTF-16 ranges from the same `UTF16TextSegmenter` as search;
+Markdown receives the reader's canonical rendered text; PDF keeps one unit per
+zero-based page (including empty pages); Readium keeps one unit per exact
+reading-order href; and legacy Foliate exposes only bounded current-section
+data with explicit exact/approximate precision. `AIDocumentProviderRegistry`
+is main-actor isolated and keys registrations by `(fingerprint, readerToken)`;
+generation-bearing detach tokens prevent an outgoing reader from clearing a
+new mount. PDFKit `PDFDocument` and Readium `Publication` references remain
+inside narrow main-actor facades; only strings, locators, and other Sendable
+DTOs cross the provider boundary. PDF and Readium hosts attach after their live
+document is unlocked/open and unregister deterministically on teardown.
+
 ### 6. Data Layer (`vreader/Models/`)
 
 SwiftData SchemaV10 entities (V9→V10 adds the additive optional `Book.sourceCanonicalKey: String?` — feature #108's converted-Kindle cross-platform identity, carried in the backup manifest; feature #109's NFC locator-key recompute runs as the launch-time `LocatorKeyBackfillMigration`, not a schema migration — see the App Layer note above):
@@ -497,6 +513,12 @@ vreaderUITests/Verification/
   path uses a five-minute execution watchdog and disables automatic Xcode test
   diagnostics; broader `vreader` test workflows remain independently
   configurable through `scripts/run-tests.sh` environment variables.
+- **Feature #177 mapping lane** — `Feature177Mapping.project.yml` is a second
+  package-free logic-test project for WI-3's framework-independent mapping,
+  cancellation, precision, and live-registry decisions. It deliberately omits
+  the PDFKit/Readium facade implementations; those compile in the real-app gate.
+  This keeps `Feature177Core.project.yml` unchanged and preserves its fast
+  two-suite contract lane.
 - **`@MainActor final class XCTestCase`** — verification tests touch
   the SwiftUI element tree which is main-actor-isolated.
 - **Seed via `launchApp(seed:)`** — `.warAndPeace` / `.mdTOC` for tests

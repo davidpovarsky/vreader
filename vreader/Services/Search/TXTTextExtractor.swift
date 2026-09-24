@@ -61,49 +61,19 @@ struct TXTTextExtractor: SearchTextExtractor {
         segmentText(text)
     }
 
-    /// Splits text into paragraph segments, tracking original byte offsets.
+    /// Splits text into paragraph segments, tracking original UTF-16 offsets.
+    /// Shared with Feature #177's TXT provider so search and AI navigation
+    /// cannot drift on CRLF, emoji, or combining marks.
     private func segmentText(_ text: String) -> TXTExtractionResult {
-        guard !text.isEmpty else {
-            return TXTExtractionResult(textUnits: [], segmentBaseOffsets: [:])
-        }
-
-        let separator: String
-        // Split on double newlines (paragraph boundaries)
-        let doubleNewlineSegments = text.components(separatedBy: "\n\n")
-        let nonEmptyDoubleCount = doubleNewlineSegments.filter({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }).count
-
-        if nonEmptyDoubleCount <= 1 && text.count > 500 {
-            separator = "\n"
-        } else {
-            separator = "\n\n"
-        }
-
-        // Walk the original text to find segment boundaries and track offsets
-        var units: [TextUnit] = []
-        var baseOffsets: [Int: Int] = [:]
-        var segmentIndex = 0
-
-        let parts = text.components(separatedBy: separator)
-        var utf16Offset = 0
-
-        for part in parts {
-            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            let partUTF16Count = part.utf16.count
-
-            if !trimmed.isEmpty {
-                baseOffsets[segmentIndex] = utf16Offset
-                units.append(TextUnit(
-                    sourceUnitId: "txt:segment:\(segmentIndex)",
-                    text: part
-                ))
-                segmentIndex += 1
-            }
-
-            // Advance past this part + the separator
-            utf16Offset += partUTF16Count + separator.utf16.count
-        }
-
-        return TXTExtractionResult(textUnits: units, segmentBaseOffsets: baseOffsets)
+        let segments = UTF16TextSegmenter.segments(in: text)
+        return TXTExtractionResult(
+            textUnits: segments.map {
+                TextUnit(sourceUnitId: "txt:segment:\($0.index)", text: $0.text)
+            },
+            segmentBaseOffsets: Dictionary(
+                uniqueKeysWithValues: segments.map { ($0.index, $0.startUTF16) }
+            )
+        )
     }
 }
 

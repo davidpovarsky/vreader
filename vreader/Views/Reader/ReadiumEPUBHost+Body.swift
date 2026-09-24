@@ -112,7 +112,7 @@ extension ReadiumEPUBHost {
                 )
             ),
             fingerprintKey: fingerprint.canonicalKey,
-            readerToken: readerToken,
+            readerToken: readerToken ?? aiDocumentFallbackToken,
             initialLocation: restoredLocator,
             // Med-2: a representable can only return a placeholder controller
             // synchronously, so a navigator-init throw routes here to flip the host
@@ -123,6 +123,7 @@ extension ReadiumEPUBHost {
             // WI-6: forward `locationDidChange` into the VM's debounced save.
             // `@MainActor @Sendable` so the coordinator stays decoupled from the VM.
             onLocationChange: { [weak viewModel] locator in
+                updateAIDocumentLocation(locator)
                 // Feature #85 WI-1: cross-engine restore one-shot — BEFORE any
                 // save/record. The FIRST relocate fired at the book START
                 // (the cross-engine fallback opened there). Convert the staged
@@ -316,6 +317,9 @@ extension ReadiumEPUBHost {
         await openBilingualParser()
         ensureBilingualViewModel()
         await vm.open()
+        if case let .ready(publication) = vm.state {
+            attachAIDocumentFacade(to: publication)
+        }
         // Codex round-2 Medium: if the open completed while the app was
         // already backgrounded (user opened a book and immediately switched
         // away), pause the just-begun session so background time never
@@ -364,6 +368,7 @@ extension ReadiumEPUBHost {
         // AND cancel the delayed navigate so it can't fire against a
         // re-mounted host (Codex round-1/3 Medium).
         cancelBilingualRestoreReassert()
+        detachAIDocumentFacade()
         guard let viewModel else { return }
         let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
         Task {

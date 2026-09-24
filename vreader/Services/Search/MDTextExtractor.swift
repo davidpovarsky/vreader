@@ -174,44 +174,14 @@ struct MDTextExtractor: SearchTextExtractor {
 
     /// Splits stripped text into paragraph segments with UTF-16 offset tracking.
     private func segmentText(_ text: String) -> MDExtractionResult {
-        guard !text.isEmpty else {
-            return MDExtractionResult(textUnits: [], segmentBaseOffsets: [:])
-        }
-
-        let separator: String
-        let doubleNewlineSegments = text.components(separatedBy: "\n\n")
-        let nonEmptyCount = doubleNewlineSegments
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .count
-
-        if nonEmptyCount <= 1 && text.count > 500 {
-            separator = "\n"
-        } else {
-            separator = "\n\n"
-        }
-
-        var units: [TextUnit] = []
-        var baseOffsets: [Int: Int] = [:]
-        var segmentIndex = 0
-        let parts = text.components(separatedBy: separator)
-        var utf16Offset = 0
-
-        for part in parts {
-            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            let partUTF16Count = part.utf16.count
-
-            if !trimmed.isEmpty {
-                baseOffsets[segmentIndex] = utf16Offset
-                units.append(TextUnit(
-                    sourceUnitId: "md:segment:\(segmentIndex)",
-                    text: part
-                ))
-                segmentIndex += 1
-            }
-
-            utf16Offset += partUTF16Count + separator.utf16.count
-        }
-
-        return MDExtractionResult(textUnits: units, segmentBaseOffsets: baseOffsets)
+        let segments = UTF16TextSegmenter.segments(in: text)
+        return MDExtractionResult(
+            textUnits: segments.map {
+                TextUnit(sourceUnitId: "md:segment:\($0.index)", text: $0.text)
+            },
+            segmentBaseOffsets: Dictionary(
+                uniqueKeysWithValues: segments.map { ($0.index, $0.startUTF16) }
+            )
+        )
     }
 }

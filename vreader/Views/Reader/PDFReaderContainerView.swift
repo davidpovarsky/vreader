@@ -31,6 +31,7 @@ import UIKit
 struct PDFReaderContainerView: View {
     let fileURL: URL
     let viewModel: PDFReaderViewModel
+    var readerToken: UUID? = nil
     var modelContainer: ModelContainer?
     var ttsService: TTSService?
     /// Bug #198: settings store threaded so the PDFView gutter background can
@@ -119,6 +120,7 @@ struct PDFReaderContainerView: View {
                 // Bridge is always mounted so PDFDocument stays loaded
                 PDFViewBridge(
                     url: fileURL,
+                    readerToken: readerToken,
                     restorePage: restoredPage,
                     password: submittedPassword,
                     passwordAttemptId: passwordAttemptId,

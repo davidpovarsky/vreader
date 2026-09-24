@@ -1214,6 +1214,7 @@ struct ReaderContainerView: View {
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
                 ttsService: ttsService,
+                readerToken: readerToken,
                 settingsStore: settingsStore
             )
         case .textNative:

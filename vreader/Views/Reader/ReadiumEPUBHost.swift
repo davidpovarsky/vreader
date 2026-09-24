@@ -63,6 +63,11 @@ struct ReadiumEPUBHost: View {
     /// write it (a `private` @State is file-scoped, invisible to an extension in
     /// another file).
     @State var viewModel: ReadiumEPUBReaderViewModel?
+    /// Feature #177 WI-3: exact live-document registration state. The fallback
+    /// token keeps preview/test mounts isolated when no dispatcher token exists.
+    @State var aiDocumentFallbackToken = UUID()
+    @State var aiDocumentFacade: AIReadiumPublicationFacade?
+    @State var aiDocumentRegistration: AIDocumentRegistration?
     /// WI-6: the restored Readium locator, loaded before the navigator mounts so
     /// it can be passed as `initialLocation`. nil = open at the start. Not
     /// `private` for the same `+Body`-extension-access reason as `viewModel`.

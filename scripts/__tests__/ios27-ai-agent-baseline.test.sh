@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT="$ROOT/project.yml"
 FOCUSED_PROJECT="$ROOT/Feature177Core.project.yml"
+MAPPING_PROJECT="$ROOT/Feature177Mapping.project.yml"
 WORKFLOW="$ROOT/.github/workflows/build-unsigned-ipa.yml"
 TEST_RUNNER="$ROOT/scripts/run-tests.sh"
 
@@ -34,6 +35,7 @@ assert_contains "$WORKFLOW" '-skipPackagePluginValidation'
 assert_contains "$WORKFLOW" '-skipMacroValidation'
 assert_contains "$WORKFLOW" 'xcodebuild -downloadComponent MetalToolchain'
 assert_contains "$WORKFLOW" 'run_feature_177_core_tests:'
+assert_contains "$WORKFLOW" 'run_feature_177_mapping_tests:'
 assert_contains "$WORKFLOW" 'Run Feature 177 core contract tests'
 assert_contains "$WORKFLOW" '-scheme Feature177Core'
 assert_contains "$WORKFLOW" 'Feature177CoreTests'
@@ -44,10 +46,16 @@ assert_contains "$WORKFLOW" 'TEST_SCHEME: Feature177Core'
 assert_contains "$WORKFLOW" 'TEST_COLLECT_DIAGNOSTICS: never'
 assert_contains "$WORKFLOW" 'TIMEOUT_SECS: 300'
 assert_contains "$WORKFLOW" 'feature-177-core-tests'
+assert_contains "$WORKFLOW" 'Run Feature 177 mapping tests'
+assert_contains "$WORKFLOW" 'Feature177MappingTests'
+assert_contains "$WORKFLOW" 'TEST_SCHEME: Feature177Mapping'
+assert_contains "$WORKFLOW" 'feature-177-mapping-tests'
 assert_contains "$WORKFLOW" '-destination "platform=iOS Simulator,id=${FEATURE_TEST_UDID}"'
 assert_contains "$FOCUSED_PROJECT" 'Feature177CoreTests:'
 assert_contains "$FOCUSED_PROJECT" 'FEATURE_177_CORE_TESTS'
 assert_contains "$FOCUSED_PROJECT" 'Feature177Core:'
+assert_contains "$MAPPING_PROJECT" 'Feature177MappingTests:'
+assert_contains "$MAPPING_PROJECT" 'Feature177Mapping:'
 assert_contains "$WORKFLOW" '--spec Feature177Core.project.yml'
 assert_contains "$WORKFLOW" 'build/Feature177Project/Feature177Core.xcodeproj'
 assert_contains "$TEST_RUNNER" 'ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"'
@@ -90,7 +98,7 @@ if grep -Fq 'SWIFT_STRICT_CONCURRENCY=minimal' "$WORKFLOW"; then
     exit 1
 fi
 
-if ! grep -A4 'Install Metal Toolchain for MLX' "$WORKFLOW" | grep -Fq "if: \${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}"; then
+if ! grep -A4 'Install Metal Toolchain for MLX' "$WORKFLOW" | grep -Fq "if: \${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}"; then
     echo "Metal toolchain installation must be gated off for the focused lane" >&2
     exit 1
 fi
@@ -108,6 +116,11 @@ fi
 
 if grep -Fq 'packages:' "$FOCUSED_PROJECT"; then
     echo "standalone Feature 177 project must not declare a package graph" >&2
+    exit 1
+fi
+
+if grep -Fq 'packages:' "$MAPPING_PROJECT"; then
+    echo "standalone Feature 177 mapping project must not declare a package graph" >&2
     exit 1
 fi
 

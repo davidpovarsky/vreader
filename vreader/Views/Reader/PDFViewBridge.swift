@@ -24,6 +24,9 @@ import PDFKit
 /// SwiftUI wrapper for PDFKit's PDFView.
 struct PDFViewBridge: UIViewRepresentable {
     let url: URL
+    /// Feature #177 WI-3: scopes the live document registration to this mounted
+    /// reader. nil keeps previews/source-compatible call sites working.
+    var readerToken: UUID? = nil
     var restorePage: Int?
     var password: String?
     /// Incremented on each password submission to trigger re-unlock even with same password.
@@ -188,6 +191,14 @@ struct PDFViewBridge: UIViewRepresentable {
             renderer.setDocument(document)
         }
 
+        if let document = pdfView.document, !document.isLocked {
+            context.coordinator.attachAIDocument(
+                document: document,
+                pdfView: pdfView,
+                fingerprint: viewModel.bookFingerprint
+            )
+        }
+
         // Restore saved highlights (once, after document loads)
         if let records = highlightRecords,
            !context.coordinator.didRestoreHighlights,
@@ -259,7 +270,11 @@ struct PDFViewBridge: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(readerToken: readerToken ?? UUID())
+    }
+
+    static func dismantleUIView(_ pdfView: PDFView, coordinator: Coordinator) {
+        coordinator.detachAIDocument()
     }
 
     // MARK: - Private
@@ -290,6 +305,11 @@ struct PDFViewBridge: UIViewRepresentable {
                 } else {
                     let totalPages = document.pageCount
                     viewModel.documentDidLoad(totalPages: totalPages)
+                    coordinator.attachAIDocument(
+                        document: document,
+                        pdfView: pdfView,
+                        fingerprint: viewModel.bookFingerprint
+                    )
 
                     if let page = restorePage, page < totalPages,
                        let pdfPage = document.page(at: page) {
@@ -337,6 +357,7 @@ struct PDFViewBridge: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private let readerToken: UUID
         var viewModel: PDFReaderViewModel?
         weak var pdfView: PDFView?
         /// Tracks the last restored page to avoid re-applying on every updateUIView.
@@ -377,6 +398,47 @@ struct PDFViewBridge: UIViewRepresentable {
         /// (PDFKit's `.singlePageContinuous` default) every tap collapses
         /// to `.readerContentTapped`.
         var pagedLayout: EPUBLayoutPreference?
+
+        private var aiDocumentFacade: AIPDFKitDocumentFacade?
+        private var aiDocumentRegistration: AIDocumentRegistration?
+
+        init(readerToken: UUID) {
+            self.readerToken = readerToken
+            super.init()
+        }
+
+        func attachAIDocument(
+            document: PDFDocument,
+            pdfView: PDFView,
+            fingerprint: DocumentFingerprint
+        ) {
+            guard !document.isLocked else { return }
+            if aiDocumentFacade?.isAttached(to: document) == true { return }
+            detachAIDocument()
+            let facade = AIPDFKitDocumentFacade(document: document, pdfView: pdfView)
+            let provider = AIPDFDocumentProvider(
+                fingerprint: fingerprint,
+                facade: facade
+            )
+            let session = AIDocumentSessionID(
+                fingerprintKey: fingerprint.canonicalKey,
+                readerToken: readerToken
+            )
+            aiDocumentFacade = facade
+            aiDocumentRegistration = AIDocumentProviderRegistry.shared.attach(
+                provider,
+                for: session
+            )
+        }
+
+        func detachAIDocument() {
+            if let registration = aiDocumentRegistration {
+                AIDocumentProviderRegistry.shared.detach(registration)
+            }
+            aiDocumentRegistration = nil
+            aiDocumentFacade?.detach()
+            aiDocumentFacade = nil
+        }
 
         @objc func pageDidChange(_ notification: Notification) {
             guard let pdfView,
@@ -542,6 +604,7 @@ struct PDFViewBridge: UIViewRepresentable {
 
         deinit {
             MainActor.assumeIsolated {
+                detachAIDocument()
                 clearSearchWorkItem?.cancel()
                 clearSearchWorkItem = nil
             }

@@ -1,0 +1,49 @@
+name: Feature177Mapping
+options:
+  bundleIdPrefix: com.vreader
+  deploymentTarget:
+    iOS: "27.0"
+  xcodeVersion: "27.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  # Package-free logic-test bundle for WI-3 mapping decisions. Framework-backed
+  # PDFKit/Readium facades compile only in the real app integration gate.
+  Feature177MappingTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: vreader/Features/AIAgent/Core/AIDocumentModels.swift
+      - path: vreader/Features/AIAgent/Document/AIDocumentProvider.swift
+      - path: vreader/Features/AIAgent/Document/AIDocumentProviderRegistry.swift
+      - path: vreader/Features/AIAgent/Document/AITextDocumentProviders.swift
+      - path: vreader/Features/AIAgent/Document/AIPDFDocumentProvider.swift
+      - path: vreader/Features/AIAgent/Document/AIReadiumDocumentProvider.swift
+      - path: vreader/Features/AIAgent/Document/AILegacyDocumentProvider.swift
+      - path: vreader/Models/BookFormat.swift
+      - path: vreader/Models/DocumentFingerprint.swift
+      - path: vreader/Models/Locator.swift
+      - path: vreader/Services/AI/ChapterBounds.swift
+      - path: vreader/Services/MD/MDAttributedStringRenderer.swift
+      - path: vreader/Services/MD/MDTypes.swift
+      - path: vreader/Services/TextMapping/UTF16TextSegmenter.swift
+      - path: vreaderTests/Features/AIAgent/Document
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vreader.feature177-mapping-tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Feature177Mapping:
+    build:
+      targets:
+        Feature177MappingTests: testing
+      buildImplicitDependencies: false
+    test:
+      config: Release
+      targets:
+        - Feature177MappingTests

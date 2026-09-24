@@ -907,145 +907,130 @@ struct ReaderContainerView: View {
         }
         #if DEBUG
         .onAppear {
-            let probe = DebugReaderProbeAdapter(
-                fingerprintKey: book.fingerprintKey,
-                format: book.format
-                // positionProvider intentionally defaults to nil-returning
-                // — wiring currentLocator → string lands when DebugSnapshot
-                // reads from the registry (next WI). Returning a stand-in
-                // value here would mislead consumers into treating it as
-                // a real position.
-            )
-            // Bug #126: wire jsEvaluator for EPUB. Closure captures the
-            // book's fingerprintKey and pulls the registry's keyed webview
-            // ref at call-time. The registry's `epubWebView(for:)` returns
-            // nil if the stored webview was registered for a different
-            // book — preventing a late didFinish from an outgoing reader
-            // from being matched against an incoming probe (Codex audit
-            // 2026-05-06). Compare on the typed enum, not raw string, so
-            // case/aliasing drift can't silently disable the wiring.
-            if resolvedFingerprintFormat == .epub {
-                let key = book.fingerprintKey
-                let token = readerToken
-                // Feature #42 WI-5: when the Readium engine is active, route
-                // eval to the Readium navigator's `evaluateJavaScriptValue`
-                // (which already JSON-serializes the `Result<Any, Error>` per
-                // the WI-4 `ReadiumNavigatorEvaluating` seam) instead of the
-                // legacy keyed `epubWebView`. Selected on the same flag the
-                // dispatcher routes on, so eval reaches whichever engine is
-                // actually rendering this book.
-                // Feature #85 WI-1: route eval by the SAME flag+layout decision
-                // the dispatcher uses (computed here at probe setup, which
-                // re-runs when `epubLayout` changes), else flag-ON + scroll
-                // renders the legacy host but the probe looks for a Readium
-                // navigator and eval fails (Gate-4 round-1 Medium — harness
-                // regression on the scroll path).
-                let store = settingsStore
-                probe.jsEvaluator = { @MainActor script in
-                    // Feature #85 WI-1: evaluate the flag+layout routing LIVE at
-                    // call time (via the extracted helper, so the type-heavy
-                    // probe-setup function stays in budget) so a paged↔scroll
-                    // toggle re-targets eval to the engine actually rendering.
-                    if Self.epubEvalUsesReadiumEngine(store: store) {
-                        guard let navigator = DebugReaderRegistry.shared.readiumNavigator(for: key, token: token) else {
-                            throw DebugReaderProbeError.evalUnsupported(format: "epub")
-                        }
-                        return try await navigator.evaluateJavaScriptValue(script)
-                    }
-                    guard let webView = DebugReaderRegistry.shared.epubWebView(for: key, token: token) else {
-                        throw DebugReaderProbeError.evalUnsupported(format: "epub")
-                    }
-                    let raw = try await webView.evaluateJavaScript(script)
-                    let normalized: Any = raw ?? NSNull()
-                    return try JSONSerialization.data(
-                        withJSONObject: normalized,
-                        options: [.fragmentsAllowed]
-                    )
-                }
-                // Bug #141: wire settleStrategy for EPUB. The registry's
-                // `awaitReaderSettled` fast-paths if the WKWebView already
-                // fired `didFinish` (page-load complete), else suspends
-                // until it does or the timeout throws `settleTimeout` —
-                // replacing the 100ms placeholder for native EPUB.
-                probe.settleStrategy = { @MainActor timeout in
-                    try await DebugReaderRegistry.shared.awaitReaderSettled(
-                        for: key, token: token, timeout: timeout
-                    )
-                }
-            } else if resolvedFingerprintFormat == .azw3 {
-                // BookFormat.azw3 covers all Foliate-rendered formats
-                // (azw3/azw/mobi/prc per FormatCapabilities); the
-                // FoliateViewBridge is the single host for all of them.
-                // Bug #141: wire jsEvaluator for AZW3/MOBI via the same
-                // keyed-binding pattern as the bug #126 EPUB fix. Foliate
-                // hosts a separate WKWebView (FoliateViewBridge) registered
-                // via `setActiveFoliateWebView(_:for:)` from the
-                // FoliateViewCoordinator's didFinish.
-                let key = book.fingerprintKey
-                let token = readerToken
-                let formatString = book.format
-                probe.jsEvaluator = { @MainActor script in
-                    guard let webView = DebugReaderRegistry.shared.foliateWebView(for: key, token: token) else {
-                        throw DebugReaderProbeError.evalUnsupported(format: formatString)
-                    }
-                    let raw = try await webView.evaluateJavaScript(script)
-                    let normalized: Any = raw ?? NSNull()
-                    return try JSONSerialization.data(
-                        withJSONObject: normalized,
-                        options: [.fragmentsAllowed]
-                    )
-                }
-                // Bug #141: wire settleStrategy for AZW3/MOBI. Foliate-js
-                // fires `relocate` only after the book is paginated and
-                // rendered; `FoliateSpikeView.Coordinator` marks the
-                // reader settled from its `relocate` handler. The registry
-                // fast-paths if that already fired, else suspends until it
-                // does or the timeout throws `settleTimeout` — replacing
-                // the 100ms placeholder for the Foliate path.
-                probe.settleStrategy = { @MainActor timeout in
-                    try await DebugReaderRegistry.shared.awaitReaderSettled(
-                        for: key, token: token, timeout: timeout
-                    )
-                }
-            }
-            // TXT/MD/PDF intentionally leave `settleStrategy` nil — the
-            // 100ms `Task.sleep` fallback in `DebugReaderProbeAdapter`
-            // stays for those formats (out of scope for bug #141).
-            // Feature #45 WI-4c-c: surface TTS state into DebugSnapshot.
-            // Closure captures the @MainActor @Observable TTSService owned
-            // by this view; runs @MainActor whenever the snapshot path
-            // reads `probe.currentTTSState` / `currentTTSOffsetUTF16`.
-            // Offset is meaningless while idle (TTSService resets it to
-            // 0 on stop), so we map idle → nil for offset to signal
-            // "no current reading position" to consumers.
-            let service = ttsService
-            probe.ttsProbe = { @MainActor in
-                let state = service.state
-                let offset: Int?
-                if state == .idle {
-                    offset = nil
-                } else {
-                    offset = service.currentOffsetUTF16
-                }
-                return (state: state.publicName, offsetUTF16: offset)
-            }
-            debugProbe = probe
-            // Bug #142: tell the registry the expected token BEFORE
-            // registering the probe — that way, if a coordinator's
-            // didFinish from an outgoing reader fires concurrently, the
-            // registry can reject the stale write rather than clobber
-            // the new reader's binding.
-            DebugReaderRegistry.shared.setExpectedReaderToken(readerToken)
-            DebugReaderRegistry.shared.register(probe)
+            registerDebugProbe()
         }
         .onDisappear {
-            if let probe = debugProbe {
-                DebugReaderRegistry.shared.unregister(probe)
-                debugProbe = nil
-            }
+            unregisterDebugProbe()
         }
         #endif
     }
+
+    #if DEBUG
+    @MainActor
+    private func registerDebugProbe() {
+        let probe = DebugReaderProbeAdapter(
+            fingerprintKey: book.fingerprintKey,
+            format: book.format
+        )
+        let key = book.fingerprintKey
+        let token = readerToken
+
+        switch resolvedFingerprintFormat {
+        case .epub:
+            configureEPUBDebugProbe(probe, key: key, token: token)
+        case .azw3:
+            configureFoliateDebugProbe(
+                probe,
+                key: key,
+                token: token,
+                format: book.format
+            )
+        default:
+            break
+        }
+
+        let service = ttsService
+        probe.ttsProbe = { @MainActor in
+            let state = service.state
+            let offset: Int?
+            if state == .idle {
+                offset = nil
+            } else {
+                offset = service.currentOffsetUTF16
+            }
+            return (state: state.publicName, offsetUTF16: offset)
+        }
+        debugProbe = probe
+        DebugReaderRegistry.shared.setExpectedReaderToken(token)
+        DebugReaderRegistry.shared.register(probe)
+    }
+
+    @MainActor
+    private func configureEPUBDebugProbe(
+        _ probe: DebugReaderProbeAdapter,
+        key: String,
+        token: UUID?
+    ) {
+        let store = settingsStore
+        probe.jsEvaluator = { @MainActor script in
+            if Self.epubEvalUsesReadiumEngine(store: store) {
+                guard let navigator = DebugReaderRegistry.shared.readiumNavigator(
+                    for: key,
+                    token: token
+                ) else {
+                    throw DebugReaderProbeError.evalUnsupported(format: "epub")
+                }
+                return try await navigator.evaluateJavaScriptValue(script)
+            }
+            guard let webView = DebugReaderRegistry.shared.epubWebView(
+                for: key,
+                token: token
+            ) else {
+                throw DebugReaderProbeError.evalUnsupported(format: "epub")
+            }
+            let raw = try await webView.evaluateJavaScript(script)
+            let normalized: Any = raw ?? NSNull()
+            return try JSONSerialization.data(
+                withJSONObject: normalized,
+                options: [.fragmentsAllowed]
+            )
+        }
+        probe.settleStrategy = { @MainActor timeout in
+            try await DebugReaderRegistry.shared.awaitReaderSettled(
+                for: key,
+                token: token,
+                timeout: timeout
+            )
+        }
+    }
+
+    @MainActor
+    private func configureFoliateDebugProbe(
+        _ probe: DebugReaderProbeAdapter,
+        key: String,
+        token: UUID?,
+        format: String
+    ) {
+        probe.jsEvaluator = { @MainActor script in
+            guard let webView = DebugReaderRegistry.shared.foliateWebView(
+                for: key,
+                token: token
+            ) else {
+                throw DebugReaderProbeError.evalUnsupported(format: format)
+            }
+            let raw = try await webView.evaluateJavaScript(script)
+            let normalized: Any = raw ?? NSNull()
+            return try JSONSerialization.data(
+                withJSONObject: normalized,
+                options: [.fragmentsAllowed]
+            )
+        }
+        probe.settleStrategy = { @MainActor timeout in
+            try await DebugReaderRegistry.shared.awaitReaderSettled(
+                for: key,
+                token: token,
+                timeout: timeout
+            )
+        }
+    }
+
+    @MainActor
+    private func unregisterDebugProbe() {
+        guard let probe = debugProbe else { return }
+        DebugReaderRegistry.shared.unregister(probe)
+        debugProbe = nil
+    }
+    #endif
 
     // MARK: - Resolved Helpers
 

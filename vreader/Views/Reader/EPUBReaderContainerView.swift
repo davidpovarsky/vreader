@@ -292,65 +292,7 @@ struct EPUBReaderContainerView: View {
             handleSideTapPrevious()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-            guard let locator = notification.object as? Locator,
-                  let href = locator.href,
-                  let meta = viewModel.metadata,
-                  let base = resourceBase else { return }
-            if let spineIndex = meta.spineItems.firstIndex(where: { $0.href == href }) {
-                // WI-8: continuous scroll drives the coordinator (scroll within the
-                // window, or rebuild the window around an out-of-window target)
-                // instead of the single-chapter `loadFileURL` path, which the
-                // bridge ignores in continuous mode. Without this, TOC / bookmark /
-                // search-result jumps no-op (the WI-6b-i Critical that gated the
-                // feature behind a flag). `progression` carries the intra-chapter
-                // landing fraction; a search `textQuote` highlight in continuous
-                // mode lands by fraction only (the find-in-section highlight is the
-                // deferred GH #1200-adjacent work). The persisted position is
-                // updated ONLY if the coordinator actually navigated (Gate-4
-                // round-2): a jump dropped because the mutation lane was busy must
-                // not move `currentPosition` while the DOM stays put.
-                if let config = continuousScrollConfig {
-                    let fraction = locator.progression ?? 0
-                    Task {
-                        if await config.coordinator.navigate(toSpineIndex: spineIndex, fraction: fraction) {
-                            viewModel.navigateToSpine(index: spineIndex)
-                        }
-                    }
-                    return
-                }
-                viewModel.navigateToSpine(index: spineIndex)
-                webViewError = nil
-                // Issue 6: Reset pagination on locator navigation (same as chapter nav).
-                pageNavigator.reset()
-                currentPaginationPage = nil
-                // Bug #165 / GH #489 (audit round-1 finding [1] High):
-                // a pending backward-chapter-wrap intent must NOT bleed
-                // into an unrelated TOC / search / annotation navigation.
-                // The dedicated entry point names the call-site intent.
-                chapterWrapPendingTarget.cancelBecauseUnrelatedNavigationStarted()
-                // Issue 3: Use locator.progression to scroll within the chapter.
-                // This reuses the existing WI-004d scroll-to-fraction mechanism so
-                // the WebView lands at the correct position, not chapter top.
-                if let progression = locator.progression, progression > 0 {
-                    seekScrollFraction = progression
-                } else {
-                    seekScrollFraction = nil
-                }
-                // Ensure chapter extracted before WKWebView loads it (bug #102)
-                Task { await ensureChapterExtracted(href: href) }
-                contentURL = base.appendingPathComponent(href)
-                // Inject search highlight JS after page loads (bug #43)
-                // Issue 4: Pass progression so JS scrolls before find()
-                if let textQuote = locator.textQuote {
-                    let js = EPUBHighlightBridge.searchHighlightJS(
-                        textQuote: textQuote,
-                        progression: locator.progression
-                    )
-                    if !js.isEmpty {
-                        pendingHighlightJS = js
-                    }
-                }
-            }
+            handleNavigationRequest(notification)
         }
         #if DEBUG
         // Bug #273: CU-free harness for WI-8 continuous-mode navigation. The
@@ -521,6 +463,56 @@ struct EPUBReaderContainerView: View {
         pendingSelectionEvent = event
         noteText = ""
         showNoteSheet = true
+    }
+
+    /// Isolates locator decoding and navigation from the already-large body
+    /// expression. This also keeps native locator semantics in one handler.
+    private func handleNavigationRequest(_ notification: Notification) {
+        guard let locator = notification.object as? Locator,
+              let href = locator.href,
+              let meta = viewModel.metadata,
+              let base = resourceBase,
+              let spineIndex = meta.spineItems.firstIndex(where: { $0.href == href }) else {
+            return
+        }
+
+        // Continuous mode must navigate its stitched window instead of the
+        // single-chapter URL path. Only persist the move after it succeeds.
+        if let config = continuousScrollConfig {
+            let fraction: Double = locator.progression ?? 0
+            Task {
+                if await config.coordinator.navigate(
+                    toSpineIndex: spineIndex,
+                    fraction: fraction
+                ) {
+                    viewModel.navigateToSpine(index: spineIndex)
+                }
+            }
+            return
+        }
+
+        viewModel.navigateToSpine(index: spineIndex)
+        webViewError = nil
+        pageNavigator.reset()
+        currentPaginationPage = nil
+        chapterWrapPendingTarget.cancelBecauseUnrelatedNavigationStarted()
+        if let progression = locator.progression, progression > 0 {
+            seekScrollFraction = progression
+        } else {
+            seekScrollFraction = nil
+        }
+        Task { await ensureChapterExtracted(href: href) }
+        contentURL = base.appendingPathComponent(href)
+
+        if let textQuote = locator.textQuote {
+            let js = EPUBHighlightBridge.searchHighlightJS(
+                textQuote: textQuote,
+                progression: locator.progression
+            )
+            if !js.isEmpty {
+                pendingHighlightJS = js
+            }
+        }
     }
 
     // MARK: - Subviews

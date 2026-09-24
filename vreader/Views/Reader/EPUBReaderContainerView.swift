@@ -365,14 +365,7 @@ struct EPUBReaderContainerView: View {
             onDismiss: { selectionTokenCache.clear() }
         )
         .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRequested)) { note in
-            let token = note.userInfo?["selectionRequestToken"] as? UUID
-            guard let event = selectionTokenCache.resolve(token: token),
-                  let container = modelContainer else { return }
-            handleHighlightAction(
-                event: event,
-                container: container,
-                color: resolveHighlightColor(from: note)
-            )
+            handleHighlightRequest(note)
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerAnnotationRequested)) { note in
             handleAnnotationRequest(note)
@@ -463,6 +456,14 @@ struct EPUBReaderContainerView: View {
         pendingSelectionEvent = event
         noteText = ""
         showNoteSheet = true
+    }
+
+    private func handleHighlightRequest(_ note: Notification) {
+        let token = note.userInfo?["selectionRequestToken"] as? UUID
+        guard let event = selectionTokenCache.resolve(token: token),
+              let container = modelContainer else { return }
+        let color = resolveHighlightColor(from: note)
+        handleHighlightAction(event: event, container: container, color: color)
     }
 
     /// Isolates locator decoding and navigation from the already-large body

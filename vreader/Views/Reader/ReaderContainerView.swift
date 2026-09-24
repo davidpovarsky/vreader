@@ -959,7 +959,7 @@ struct ReaderContainerView: View {
     private func configureEPUBDebugProbe(
         _ probe: DebugReaderProbeAdapter,
         key: String,
-        token: UUID?
+        token: UUID
     ) {
         let store = settingsStore
         probe.jsEvaluator = { @MainActor script in
@@ -998,7 +998,7 @@ struct ReaderContainerView: View {
     private func configureFoliateDebugProbe(
         _ probe: DebugReaderProbeAdapter,
         key: String,
-        token: UUID?,
+        token: UUID,
         format: String
     ) {
         probe.jsEvaluator = { @MainActor script in

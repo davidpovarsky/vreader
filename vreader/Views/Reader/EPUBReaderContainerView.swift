@@ -141,7 +141,7 @@ struct EPUBReaderContainerView: View {
     }
 
     var body: some View {
-        ZStack {
+        let lifecycleView = ZStack {
             // Bug #214 / GH #834: scope `epubReaderContainer` to the
             // content subtree so the container identifier does not
             // propagate onto and clobber `ReaderBottomChrome`'s toolbar
@@ -294,6 +294,8 @@ struct EPUBReaderContainerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
             handleNavigationRequest(notification)
         }
+
+        let eventView = lifecycleView
         #if DEBUG
         // Bug #273: CU-free harness for WI-8 continuous-mode navigation. The
         // `navigate` DebugBridge command can't build a Locator itself (it has
@@ -334,15 +336,10 @@ struct EPUBReaderContainerView: View {
         // Remove highlight visual when deleted from annotations panel (bug #78)
         // Phase R4b: delegate to coordinator (renderer generates remove JS)
         .onReceive(NotificationCenter.default.publisher(for: .readerHighlightRemoved)) { notification in
-            guard let idString = notification.object as? String,
-                  let highlightId = UUID(uuidString: idString) else { return }
-            if let coordinator = highlightCoordinator {
-                Task { await coordinator.handleRemoval(highlightId: highlightId) }
-            } else {
-                // Fallback: direct JS injection if coordinator not ready
-                pendingHighlightJS = EPUBHighlightBridge.removeHighlightJS(id: idString)
-            }
+            handleHighlightRemoval(notification)
         }
+
+        eventView
         // Feature #60 WI-7c5b: long-press selection now surfaces
         // `SelectionPopoverView` (WI-7a) via the WI-7c1 presenter,
         // replacing the legacy Highlight / Add Note / Copy / Cancel
@@ -464,6 +461,16 @@ struct EPUBReaderContainerView: View {
               let container = modelContainer else { return }
         let color = resolveHighlightColor(from: note)
         handleHighlightAction(event: event, container: container, color: color)
+    }
+
+    private func handleHighlightRemoval(_ notification: Notification) {
+        guard let idString = notification.object as? String,
+              let highlightID = UUID(uuidString: idString) else { return }
+        if let coordinator = highlightCoordinator {
+            Task { await coordinator.handleRemoval(highlightId: highlightID) }
+        } else {
+            pendingHighlightJS = EPUBHighlightBridge.removeHighlightJS(id: idString)
+        }
     }
 
     /// Isolates locator decoding and navigation from the already-large body

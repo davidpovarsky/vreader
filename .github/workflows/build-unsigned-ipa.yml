@@ -73,10 +73,21 @@ jobs:
           python3 scripts/ci-preview-compile-patches.py
 
       - name: Generate Xcode project
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
         shell: bash
         run: |
           set -euo pipefail
           xcodegen generate --spec project.yml
+
+      - name: Generate Feature 177 core Xcode project
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/Feature177Project
+          xcodegen generate \
+            --spec Feature177Core.project.yml \
+            --project build/Feature177Project
 
       - name: Build unsigned app against iOS 27 SDK
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
@@ -133,7 +144,7 @@ jobs:
           set -euo pipefail
           mkdir -p build
           xcodebuild build-for-testing \
-            -project vreader.xcodeproj \
+            -project build/Feature177Project/Feature177Core.xcodeproj \
             -scheme Feature177Core \
             -configuration Release \
             -destination "platform=iOS Simulator,id=${FEATURE_TEST_UDID}" \
@@ -159,6 +170,7 @@ jobs:
           TEST_ENABLE_TESTABILITY: YES
           TEST_ONLY_ACTIVE_ARCH: YES
           TEST_XCODEBUILD_ACTION: test-without-building
+          TEST_PROJECT: ${{ github.workspace }}/build/Feature177Project/Feature177Core.xcodeproj
           TEST_SCHEME: Feature177Core
           TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177DerivedData
           TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177CoreTests.xcresult
@@ -224,6 +236,6 @@ jobs:
             build/feature-177-contract-compile.log
             build/feature-177-core-tests.log
             build/Feature177CoreTests.xcresult
-            vreader.xcodeproj/project.pbxproj
+            build/Feature177Project/Feature177Core.xcodeproj/project.pbxproj
           if-no-files-found: warn
           retention-days: 14

@@ -5,6 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT="$ROOT/project.yml"
+FOCUSED_PROJECT="$ROOT/Feature177Core.project.yml"
 WORKFLOW="$ROOT/.github/workflows/build-unsigned-ipa.yml"
 TEST_RUNNER="$ROOT/scripts/run-tests.sh"
 
@@ -44,9 +45,11 @@ assert_contains "$WORKFLOW" 'TEST_COLLECT_DIAGNOSTICS: never'
 assert_contains "$WORKFLOW" 'TIMEOUT_SECS: 300'
 assert_contains "$WORKFLOW" 'feature-177-core-tests'
 assert_contains "$WORKFLOW" '-destination "platform=iOS Simulator,id=${FEATURE_TEST_UDID}"'
-assert_contains "$PROJECT" 'Feature177CoreTests:'
-assert_contains "$PROJECT" 'FEATURE_177_CORE_TESTS'
-assert_contains "$PROJECT" 'Feature177Core:'
+assert_contains "$FOCUSED_PROJECT" 'Feature177CoreTests:'
+assert_contains "$FOCUSED_PROJECT" 'FEATURE_177_CORE_TESTS'
+assert_contains "$FOCUSED_PROJECT" 'Feature177Core:'
+assert_contains "$WORKFLOW" '--spec Feature177Core.project.yml'
+assert_contains "$WORKFLOW" 'build/Feature177Project/Feature177Core.xcodeproj'
 assert_contains "$TEST_RUNNER" 'ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"'
 assert_contains "$TEST_RUNNER" 'CONFIGURATION="${TEST_CONFIGURATION:-Debug}"'
 assert_contains "$TEST_RUNNER" 'SCHEME="${TEST_SCHEME:-vreader}"'
@@ -91,7 +94,7 @@ if ! grep -A4 'Install Metal Toolchain for MLX' "$WORKFLOW" | grep -Fq "if: \${{
     exit 1
 fi
 
-FEATURE_TARGET="$(sed -n '/^  Feature177CoreTests:/,/^schemes:/p' "$PROJECT")"
+FEATURE_TARGET="$(sed -n '/^  Feature177CoreTests:/,/^schemes:/p' "$FOCUSED_PROJECT")"
 if grep -Eq 'target: vreader|package:' <<<"$FEATURE_TARGET"; then
     echo "Feature177CoreTests must not depend on the app or external packages" >&2
     exit 1
@@ -99,6 +102,11 @@ fi
 
 if grep -Fq 'actions/cache@v4' "$WORKFLOW"; then
     echo "the lightweight Feature 177 lane must not restore the old Xcode cache" >&2
+    exit 1
+fi
+
+if grep -Fq 'packages:' "$FOCUSED_PROJECT"; then
+    echo "standalone Feature 177 project must not declare a package graph" >&2
     exit 1
 fi
 

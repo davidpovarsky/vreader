@@ -441,35 +441,3 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.vreader.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: vreader
-
-  # Feature #177: lightweight logic-test bundle for the structured-document
-  # contracts. It compiles the exact production sources used by the app but has
-  # no host-app or package dependencies, so this lane never builds Readium,
-  # MLX, or vreaderUITests.
-  Feature177CoreTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - path: vreader/Features/AIAgent/Core
-      - path: vreader/Models/BookFormat.swift
-      - path: vreader/Models/DocumentFingerprint.swift
-      - path: vreader/Models/FormatCapabilities.swift
-      - path: vreader/Models/Locator.swift
-      - path: vreader/Services/AI/ChapterBounds.swift
-      - path: vreaderTests/Features/AIAgent/Core
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.vreader.feature177-core-tests
-        GENERATE_INFOPLIST_FILE: YES
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FEATURE_177_CORE_TESTS"
-
-schemes:
-  Feature177Core:
-    build:
-      targets:
-        Feature177CoreTests: testing
-      buildImplicitDependencies: false
-    test:
-      config: Release
-      targets:
-        - Feature177CoreTests

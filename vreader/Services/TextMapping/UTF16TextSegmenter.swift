@@ -16,7 +16,9 @@ enum UTF16TextSegmenter {
         guard !text.isEmpty else { return [] }
 
         let paragraphSeparators = ranges(
-            matching: "(?:\\r\\n|\\n|\\r){2,}",
+            // Atomic CRLF prevents regex backtracking from reinterpreting one
+            // Windows line ending as two logical newlines.
+            matching: "(?:(?>\\r\\n|\\n|\\r)){2,}",
             in: text
         )
         let paragraphParts = parts(in: text, separatedBy: paragraphSeparators)

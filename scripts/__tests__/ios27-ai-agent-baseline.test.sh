@@ -62,6 +62,7 @@ assert_contains "$TEST_RUNNER" '-configuration "$CONFIGURATION"'
 assert_contains "$TEST_RUNNER" '-skipPackagePluginValidation'
 assert_contains "$TEST_RUNNER" '-skipMacroValidation'
 assert_contains "$TEST_RUNNER" '-collect-test-diagnostics "$COLLECT_DIAGNOSTICS"'
+assert_contains "$TEST_RUNNER" "TEST( EXECUTE)? SUCCEEDED"
 
 # USearch 2.26.2 resolves NumKong 7.8.2, whose header-only CNumKong target
 # triggers swift-package-manager#5706 in Xcode's transitive linker. Pin the

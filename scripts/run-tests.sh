@@ -145,7 +145,7 @@ echo "----- last log lines -----"
 tail -12 "$LOG"
 echo "--------------------------"
 
-if grep -q "TEST SUCCEEDED" "$LOG"; then
+if grep -Eq '(^|\*\* )TEST( EXECUTE)? SUCCEEDED( \*\*)?' "$LOG"; then
   echo "RUN-TESTS RESULT: SUCCEEDED"
   exit 0
 elif [ "$rc" -eq 137 ] || [ "$rc" -eq 143 ] || [ "$rc" -eq 9 ]; then

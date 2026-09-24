@@ -11,7 +11,7 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/xcodebuild" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$CAPTURE_ARGS"
-echo "TEST SUCCEEDED"
+echo "** TEST EXECUTE SUCCEEDED **"
 EOF
 chmod +x "$TMP/bin/xcodebuild"
 

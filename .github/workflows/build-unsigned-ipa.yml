@@ -59,27 +59,14 @@ jobs:
           xcodegen --version
 
       - name: Install Metal Toolchain for MLX
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -downloadComponent MetalToolchain
 
-      - name: Restore Feature 177 Xcode build cache
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
-        uses: actions/cache@v4
-        with:
-          # Cache only reusable build/package products. Caching all of
-          # DerivedData also captures CompilationCache.noindex; its expanded
-          # form exhausts the hosted runner while actions/cache is restoring it.
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/**/Build
-            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}-${{ github.run_id }}
-          restore-keys: |
-            feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}-
-            feature-177-release-build-v2-xcode27-
-
       - name: Apply preview compile patches
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
         shell: bash
         run: |
           set -euo pipefail
@@ -140,22 +127,22 @@ jobs:
 
       - name: Compile Feature 177 contracts against iOS 27 SDK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        timeout-minutes: 10
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build
           xcodebuild build-for-testing \
             -project vreader.xcodeproj \
-            -scheme vreader \
+            -scheme Feature177Core \
             -configuration Release \
             -destination "platform=iOS Simulator,id=${FEATURE_TEST_UDID}" \
+            -derivedDataPath "$PWD/build/Feature177DerivedData" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
-            -only-testing:vreaderTests/AIDocumentModelsTests \
-            -only-testing:vreaderTests/AIReadingBoundaryPolicyTests \
+            -only-testing:Feature177CoreTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
-            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -170,32 +157,25 @@ jobs:
           TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-core-tests.log
           TEST_CONFIGURATION: Release
           TEST_ENABLE_TESTABILITY: YES
-          TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) DEBUG
           TEST_ONLY_ACTIVE_ARCH: YES
           TEST_XCODEBUILD_ACTION: test-without-building
+          TEST_SCHEME: Feature177Core
+          TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177DerivedData
+          TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177CoreTests.xcresult
+          TEST_COLLECT_DIAGNOSTICS: never
           # The preceding build-for-testing owns compilation. This watchdog
           # now covers only installing and running the two focused suites.
-          TIMEOUT_SECS: 1800
+          TIMEOUT_SECS: 300
         run: |
           set -euo pipefail
           scripts/run-tests.sh \
-            vreaderTests/AIDocumentModelsTests \
-            vreaderTests/AIReadingBoundaryPolicyTests
+            Feature177CoreTests
 
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}
         shell: bash
         run: |
           xcrun simctl shutdown "${FEATURE_TEST_UDID}" 2>/dev/null || true
-
-      - name: Save Feature 177 Xcode build cache after RED or GREEN
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/**/Build
-            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-          key: feature-177-release-build-v2-xcode27-${{ hashFiles('project.yml') }}-${{ github.run_id }}
 
       - name: Package unsigned IPA
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests }}
@@ -222,17 +202,28 @@ jobs:
 
           ls -lh build/vreader-original-ui-ios27-unsigned.ipa
 
-      - name: Upload build artifact
-        if: always()
+      - name: Upload unsigned IPA artifact
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || !inputs.run_feature_177_core_tests) }}
         uses: actions/upload-artifact@v4
         with:
           name: vreader-original-ui-ios27-unsigned
           path: |
             build/vreader-original-ui-ios27-unsigned.ipa
             build/xcodebuild.log
-            build/feature-177-contract-compile.log
-            build/feature-177-core-tests.log
             vreader.xcodeproj/project.pbxproj
             vreader.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Feature 177 test artifact
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-177-core-tests
+          path: |
+            build/feature-177-contract-compile.log
+            build/feature-177-core-tests.log
+            build/Feature177CoreTests.xcresult
+            vreader.xcodeproj/project.pbxproj
           if-no-files-found: warn
           retention-days: 14

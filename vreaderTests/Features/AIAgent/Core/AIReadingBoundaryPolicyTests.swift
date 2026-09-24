@@ -5,7 +5,9 @@
 // @coordinates-with: vreader/Features/AIAgent/Core/AIReadingBoundaryPolicy.swift
 
 import Testing
+#if !FEATURE_177_CORE_TESTS
 @testable import vreader
+#endif
 
 @Suite("Feature #177 — spoiler/read-ahead boundary policy")
 struct AIReadingBoundaryPolicyTests {
@@ -87,6 +89,31 @@ struct AIReadingBoundaryPolicyTests {
         #expect(result == .allowed(aheadOfReader: true))
     }
 
+    @Test("PDF page fallback identifies a later page when source ordering is absent")
+    func pdfPageFallbackIsKnownAhead() {
+        let laterPage = AIDocumentChunk(
+            id: "pdf-page-fallback",
+            bookFingerprintKey: fingerprint.canonicalKey,
+            sourceUnitID: "unknown-pdf-source",
+            sourceUnitIndex: nil,
+            text: "text",
+            locator: locator(page: 50),
+            sourceLabel: "Page 51",
+            chapterTitle: nil,
+            pageIndex: nil,
+            href: nil,
+            localStartUTF16: nil,
+            localEndUTF16: nil,
+            globalStartUTF16: nil,
+            globalEndUTF16: nil,
+            isOCRDerived: false
+        )
+
+        let result = AIReadingBoundaryPolicy(mode: .neverReadAhead)
+            .evaluate(candidate: laterPage, boundary: boundary)
+        #expect(result == .denied(aheadOfReader: true))
+    }
+
     @Test("an exact current-position boundary includes text at its offset")
     func boundaryOffsetIsNotAhead() {
         let result = AIReadingBoundaryPolicy(mode: .neverReadAhead)
@@ -96,13 +123,25 @@ struct AIReadingBoundaryPolicyTests {
 
     @Test("unknown source ordering fails closed unless whole-book access is allowed")
     func unknownOrderingFailsClosed() {
+        let unknownFingerprint = DocumentFingerprint.validated(
+            contentSHA256: String(repeating: "c", count: 64),
+            fileByteCount: 256,
+            format: .txt
+        )!
+        let unknownLocator = Locator.validated(bookFingerprint: unknownFingerprint)!
+        let unknownBoundary = AIReadSoFarBoundary(
+            locator: unknownLocator,
+            sourceUnitID: "known-text-source",
+            sourceUnitIndex: nil,
+            localOffsetUTF16: nil
+        )
         let unknown = AIDocumentChunk(
             id: "unknown",
-            bookFingerprintKey: fingerprint.canonicalKey,
-            sourceUnitID: "unknown",
+            bookFingerprintKey: unknownFingerprint.canonicalKey,
+            sourceUnitID: "different-unknown-text-source",
             sourceUnitIndex: nil,
             text: "text",
-            locator: locator(page: 50),
+            locator: unknownLocator,
             sourceLabel: nil,
             chapterTitle: nil,
             pageIndex: nil,
@@ -116,17 +155,17 @@ struct AIReadingBoundaryPolicyTests {
 
         #expect(
             AIReadingBoundaryPolicy(mode: .neverReadAhead)
-                .evaluate(candidate: unknown, boundary: boundary)
+                .evaluate(candidate: unknown, boundary: unknownBoundary)
                 == .denied(aheadOfReader: nil)
         )
         #expect(
             AIReadingBoundaryPolicy(mode: .askBeforeReadingAhead)
-                .evaluate(candidate: unknown, boundary: boundary)
+                .evaluate(candidate: unknown, boundary: unknownBoundary)
                 == .requiresConfirmation(aheadOfReader: nil)
         )
         #expect(
             AIReadingBoundaryPolicy(mode: .wholeBookAllowed)
-                .evaluate(candidate: unknown, boundary: boundary)
+                .evaluate(candidate: unknown, boundary: unknownBoundary)
                 == .allowed(aheadOfReader: nil)
         )
     }

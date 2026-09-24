@@ -486,6 +486,15 @@ vreaderUITests/Verification/
   XCTest-invisible and the entire 13-class verification suite had
   been silently no-opping (`Executed 0 tests` + `TEST SUCCEEDED` =
   vacuous pass). The rename to `test_verify_*` made them discoverable.
+- **Feature #177 core contract lane** — the XcodeGen-managed
+  `Feature177CoreTests` logic-test target compiles the production files under
+  `vreader/Features/AIAgent/Core/` plus their small value-type dependencies
+  directly, with no host app or package dependencies. The dedicated
+  `Feature177Core` scheme therefore exercises the same source used by the app
+  without building `vreader`, `vreaderUITests`, Readium, or MLX. The focused CI
+  path uses a five-minute execution watchdog and disables automatic Xcode test
+  diagnostics; broader `vreader` test workflows remain independently
+  configurable through `scripts/run-tests.sh` environment variables.
 - **`@MainActor final class XCTestCase`** — verification tests touch
   the SwiftUI element tree which is main-actor-isolated.
 - **Seed via `launchApp(seed:)`** — `.warAndPeace` / `.mdTOC` for tests

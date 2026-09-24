@@ -16,6 +16,7 @@
 #   scripts/run-tests.sh [only-testing-target]      # default: vreaderTests
 #   TIMEOUT_SECS=1200 scripts/run-tests.sh vreaderTests/DebugCommandTests
 #   TEST_UDID=<udid>   scripts/run-tests.sh
+#   TEST_COLLECT_DIAGNOSTICS=always scripts/run-tests.sh  # opt in when needed
 #
 # IMPORTANT (rule 52): do NOT drive the SAME simulator (sim-tap / idb / simctl
 # openurl eval / verification) while this is running. Sim contention is what
@@ -23,13 +24,14 @@
 set -uo pipefail
 
 TIMEOUT_SECS="${TIMEOUT_SECS:-900}"
-PROJECT="vreader.xcodeproj"
-SCHEME="vreader"
+PROJECT="${TEST_PROJECT:-vreader.xcodeproj}"
+SCHEME="${TEST_SCHEME:-vreader}"
 CONFIGURATION="${TEST_CONFIGURATION:-Debug}"
 XCODEBUILD_ACTION="${TEST_XCODEBUILD_ACTION:-test}"
 TEST_ENABLE_TESTABILITY="${TEST_ENABLE_TESTABILITY:-NO}"
 TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS="${TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS:-}"
 ONLY_ACTIVE_ARCH="${TEST_ONLY_ACTIVE_ARCH:-NO}"
+COLLECT_DIAGNOSTICS="${TEST_COLLECT_DIAGNOSTICS:-never}"
 
 # Accept one or more -only-testing targets (default: the whole vreaderTests
 # suite). Prefer passing the TARGETED suites that cover your change — the full
@@ -52,6 +54,15 @@ if [ -n "$TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS" ]; then
   )
 fi
 
+PATH_ARGS=()
+if [ -n "${TEST_DERIVED_DATA_PATH:-}" ]; then
+  PATH_ARGS+=(-derivedDataPath "$TEST_DERIVED_DATA_PATH")
+fi
+if [ -n "${TEST_RESULT_BUNDLE_PATH:-}" ]; then
+  mkdir -p "$(dirname "$TEST_RESULT_BUNDLE_PATH")"
+  PATH_ARGS+=(-resultBundlePath "$TEST_RESULT_BUNDLE_PATH")
+fi
+
 UDID="${TEST_UDID:-$(xcrun simctl list devices booted 2>/dev/null | grep -Eo '[0-9A-Fa-f-]{36}' | head -1)}"
 if [ -z "$UDID" ]; then
   echo "RUN-TESTS RESULT: NO_BOOTED_SIM"
@@ -64,7 +75,7 @@ mkdir -p "$(dirname "$LOG")"
 # wrapper exit after the watchdog created it would leak it; a leaked sentinel
 # is harmless to LATER runs — the path is per-mktemp — but untidy).
 trap 'rm -f "$LOG.timedout"' EXIT
-echo "[run-tests] targets=${ONLY_ARGS[*]} configuration=$CONFIGURATION testability=$TEST_ENABLE_TESTABILITY conditions=${TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS:-default} only_active_arch=$ONLY_ACTIVE_ARCH udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
+echo "[run-tests] project=$PROJECT scheme=$SCHEME targets=${ONLY_ARGS[*]} configuration=$CONFIGURATION testability=$TEST_ENABLE_TESTABILITY conditions=${TEST_SWIFT_ACTIVE_COMPILATION_CONDITIONS:-default} only_active_arch=$ONLY_ACTIVE_ARCH diagnostics=$COLLECT_DIAGNOSTICS udid=$UDID timeout=${TIMEOUT_SECS}s log=$LOG"
 
 ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" xcodebuild "$XCODEBUILD_ACTION" \
@@ -73,6 +84,8 @@ DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" xcodebuild "$XCODEBUILD_ACTION" \
   -destination "platform=iOS Simulator,id=$UDID" \
   -skipPackagePluginValidation \
   -skipMacroValidation \
+  -collect-test-diagnostics "$COLLECT_DIAGNOSTICS" \
+  "${PATH_ARGS[@]}" \
   "${BUILD_SETTING_ARGS[@]}" \
   "${ONLY_ARGS[@]}" >"$LOG" 2>&1 &
 pid=$!

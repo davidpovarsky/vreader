@@ -5,7 +5,9 @@
 
 import Foundation
 import Testing
+#if !FEATURE_177_CORE_TESTS
 @testable import vreader
+#endif
 
 @Suite("Feature #177 — structured AI document models")
 struct AIDocumentModelsTests {

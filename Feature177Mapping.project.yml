@@ -26,6 +26,7 @@ targets:
       - path: vreader/Features/AIAgent/Document/AILegacyDocumentProvider.swift
       - path: vreader/Models/BookFormat.swift
       - path: vreader/Models/DocumentFingerprint.swift
+      - path: vreader/Models/FormatCapabilities.swift
       - path: vreader/Models/Locator.swift
       - path: vreader/Services/AI/ChapterBounds.swift
       - path: vreader/Services/MD/MDAttributedStringRenderer.swift

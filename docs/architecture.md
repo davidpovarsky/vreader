@@ -518,7 +518,9 @@ vreaderUITests/Verification/
   cancellation, precision, and live-registry decisions. It deliberately omits
   the PDFKit/Readium facade implementations; those compile in the real-app gate.
   This keeps `Feature177Core.project.yml` unchanged and preserves its fast
-  two-suite contract lane.
+  two-suite contract lane. The workflow's separate WI-3 regression input builds
+  the generated app project once and runs only the affected TXT/Markdown search,
+  PDF locator/bridge, and Readium navigation/host suites.
 - **`@MainActor final class XCTestCase`** — verification tests touch
   the SwiftUI element tree which is main-actor-isolated.
 - **Seed via `launchApp(seed:)`** — `.warAndPeace` / `.mdTOC` for tests

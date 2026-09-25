@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_feature_177_regression_tests:
+        description: Run targeted WI-3 search and reader regression tests
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - chatgpt/original-ui-ios26
@@ -105,7 +110,7 @@ jobs:
             --project build/Feature177MappingProject
 
       - name: Build unsigned app against iOS 27 SDK
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -126,7 +131,7 @@ jobs:
             clean build 2>&1 | tee build/xcodebuild.log
 
       - name: Boot iOS 27 Simulator for Feature 177 tests
-        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_feature_177_core_tests || inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_feature_177_core_tests || inputs.run_feature_177_mapping_tests || inputs.run_feature_177_regression_tests) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -243,6 +248,62 @@ jobs:
           scripts/run-tests.sh \
             Feature177MappingTests
 
+      - name: Compile targeted Feature 177 reader regressions
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild build-for-testing \
+            -project vreader.xcodeproj \
+            -scheme vreader \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${FEATURE_TEST_UDID}" \
+            -derivedDataPath "$PWD/build/Feature177RegressionDerivedData" \
+            -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -only-testing:vreaderTests/TXTTextExtractorTests \
+            -only-testing:vreaderTests/MDTextExtractorTests \
+            -only-testing:vreaderTests/PDFReaderViewModelLocatorTests \
+            -only-testing:vreaderTests/PDFViewBridgeThemeTests \
+            -only-testing:vreaderTests/ReadiumEPUBNavigationMappingTests \
+            -only-testing:vreaderTests/ReadiumEPUBHostTests \
+            ENABLE_TESTABILITY=YES \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee build/feature-177-regression-compile.log
+
+      - name: Run targeted Feature 177 reader regressions
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        shell: bash
+        env:
+          TEST_UDID: ${{ env.FEATURE_TEST_UDID }}
+          TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-regression-tests.log
+          TEST_CONFIGURATION: Debug
+          TEST_ENABLE_TESTABILITY: YES
+          TEST_ONLY_ACTIVE_ARCH: YES
+          TEST_XCODEBUILD_ACTION: test-without-building
+          TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
+          TEST_SCHEME: vreader
+          TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177RegressionTests.xcresult
+          TEST_COLLECT_DIAGNOSTICS: never
+          TIMEOUT_SECS: 900
+        run: |
+          set -euo pipefail
+          scripts/run-tests.sh \
+            vreaderTests/TXTTextExtractorTests \
+            vreaderTests/MDTextExtractorTests \
+            vreaderTests/PDFReaderViewModelLocatorTests \
+            vreaderTests/PDFViewBridgeThemeTests \
+            vreaderTests/ReadiumEPUBNavigationMappingTests \
+            vreaderTests/ReadiumEPUBHostTests
+
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}
         shell: bash
@@ -250,7 +311,7 @@ jobs:
           xcrun simctl shutdown "${FEATURE_TEST_UDID}" 2>/dev/null || true
 
       - name: Package unsigned IPA
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -275,7 +336,7 @@ jobs:
           ls -lh build/vreader-original-ui-ios27-unsigned.ipa
 
       - name: Upload unsigned IPA artifact
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests)) }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests)) }}
         uses: actions/upload-artifact@v4
         with:
           name: vreader-original-ui-ios27-unsigned
@@ -310,5 +371,18 @@ jobs:
             build/feature-177-mapping-tests.log
             build/Feature177MappingTests.xcresult
             build/Feature177MappingProject/Feature177Mapping.xcodeproj/project.pbxproj
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Feature 177 regression test artifact
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-177-regression-tests
+          path: |
+            build/feature-177-regression-compile.log
+            build/feature-177-regression-tests.log
+            build/Feature177RegressionTests.xcresult
+            vreader.xcodeproj/project.pbxproj
           if-no-files-found: warn
           retention-days: 14

@@ -187,7 +187,7 @@ final class AILegacyDocumentRegistration {
         href: String?,
         title: String?,
         locator: Locator,
-        loadText: SectionTextLoader
+        loadText: @escaping SectionTextLoader
     ) -> Task<Void, Never> {
         updateGeneration &+= 1
         let generation = updateGeneration

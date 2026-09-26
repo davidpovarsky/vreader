@@ -3,6 +3,9 @@
 
 import Foundation
 import Testing
+#if canImport(vreader)
+@testable import vreader
+#endif
 
 @Suite("Feature #177 WI-3 — live legacy registration")
 @MainActor

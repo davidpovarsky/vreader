@@ -154,6 +154,103 @@ struct AIRegistryLegacyAndCancellationTests {
         #expect(snapshot.currentLocator == locator)
     }
 
+    @Test("legacy adapter never leaks a foreign locator fingerprint")
+    func legacyForeignLocatorFingerprintIsNormalized() async throws {
+        let providerFingerprint = fingerprint("c", format: .azw3)
+        let foreignFingerprint = fingerprint("d", format: .azw3)
+        let foreignLocator = Locator.validated(
+            bookFingerprint: foreignFingerprint,
+            href: "section-7",
+            progression: 0.4,
+            totalProgression: 0.7,
+            cfi: "epubcfi(/6/14!/4/2)"
+        )!
+        let provider = AILegacyDocumentProvider(
+            fingerprint: providerFingerprint,
+            currentSection: AILegacyDocumentSection(
+                sectionIndex: 7,
+                href: "section-7",
+                title: "Foreign input",
+                text: "bounded text",
+                locator: foreignLocator,
+                mappingPrecision: .approximate
+            )
+        )
+
+        let chunks = try await provider.chunks()
+        let snapshot = try await provider.snapshot()
+
+        #expect(chunks.count == 1)
+        #expect(chunks[0].bookFingerprintKey == providerFingerprint.canonicalKey)
+        #expect(chunks[0].locator.bookFingerprint == providerFingerprint)
+        #expect(snapshot.currentLocator?.bookFingerprint == providerFingerprint)
+        #expect(snapshot.readSoFarBoundary.locator.bookFingerprint == providerFingerprint)
+    }
+
+    @Test("live legacy registration updates relocation and stale teardown preserves replacement")
+    func liveLegacyRegistrationLifecycle() async throws {
+        let registry = AIDocumentProviderRegistry()
+        let fp = fingerprint("e", format: .azw3)
+        let token = UUID()
+        let session = AIDocumentSessionID(
+            fingerprintKey: fp.canonicalKey,
+            readerToken: token
+        )
+        let first = AILegacyDocumentRegistration(
+            fingerprint: fp,
+            readerToken: token,
+            registry: registry
+        )
+        let firstLocator = Locator.validated(
+            bookFingerprint: fp,
+            href: "section-1",
+            totalProgression: 0.1,
+            cfi: "epubcfi(/6/2!/4/2)"
+        )!
+
+        await first.updateCurrentSection(
+            sectionIndex: 1,
+            href: "section-1",
+            title: "One",
+            locator: firstLocator
+        ) { index in
+            #expect(index == 1)
+            return "first live section"
+        }
+
+        let firstProvider = try #require(registry.resolve(session: session))
+        #expect(try await firstProvider.chunks().first?.text == "first live section")
+        #expect(!(try await firstProvider.snapshot()).exactMappingAvailable)
+
+        let replacement = AILegacyDocumentRegistration(
+            fingerprint: fp,
+            readerToken: token,
+            registry: registry
+        )
+        let replacementLocator = Locator.validated(
+            bookFingerprint: fp,
+            href: "section-2",
+            totalProgression: 0.2,
+            cfi: "epubcfi(/6/4!/4/2)"
+        )!
+        await replacement.updateCurrentSection(
+            sectionIndex: 2,
+            href: "section-2",
+            title: "Two",
+            locator: replacementLocator
+        ) { _ in "replacement live section" }
+
+        first.teardown()
+
+        let replacementProvider = try #require(registry.resolve(session: session))
+        let snapshot = try await replacementProvider.snapshot()
+        #expect(snapshot.currentLocator == replacementLocator)
+        #expect(snapshot.currentSectionChunks.first?.text == "replacement live section")
+
+        replacement.teardown()
+        #expect(registry.resolve(session: session) == nil)
+    }
+
     @Test("legacy adapter fails closed when no current section exists")
     func legacyMissingSectionFailsClosed() async throws {
         let fp = fingerprint("a", format: .azw3)

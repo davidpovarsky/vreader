@@ -244,9 +244,7 @@ private struct FoliateSpikeWebView: UIViewRepresentable {
             onError: onError
         )
         coord.fingerprintKey = fingerprintKey
-        #if DEBUG
         coord.readerToken = readerToken
-        #endif
         // Feature #57: hand the live Coordinator to the parent so
         // `ReaderContainerView`'s TTS path can request whole-book text
         // extraction once the book has rendered.
@@ -492,10 +490,8 @@ extension FoliateSpikeView {
         /// a per-reader filter. Set by `makeCoordinator()` from the
         /// SwiftUI binding regardless of build configuration.
         var fingerprintKey: String?
-        #if DEBUG
         /// Bug #142: per-reader instance token paired with fingerprintKey.
         var readerToken: UUID?
-        #endif
 
         /// Bug #199 / GH #733: observer token for
         /// `.foliateRequestAnnotationJSDelete`. When a `.foliateRequestAnnotationJSDelete`
@@ -1024,6 +1020,9 @@ extension FoliateSpikeView {
                         "fraction": parsed.fraction,
                         "sectionTotal": parsed.sectionTotal,
                     ]
+                    if let readerToken {
+                        userInfo["readerToken"] = readerToken
+                    }
                     if let href = parsed.tocHref {
                         userInfo["tocHref"] = href
                     }
@@ -1032,6 +1031,15 @@ extension FoliateSpikeView {
                     // title). Optional — sparse AZW3/MOBI TOCs omit it.
                     if let label = parsed.tocLabel {
                         userInfo["tocLabel"] = label
+                    }
+                    let locator = FoliateNavSeek.positionLocator(
+                        fingerprintKey: key,
+                        href: parsed.tocHref,
+                        cfi: parsed.cfi,
+                        fraction: parsed.fraction
+                    )
+                    if let locator {
+                        userInfo["locator"] = locator
                     }
                     NotificationCenter.default.post(
                         name: .foliateRelocated,
@@ -1047,12 +1055,7 @@ extension FoliateSpikeView {
                     // `FoliateReaderContainerView`, so the live path never
                     // updated `ReaderContainerView.currentLocator`. The
                     // section href (`tocHref`) + `cfi` anchor the locator.
-                    if let locator = FoliateNavSeek.positionLocator(
-                        fingerprintKey: key,
-                        href: parsed.tocHref,
-                        cfi: parsed.cfi,
-                        fraction: parsed.fraction
-                    ) {
+                    if let locator {
                         NotificationCenter.default.post(
                             name: .readerPositionDidChange,
                             object: locator

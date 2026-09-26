@@ -155,6 +155,10 @@ struct FoliateBilingualContainerView: View {
     /// `positionController`; the helper is never handed a locator.
     @State var sessionLifecycle: ReaderLifecycleHelper?
 
+    /// Feature #177 WI-3: per-reader live registration for the bounded
+    /// current-section AZW3/MOBI document provider.
+    @State var legacyDocumentRegistration: AILegacyDocumentRegistration?
+
     /// Bug #345 (Codex round-1 High): drives session pause/resume so
     /// backgrounded time never counts toward the reading session.
     @Environment(\.scenePhase) private var scenePhase
@@ -296,8 +300,12 @@ struct FoliateBilingualContainerView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .foliateRelocated)
         ) { notification in
-            guard let key = notification.userInfo?["fingerprintKey"] as? String,
-                  key == fingerprintKey else { return }
+            guard AILegacyDocumentRegistration.matchesSession(
+                eventFingerprintKey: notification.userInfo?["fingerprintKey"] as? String,
+                eventReaderToken: notification.userInfo?["readerToken"] as? UUID,
+                expectedFingerprintKey: fingerprintKey,
+                expectedReaderToken: readerToken
+            ) else { return }
             handleRelocated(notification.userInfo)
         }
         // Bug #262 / GH #1136: the live AZW3/MOBI Contents source. The spike
@@ -622,6 +630,7 @@ struct FoliateBilingualContainerView: View {
         let previousIndex = currentSectionIndex
         currentSectionHref = String(nextIndex)
         currentSectionIndex = nextIndex
+        updateLegacyDocumentProvider(from: userInfo)
 
         guard let vm = bilingualViewModel, vm.isEnabled,
               !showBilingualSetupSheet else { return }

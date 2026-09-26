@@ -244,7 +244,11 @@ reading-order href; and legacy Foliate exposes only bounded current-section
 data with explicit exact/approximate precision. `AIDocumentProviderRegistry`
 is main-actor isolated and keys registrations by `(fingerprint, readerToken)`;
 generation-bearing detach tokens prevent an outgoing reader from clearing a
-new mount. PDFKit `PDFDocument` and Readium `Publication` references remain
+new mount. The live Foliate container creates its bounded legacy registration
+on the first authoritative relocation, reads only that section through the
+existing coordinator facade, refreshes the locator on every relocation, and
+detaches during the host's existing teardown. PDFKit `PDFDocument` and Readium
+`Publication` references remain
 inside narrow main-actor facades; only strings, locators, and other Sendable
 DTOs cross the provider boundary. PDF and Readium hosts attach after their live
 document is unlocked/open and unregister deterministically on teardown.

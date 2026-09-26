@@ -36,6 +36,8 @@ struct FoliateBottomChromeWiringTests {
         var tocLabel: String?
         var sectionIndex: Int?
         var fingerprintKey: String?
+        var readerToken: UUID?
+        var locator: Locator?
     }
 
     // MARK: - Seam 1: relocate forwards the progress fraction
@@ -47,7 +49,14 @@ struct FoliateBottomChromeWiringTests {
             onBookReady: { _ in },
             onError: { _ in }
         )
-        coordinator.fingerprintKey = "azw3:abc:123"
+        let readerToken = UUID()
+        let fingerprint = DocumentFingerprint(
+            contentSHA256: String(repeating: "a", count: 64),
+            fileByteCount: 123,
+            format: .azw3
+        )
+        coordinator.fingerprintKey = fingerprint.canonicalKey
+        coordinator.readerToken = readerToken
 
         let capture = RelocateCapture()
         // Extract userInfo eagerly so the non-Sendable `Notification`
@@ -60,12 +69,16 @@ struct FoliateBottomChromeWiringTests {
             let tocLabel = note.userInfo?["tocLabel"] as? String
             let sectionIndex = note.userInfo?["sectionIndex"] as? Int
             let fingerprintKey = note.userInfo?["fingerprintKey"] as? String
+            let readerToken = note.userInfo?["readerToken"] as? UUID
+            let locator = note.userInfo?["locator"] as? Locator
             MainActor.assumeIsolated {
                 capture.fired = true
                 capture.fraction = fraction
                 capture.tocLabel = tocLabel
                 capture.sectionIndex = sectionIndex
                 capture.fingerprintKey = fingerprintKey
+                capture.readerToken = readerToken
+                capture.locator = locator
             }
         }
         defer { NotificationCenter.default.removeObserver(token) }
@@ -89,7 +102,10 @@ struct FoliateBottomChromeWiringTests {
         #expect(capture.tocLabel == "Chapter 4",
                 "Bug #260: the spike should forward `tocLabel` so the bottom chrome can show the chapter title")
         #expect(capture.sectionIndex == 3, "existing sectionIndex forwarding must be preserved")
-        #expect(capture.fingerprintKey == "azw3:abc:123", "fingerprintKey scoping must be preserved")
+        #expect(capture.fingerprintKey == fingerprint.canonicalKey, "fingerprintKey scoping must be preserved")
+        #expect(capture.readerToken == readerToken, "readerToken must isolate same-book reader sessions")
+        #expect(capture.locator?.cfi == "epubcfi(/6/4!/4/2)")
+        #expect(capture.locator?.bookFingerprint == fingerprint)
     }
 
     @Test("relocate forwards a zero fraction (book start) without dropping the key")

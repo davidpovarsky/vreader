@@ -70,6 +70,8 @@ extension FoliateBilingualContainerView {
     /// legacy Foliate host's precedent).
     func handleHostTeardown() {
         positionRestoreTask?.cancel()
+        legacyDocumentRegistration?.teardown()
+        legacyDocumentRegistration = nil
         let controller = positionController
         let lifecycle = sessionLifecycle
         let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
@@ -182,6 +184,39 @@ extension FoliateBilingualContainerView {
         guard let locator = notification.object as? Locator else { return }
         ensurePositionController()
         positionController?.handlePositionChange(locator)
+    }
+
+    /// Feature #177 WI-3: update the bounded live legacy provider from the
+    /// authoritative Foliate relocation and current-section text facade.
+    func updateLegacyDocumentProvider(from userInfo: [AnyHashable: Any]?) {
+        guard let sectionIndex = userInfo?["sectionIndex"] as? Int,
+              let locator = userInfo?["locator"] as? Locator,
+              let coordinator = coordinatorBox?.coordinator else { return }
+
+        if legacyDocumentRegistration == nil {
+            guard let readerToken,
+                  let fingerprint = DocumentFingerprint(canonicalKey: fingerprintKey),
+                  fingerprint.format == .azw3 else { return }
+            legacyDocumentRegistration = AILegacyDocumentRegistration(
+                fingerprint: fingerprint,
+                readerToken: readerToken
+            )
+        }
+        guard let registration = legacyDocumentRegistration else { return }
+        let href = userInfo?["tocHref"] as? String
+        let title = userInfo?["tocLabel"] as? String
+
+        registration.updateCurrentSection(
+            sectionIndex: sectionIndex,
+            href: href,
+            title: title,
+            locator: locator
+        ) { [weak coordinator] index in
+            guard let coordinator else { return nil }
+            return await coordinator.extractSectionText(
+                TranslationUnitID(kind: .foliateHref, value: String(index))
+            )
+        }
     }
 }
 #endif

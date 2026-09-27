@@ -30,9 +30,11 @@ extension ReaderAICoordinator {
         guard let provider = documentProviderResolver.resolve(session: documentSessionID),
               provider.bookFingerprint.canonicalKey == fingerprintKey else { return nil }
         do {
-            async let snapshotValue = provider.snapshot()
-            async let chunksValue = provider.chunks()
-            let (snapshot, chunks) = try await (snapshotValue, chunksValue)
+            // Providers are main-actor facades over live reader objects. Keep
+            // access serialized on that actor; parallel `async let` would send
+            // the same actor-isolated existential into two child tasks.
+            let snapshot = try await provider.snapshot()
+            let chunks = try await provider.chunks()
             guard generation == structuredRefreshGeneration,
                   !Task.isCancelled,
                   snapshot.bookFingerprint.canonicalKey == fingerprintKey,

@@ -69,7 +69,7 @@ final class AILegacyDocumentProvider: AIDocumentProvider {
 
     func wholeBookManifest() async throws -> AIWholeBookSourceManifest {
         try Task.checkCancellation()
-        let units = currentSection.map { section in
+        let units: [AIWholeBookSourceUnit] = currentSection.map { section in
             let chunk = makeChunk(from: section)
             return [AIWholeBookSourceUnit(
                 sourceUnitID: chunk.sourceUnitID,

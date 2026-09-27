@@ -95,7 +95,7 @@ struct AIDocumentContextResolver: Sendable {
         chunks: [AIDocumentChunk],
         maxUTF16: Int
     ) -> [(AIDocumentChunk, String)] {
-        if snapshot.format == .azw3 || snapshot.format == .mobi {
+        if snapshot.format == .azw3 {
             return section(snapshot: snapshot, maxUTF16: maxUTF16)
         }
         let boundary = snapshot.readSoFarBoundary

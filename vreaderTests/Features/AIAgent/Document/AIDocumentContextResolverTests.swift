@@ -13,7 +13,9 @@ struct AIDocumentContextResolverTests {
     @Test("PDF Section uses the exact current page, not a flattened prefix")
     func pdfSectionUsesPage50() {
         let fp = fingerprint("1", .pdf)
-        let pages = (0...50).map { chunk(fp, id: "pdf:page:\($0)", index: $0, text: "page \($0)", page: $0) }
+        let pages = (0...50).map { (pageNumber: Int) in
+            chunk(fp, id: "pdf:page:\(pageNumber)", index: pageNumber, text: "page \(pageNumber)", page: pageNumber)
+        }
         let snapshot = makeSnapshot(fp, format: .pdf, current: pages[50], boundaryLocal: pages[50].text.utf16.count)
 
         let result = resolver.resolve(snapshot: snapshot, orderedChunks: pages, scope: .section, maxUTF16: 12_000)
@@ -70,7 +72,9 @@ struct AIDocumentContextResolverTests {
     @Test("PDF Book-so-far excludes all later pages")
     func pdfBookSoFarDoesNotReadAhead() {
         let fp = fingerprint("5", .pdf)
-        let pages = (0...3).map { chunk(fp, id: "pdf:page:\($0)", index: $0, text: "P\($0)", page: $0) }
+        let pages = (0...3).map { (pageNumber: Int) in
+            chunk(fp, id: "pdf:page:\(pageNumber)", index: pageNumber, text: "P\(pageNumber)", page: pageNumber)
+        }
         let snapshot = makeSnapshot(fp, format: .pdf, current: pages[1], boundaryLocal: pages[1].text.utf16.count)
 
         let result = resolver.resolve(snapshot: snapshot, orderedChunks: pages, scope: .bookSoFar, maxUTF16: 12_000)
@@ -126,10 +130,11 @@ struct AIDocumentContextResolverTests {
         globalStart: Int? = nil
     ) -> AIDocumentChunk {
         let locator = Locator.validated(bookFingerprint: fp, href: href, totalProgression: total, page: page, charOffsetUTF16: globalStart)!
+        let pageLabel = page.map(String.init)
         return AIDocumentChunk(
             id: "\(fp.canonicalKey):\(id)", bookFingerprintKey: fp.canonicalKey,
             sourceUnitID: id, sourceUnitIndex: index, text: text, locator: locator,
-            sourceLabel: nil, chapterTitle: nil, pageIndex: page, href: href,
+            sourceLabel: pageLabel.map { "Page \($0)" }, chapterTitle: nil, pageIndex: page, href: href,
             localStartUTF16: 0, localEndUTF16: text.utf16.count,
             globalStartUTF16: globalStart,
             globalEndUTF16: globalStart.map { $0 + text.utf16.count },

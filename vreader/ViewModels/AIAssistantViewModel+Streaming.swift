@@ -44,6 +44,7 @@ extension AIAssistantViewModel {
     /// (the post-`await` guard in `runRequest` drops the cancelled task's
     /// result anyway).
     func cancelStreaming() {
+        summaryContextResolutionGeneration &+= 1
         // Gate-4 Medium: idempotent — a Stop is meaningful ONLY while a request is
         // in flight (`state == .loading`). A stray/late call after the request has
         // settled (`.complete`/`.error`/`.idle`) must NOT wipe a completed summary
@@ -78,6 +79,7 @@ extension AIAssistantViewModel {
         targetLanguage: String? = nil,
         resolvedContextText: String? = nil
     ) async {
+        summaryContextResolutionGeneration &+= 1
         // Supersede any pending request, and bump the op token so a stale
         // task's post-`await` writes are dropped.
         streamTask?.cancel()

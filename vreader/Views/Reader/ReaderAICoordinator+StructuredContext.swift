@@ -26,13 +26,19 @@ extension ReaderAICoordinator {
     func resolveStructuredContext(
         for scope: ChatContextScope
     ) async -> AIDocumentResolvedContext? {
+        let generation = structuredRefreshGeneration
         guard let provider = documentProviderResolver.resolve(session: documentSessionID),
               provider.bookFingerprint.canonicalKey == fingerprintKey else { return nil }
         do {
             async let snapshotValue = provider.snapshot()
             async let chunksValue = provider.chunks()
             let (snapshot, chunks) = try await (snapshotValue, chunksValue)
-            guard snapshot.bookFingerprint.canonicalKey == fingerprintKey else { return nil }
+            guard generation == structuredRefreshGeneration,
+                  !Task.isCancelled,
+                  snapshot.bookFingerprint.canonicalKey == fingerprintKey,
+                  let currentProvider = documentProviderResolver.resolve(session: documentSessionID),
+                  (currentProvider as AnyObject) === (provider as AnyObject)
+            else { return nil }
             let boundedScope: AIDocumentContextScope
             switch scope {
             case .section: boundedScope = .section
@@ -85,6 +91,7 @@ extension ReaderAICoordinator {
             guard let change = notification.object as? AIDocumentRegistryChange else { return }
             Task { @MainActor [weak self] in
                 guard let self, change.session == self.documentSessionID else { return }
+                self.invalidateWholeBookReadForProviderChange()
                 self.invalidateStructuredContext()
                 await self.refreshChatContextNow()
             }

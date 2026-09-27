@@ -89,6 +89,92 @@ struct ReaderAIStructuredContextIntegrationTests {
         #expect(coordinator.cachedStructuredContext(for: .section)?.text == "NEW")
     }
 
+    @Test("provider replaced during an async snapshot cannot return stale context")
+    func providerReplacementInvalidatesInFlightResolution() async {
+        let registry = AIDocumentProviderRegistry()
+        let fp = fingerprint("6", .pdf)
+        let token = UUID()
+        let oldChunk = makeChunk(fp, id: "pdf:page:1", index: 1, text: "OLD", page: 1)
+        let newChunk = makeChunk(fp, id: "pdf:page:2", index: 2, text: "NEW", page: 2)
+        let controlled = ControlledSnapshotProvider(
+            fp: fp, old: snapshot(fp, .pdf, oldChunk), chunks: [oldChunk]
+        )
+        _ = registry.attach(controlled, for: session(fp, token))
+        let coordinator = makeCoordinator(fp, token, registry)
+
+        let stale = Task { await coordinator.resolveStructuredContext(for: .section) }
+        await controlled.awaitOldSnapshotStarted()
+        _ = registry.attach(
+            StaticDocumentProvider(
+                fp: fp, snapshot: snapshot(fp, .pdf, newChunk), chunks: [newChunk]
+            ),
+            for: session(fp, token)
+        )
+        controlled.releaseOldSnapshot()
+
+        #expect(await stale.value == nil)
+        #expect(await coordinator.resolveStructuredContext(for: .section)?.text == "NEW")
+    }
+
+    @Test("scope exit and re-entry cannot resurrect an old whole-book manifest")
+    func wholeBookGenerationInvalidatesSuspendedManifest() async throws {
+        let registry = AIDocumentProviderRegistry()
+        let fp = fingerprint("7", .epub)
+        let token = UUID()
+        let oldChunk = makeChunk(fp, id: "epub:old", index: 0, text: "OLD", href: "old")
+        let gated = ControlledManifestProvider(
+            fp: fp, snapshot: snapshot(fp, .epub, oldChunk), chunks: [oldChunk]
+        )
+        _ = registry.attach(gated, for: session(fp, token))
+        let coordinator = makeCoordinator(fp, token, registry)
+        coordinator.wholeBookReadGeneration = 1
+
+        let stale = Task {
+            try await coordinator.currentWholeBookManifest(provider: gated, generation: 1)
+        }
+        await gated.awaitManifestStarted()
+        coordinator.wholeBookReadGeneration = 2 // exit/re-entry supersedes preparation
+        gated.releaseManifest()
+        #expect(try await stale.value == nil)
+
+        let newChunk = makeChunk(fp, id: "epub:new", index: 1, text: "NEW", href: "new")
+        let current = StaticDocumentProvider(
+            fp: fp, snapshot: snapshot(fp, .epub, newChunk), chunks: [newChunk]
+        )
+        _ = registry.attach(current, for: session(fp, token))
+        coordinator.wholeBookReadGeneration = 3
+        let manifest = try await coordinator.currentWholeBookManifest(
+            provider: current, generation: 3
+        )
+        #expect(manifest?.units.map(\.sourceUnitID) == ["epub:new"])
+    }
+
+    @Test("provider replacement invalidates a suspended whole-book manifest")
+    func wholeBookProviderReplacementDropsStaleManifest() async throws {
+        let registry = AIDocumentProviderRegistry()
+        let fp = fingerprint("8", .pdf)
+        let token = UUID()
+        let oldChunk = makeChunk(fp, id: "pdf:page:0", index: 0, text: "OLD", page: 0)
+        let gated = ControlledManifestProvider(
+            fp: fp, snapshot: snapshot(fp, .pdf, oldChunk), chunks: [oldChunk]
+        )
+        _ = registry.attach(gated, for: session(fp, token))
+        let coordinator = makeCoordinator(fp, token, registry)
+        coordinator.wholeBookReadGeneration = 1
+
+        let stale = Task {
+            try await coordinator.currentWholeBookManifest(provider: gated, generation: 1)
+        }
+        await gated.awaitManifestStarted()
+        let replacement = StaticDocumentProvider(
+            fp: fp, snapshot: snapshot(fp, .pdf, oldChunk), chunks: [oldChunk]
+        )
+        _ = registry.attach(replacement, for: session(fp, token))
+        gated.releaseManifest()
+
+        #expect(try await stale.value == nil)
+    }
+
     private func makeCoordinator(
         _ fp: DocumentFingerprint, _ token: UUID, _ registry: AIDocumentProviderRegistry
     ) -> ReaderAICoordinator {
@@ -174,4 +260,46 @@ private final class ControlledSnapshotProvider: AIDocumentProvider {
         currentSnapshot = snapshot; currentChunks = chunks
     }
     func releaseOldSnapshot() { oldContinuation?.resume(returning: originalSnapshot); oldContinuation = nil }
+}
+
+@MainActor
+private final class ControlledManifestProvider: AIDocumentProvider {
+    let bookFingerprint: DocumentFingerprint
+    private let storedSnapshot: AIDocumentSnapshot
+    private let storedChunks: [AIDocumentChunk]
+    private let startedPair = AsyncStream<Void>.makeStream()
+    private var manifestContinuation: CheckedContinuation<AIWholeBookSourceManifest, Never>?
+
+    init(fp: DocumentFingerprint, snapshot: AIDocumentSnapshot, chunks: [AIDocumentChunk]) {
+        bookFingerprint = fp
+        storedSnapshot = snapshot
+        storedChunks = chunks
+    }
+
+    func snapshot() async throws -> AIDocumentSnapshot { storedSnapshot }
+    func chunks() async throws -> [AIDocumentChunk] { storedChunks }
+    func wholeBookManifest() async throws -> AIWholeBookSourceManifest {
+        startedPair.continuation.yield(())
+        return await withCheckedContinuation { manifestContinuation = $0 }
+    }
+    func awaitManifestStarted() async {
+        var iterator = startedPair.stream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+    func releaseManifest() {
+        let manifest = AIWholeBookSourceManifest(
+            fingerprintKey: bookFingerprint.canonicalKey,
+            enumerationCompleteness: .complete,
+            units: storedChunks.map {
+                AIWholeBookSourceUnit(
+                    sourceUnitID: $0.sourceUnitID,
+                    sourceUnitIndex: $0.sourceUnitIndex,
+                    availability: .available,
+                    chunk: $0
+                )
+            }
+        )
+        manifestContinuation?.resume(returning: manifest)
+        manifestContinuation = nil
+    }
 }

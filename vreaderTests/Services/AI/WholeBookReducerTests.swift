@@ -65,6 +65,39 @@ struct WholeBookReducerTests {
         #expect(!digest.coverage.isComplete)
     }
 
+    @Test func structuredReduce_emptyAvailableUnitIsExplicitlyPartial() async throws {
+        let reducer = WholeBookReducer()
+        let digest = try await reducer.reduce(
+            manifest: WI4WholeBookTestFactory.manifest(texts: [""]),
+            chunkBudgetUTF16: 100, digestBudgetUTF16: 10_000, maxChunks: 10,
+            condense: { $0 }, onProgress: { _, _ in }
+        )
+
+        #expect(digest.coverage.droppedSourceUnitIDs == ["unit:0"])
+        #expect(!digest.coverage.isComplete)
+    }
+
+    @Test func structuredReduce_cancelDuringHierarchyStaysPartial() async throws {
+        let reducer = WholeBookReducer()
+        let rec = CondenseRecorder()
+        let manifest = WI4WholeBookTestFactory.manifest(
+            texts: Array(repeating: String(repeating: "y", count: 100), count: 10)
+        )
+        let digest = try await reducer.reduce(
+            manifest: manifest, chunkBudgetUTF16: 100, digestBudgetUTF16: 120,
+            maxChunks: 50,
+            condense: { input in
+                await rec.record(input)
+                if await rec.calls == 11 { await reducer.cancel() }
+                return String(repeating: "S", count: 50)
+            },
+            onProgress: { _, _ in }
+        )
+
+        #expect(digest.coverage.wasCancelled)
+        #expect(!digest.coverage.isComplete)
+    }
+
     // MARK: - Chunking (pure)
 
     @Test func chunk_splitsAtBudget_withContiguousSpans() {
@@ -191,7 +224,8 @@ struct WholeBookReducerTests {
         )
         // The MAP covered the whole book (10 chunks) before the reduce-round cancel.
         #expect(digest.coverage.coveredSpans.count == 10)
-        #expect(digest.coverage.isComplete)               // book fully read; only the reduce was cut
+        #expect(digest.coverage.wasCancelled)
+        #expect(!digest.coverage.isComplete)
         #expect(digest.context.utf16.count <= 120)        // still clamped to the budget
     }
 

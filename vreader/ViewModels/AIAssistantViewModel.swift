@@ -128,6 +128,11 @@ final class AIAssistantViewModel {
     /// so a superseded / cancelled translation cannot clobber a newer one.
     @ObservationIgnored var summaryTranslationToken: UInt64 = 0
 
+    /// Invalidates a structured-context lookup before it is allowed to launch
+    /// an AI request. This closes the pre-`performAction` race where an older,
+    /// slower scope resolution could otherwise become the newest operation.
+    @ObservationIgnored var summaryContextResolutionGeneration: UInt64 = 0
+
     // MARK: - Init
 
     init(
@@ -195,8 +200,16 @@ final class AIAssistantViewModel {
         chapterBounds: ChapterBounds?,
         resolver: AISummaryContextResolver?
     ) async {
+        summaryContextResolutionGeneration &+= 1
+        let generation = summaryContextResolutionGeneration
         if let resolver {
-            guard let resolved = await resolver(scope), !resolved.text.isEmpty else {
+            guard let resolved = await resolver(scope),
+                  generation == summaryContextResolutionGeneration,
+                  !Task.isCancelled,
+                  !resolved.text.isEmpty else {
+                if generation != summaryContextResolutionGeneration || Task.isCancelled {
+                    return
+                }
                 state = .error(AIError.contextExtractionFailed.localizedDescription)
                 return
             }
@@ -287,6 +300,7 @@ final class AIAssistantViewModel {
 
     /// Resets the assistant to idle state.
     func reset() {
+        summaryContextResolutionGeneration &+= 1
         streamTask?.cancel()
         streamTask = nil
         priorCompletedSummary = nil

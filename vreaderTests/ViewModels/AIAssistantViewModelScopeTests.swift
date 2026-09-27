@@ -207,6 +207,107 @@ struct AIAssistantViewModelScopeTests {
         #expect(vm.state == .complete)
     }
 
+    @Test @MainActor func slowerOldStructuredResolutionCannotOverwriteNewSummary() async {
+        let provider = StubAIProvider()
+        provider.stubbedResponse = okResponse()
+        let (vm, _) = makeViewModel(extractor: RecordingExtractor(), provider: provider)
+        let locator = WI11TestHelpers.makeLocator()
+
+        let old = Task { @MainActor in
+            await vm.summarizeUsingStructuredContext(
+                fallbackLocator: locator, fullText: "", format: .txt,
+                scope: .section, chapterBounds: nil,
+                resolver: { _ in
+                    try? await Task.sleep(for: .milliseconds(150))
+                    return self.resolvedContext("OLD", locator: locator)
+                }
+            )
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+        await vm.summarizeUsingStructuredContext(
+            fallbackLocator: locator, fullText: "", format: .txt,
+            scope: .chapter, chapterBounds: nil,
+            resolver: { _ in self.resolvedContext("NEW", locator: locator) }
+        )
+        await old.value
+
+        #expect(provider.sendRequestCallCount == 1)
+        #expect(provider.lastRequest?.contextText == "NEW")
+        #expect(vm.state == .complete)
+    }
+
+    @Test @MainActor func resetWhileStructuredResolverIsSuspendedPreventsRequest() async {
+        let provider = StubAIProvider()
+        provider.stubbedResponse = okResponse()
+        let (vm, _) = makeViewModel(extractor: RecordingExtractor(), provider: provider)
+        let locator = WI11TestHelpers.makeLocator()
+        let (entered, enteredContinuation) = AsyncStream<Void>.makeStream()
+        let (release, releaseContinuation) = AsyncStream<Void>.makeStream()
+
+        let pending = Task { @MainActor in
+            await vm.summarizeUsingStructuredContext(
+                fallbackLocator: locator, fullText: "", format: .txt,
+                scope: .section, chapterBounds: nil,
+                resolver: { _ in
+                    enteredContinuation.yield(())
+                    var iterator = release.makeAsyncIterator()
+                    _ = await iterator.next()
+                    return self.resolvedContext("STALE", locator: locator)
+                }
+            )
+        }
+        var enteredIterator = entered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        vm.reset()
+        releaseContinuation.yield(())
+        releaseContinuation.finish()
+        await pending.value
+
+        #expect(provider.sendRequestCallCount == 0)
+        #expect(vm.state == .idle)
+    }
+
+    @Test @MainActor func cancelWhileStructuredResolverIsSuspendedPreventsRequest() async {
+        let provider = StubAIProvider()
+        provider.stubbedResponse = okResponse()
+        let (vm, _) = makeViewModel(extractor: RecordingExtractor(), provider: provider)
+        let locator = WI11TestHelpers.makeLocator()
+        let (entered, enteredContinuation) = AsyncStream<Void>.makeStream()
+        let (release, releaseContinuation) = AsyncStream<Void>.makeStream()
+
+        let pending = Task { @MainActor in
+            await vm.summarizeUsingStructuredContext(
+                fallbackLocator: locator, fullText: "", format: .txt,
+                scope: .section, chapterBounds: nil,
+                resolver: { _ in
+                    enteredContinuation.yield(())
+                    var iterator = release.makeAsyncIterator()
+                    _ = await iterator.next()
+                    return self.resolvedContext("STALE", locator: locator)
+                }
+            )
+        }
+        var enteredIterator = entered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        vm.cancelStreaming()
+        releaseContinuation.yield(())
+        releaseContinuation.finish()
+        await pending.value
+
+        #expect(provider.sendRequestCallCount == 0)
+        #expect(vm.state == .idle)
+    }
+
+    private func resolvedContext(_ text: String, locator: Locator) -> AIDocumentResolvedContext {
+        AIDocumentResolvedContext(
+            text: text, sourceChunks: [], sourceUnitIDs: [text],
+            currentLocator: locator, exactMappingAvailable: true,
+            coverage: AIDocumentContextCoverage(
+                includedSourceUnitIDs: [text], droppedSourceUnitIDs: []
+            )
+        )
+    }
+
     // MARK: - selectedScope changes during a genuine in-flight request
 
     /// An AI provider whose `sendRequest` blocks until the test releases

@@ -253,6 +253,29 @@ inside narrow main-actor facades; only strings, locators, and other Sendable
 DTOs cross the provider boundary. PDF and Readium hosts attach after their live
 document is unlocked/open and unregister deterministically on teardown.
 
+Feature #177 WI-4 makes those structured values the production location
+authority for reader AI. `ReaderAICoordinator` resolves the exact
+`AIDocumentSessionID(fingerprintKey:readerToken:)`, listens for an exact-session
+registry attach, and guards async refreshes with a generation token so a stale
+snapshot cannot replace a newer relocation or reader. TXT and Markdown install
+live registrations from their displayed text coordinate spaces (Markdown uses
+`renderedText`); PDF, Readium EPUB, and legacy Foliate reuse their already-open
+WI-3 providers and are never reopened for AI context. The shared
+`AIDocumentContextResolver` implements Section, Chapter, and spoiler-safe
+Book-so-far selection before applying the UTF-16 budget. Chat and Summarize both
+consume its resolved context; explicit selection translation remains on the
+existing selection path.
+
+Whole-book AI obtains an `AIWholeBookSourceManifest` from that same exact
+provider session and reduces ordered structured chunks. The manifest retains
+the identity of inaccessible units and whether enumeration has an unknown
+remainder, allowing `WholeBookReducer` / `WholeBookRetrievalViewModel` to keep
+their armed/reading/ready/partial phases while reporting overflow,
+cancellation, and missing-source coverage honestly. Any virtual UTF-16 spans
+shown by whole-book coverage describe only the transient reduction stream;
+they are not navigation or document-location truth. Legacy Foliate therefore
+remains partial unless it can enumerate the complete book.
+
 ### 6. Data Layer (`vreader/Models/`)
 
 SwiftData SchemaV10 entities (V9→V10 adds the additive optional `Book.sourceCanonicalKey: String?` — feature #108's converted-Kindle cross-platform identity, carried in the backup manifest; feature #109's NFC locator-key recompute runs as the launch-time `LocatorKeyBackfillMigration`, not a schema migration — see the App Layer note above):

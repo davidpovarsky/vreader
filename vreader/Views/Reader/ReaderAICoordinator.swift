@@ -187,6 +187,9 @@ final class ReaderAICoordinator {
     /// the single funnel.
     private func handleChatContextChanged() {
         let scope = chatViewModel?.scope ?? .chapter
+        if scope != lastChatScope {
+            wholeBookReadGeneration &+= 1
+        }
         if let retrieval = chatViewModel?.wholeBookRetrieval {
             if scope == .wholeBook, lastChatScope != .wholeBook {
                 retrieval.arm()                       // transition INTO whole-book
@@ -207,15 +210,26 @@ final class ReaderAICoordinator {
     func runWholeBookRead() async {
         guard let retrieval = chatViewModel?.wholeBookRetrieval,
               let service = pinnedAIService,
-              let provider = documentProviderResolver.resolve(session: documentSessionID)
+              chatViewModel?.scope == .wholeBook,
+              let provider = documentProviderResolver.resolve(session: documentSessionID),
+              provider.bookFingerprint.canonicalKey == fingerprintKey
         else { return }
         if retrieval.isReady { return }
         if case .reading = retrieval.phase { await retrieval.readTask?.value; return }
 
+        wholeBookReadGeneration &+= 1
+        let generation = wholeBookReadGeneration
+
         do {
-            let manifest = try await provider.wholeBookManifest()
-            guard manifest.fingerprintKey == fingerprintKey else { return }
+            guard let manifest = try await currentWholeBookManifest(
+                provider: provider, generation: generation
+            ), isCurrentWholeBookRead(
+                generation: generation, provider: provider, retrieval: retrieval
+            ) else { return }
             let config = try await service.resolveActiveProviderConfig()
+            guard isCurrentWholeBookRead(
+                generation: generation, provider: provider, retrieval: retrieval
+            ) else { return }
             retrieval.read(
                 manifest: manifest,
                 chunkBudgetUTF16: AIContextBudget.defaultMaxUTF16,
@@ -239,6 +253,44 @@ final class ReaderAICoordinator {
         await refreshChatContextNow()
     }
 
+    /// Isolated async seam used by the production read and deterministic race
+    /// tests. A scope exit/re-entry invalidates `generation`; a registry swap
+    /// invalidates provider identity even when the fingerprint is unchanged.
+    func currentWholeBookManifest(
+        provider: any AIDocumentProvider,
+        generation: UInt
+    ) async throws -> AIWholeBookSourceManifest? {
+        let manifest = try await provider.wholeBookManifest()
+        guard generation == wholeBookReadGeneration,
+              !Task.isCancelled,
+              manifest.fingerprintKey == fingerprintKey,
+              let currentProvider = documentProviderResolver.resolve(session: documentSessionID),
+              (currentProvider as AnyObject) === (provider as AnyObject)
+        else { return nil }
+        return manifest
+    }
+
+    func invalidateWholeBookReadForProviderChange() {
+        wholeBookReadGeneration &+= 1
+        guard let retrieval = chatViewModel?.wholeBookRetrieval else { return }
+        retrieval.disarm()
+        if chatViewModel?.scope == .wholeBook { retrieval.arm() }
+    }
+
+    private func isCurrentWholeBookRead(
+        generation: UInt,
+        provider: any AIDocumentProvider,
+        retrieval: WholeBookRetrievalViewModel
+    ) -> Bool {
+        guard generation == wholeBookReadGeneration,
+              !Task.isCancelled,
+              chatViewModel?.scope == .wholeBook,
+              chatViewModel?.wholeBookRetrieval === retrieval,
+              let currentProvider = documentProviderResolver.resolve(session: documentSessionID)
+        else { return false }
+        return (currentProvider as AnyObject) === (provider as AnyObject)
+    }
+
     /// Book title used as fallback when no text content is available.
     let fallbackTitle: String
     /// Resolved book format for context extraction.
@@ -251,6 +303,7 @@ final class ReaderAICoordinator {
         AIDocumentSessionID(fingerprintKey: fingerprintKey, readerToken: readerToken)
     }
     @ObservationIgnored var structuredRefreshGeneration: UInt = 0
+    @ObservationIgnored var wholeBookReadGeneration: UInt = 0
     @ObservationIgnored var structuredContextCache: [ChatContextScope: AIDocumentResolvedContext] = [:]
     @ObservationIgnored var documentRegistryObserver: NSObjectProtocol?
     /// Annotation stores for the sources cache (the `PersistenceActor`, which

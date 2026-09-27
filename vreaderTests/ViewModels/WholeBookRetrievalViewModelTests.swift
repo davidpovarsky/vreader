@@ -10,6 +10,8 @@ import Foundation
 @MainActor
 struct WholeBookRetrievalViewModelTests {
 
+    private enum ExpectedFailure: Error { case failed }
+
     @Test func structuredManifestRead_preservesPartialCoverage() async {
         let fp = DocumentFingerprint(
             contentSHA256: String(repeating: "e", count: 64),
@@ -44,6 +46,44 @@ struct WholeBookRetrievalViewModelTests {
         }
         #expect(coverage.coveredSourceUnitIDs == ["epub:a"])
         #expect(coverage.droppedSourceUnitIDs == ["epub:locked"])
+    }
+
+    @Test func failedStructuredRetryNeverExposesPreviousDigest() async {
+        let vm = WholeBookRetrievalViewModel()
+        vm.read(
+            fullText: "old", chunkBudgetUTF16: 100,
+            digestBudgetUTF16: 100, maxChunks: 10
+        ) { _ in "OLD DIGEST" }
+        await vm.readTask?.value
+        #expect(vm.availableContext == "OLD DIGEST")
+
+        let fp = DocumentFingerprint(
+            contentSHA256: String(repeating: "9", count: 64),
+            fileByteCount: 3, format: .txt
+        )
+        let chunk = AIDocumentChunk(
+            id: "new", bookFingerprintKey: fp.canonicalKey,
+            sourceUnitID: "txt:0", sourceUnitIndex: 0, text: "new",
+            locator: Locator.validated(bookFingerprint: fp, charOffsetUTF16: 0)!,
+            sourceLabel: nil, chapterTitle: nil, pageIndex: nil, href: nil,
+            localStartUTF16: 0, localEndUTF16: 3,
+            globalStartUTF16: 0, globalEndUTF16: 3, isOCRDerived: false
+        )
+        let manifest = AIWholeBookSourceManifest(
+            fingerprintKey: fp.canonicalKey, enumerationCompleteness: .complete,
+            units: [AIWholeBookSourceUnit(
+                sourceUnitID: "txt:0", sourceUnitIndex: 0,
+                availability: .available, chunk: chunk
+            )]
+        )
+        vm.read(
+            manifest: manifest, chunkBudgetUTF16: 100,
+            digestBudgetUTF16: 100, maxChunks: 10
+        ) { _ in throw ExpectedFailure.failed }
+        await vm.readTask?.value
+
+        #expect(vm.availableContext?.isEmpty != false)
+        #expect(vm.availableContext != "OLD DIGEST")
     }
 
     @Test func arm_fromIdle_movesToArmed() {

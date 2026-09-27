@@ -43,6 +43,7 @@ struct WholeBookCoverage: Sendable, Equatable {
     let coveredSourceUnitIDs: [String]
     let droppedSourceUnitIDs: [String]
     let hasUnknownRemainder: Bool
+    let wasCancelled: Bool
 
     init(
         coveredSpans: [ClosedRange<Int>],
@@ -50,7 +51,8 @@ struct WholeBookCoverage: Sendable, Equatable {
         droppedSpans: [ClosedRange<Int>],
         coveredSourceUnitIDs: [String] = [],
         droppedSourceUnitIDs: [String] = [],
-        hasUnknownRemainder: Bool = false
+        hasUnknownRemainder: Bool = false,
+        wasCancelled: Bool = false
     ) {
         self.coveredSpans = coveredSpans
         self.totalUTF16 = totalUTF16
@@ -58,6 +60,7 @@ struct WholeBookCoverage: Sendable, Equatable {
         self.coveredSourceUnitIDs = coveredSourceUnitIDs
         self.droppedSourceUnitIDs = droppedSourceUnitIDs
         self.hasUnknownRemainder = hasUnknownRemainder
+        self.wasCancelled = wasCancelled
     }
 
     var coveredUTF16: Int {
@@ -71,7 +74,8 @@ struct WholeBookCoverage: Sendable, Equatable {
     /// True only when nothing was dropped AND the whole book was covered.
     var isComplete: Bool {
         droppedSpans.isEmpty && droppedSourceUnitIDs.isEmpty
-            && !hasUnknownRemainder && coveredUTF16 >= totalUTF16
+            && !hasUnknownRemainder && !wasCancelled
+            && coveredUTF16 >= totalUTF16
     }
 }
 
@@ -203,7 +207,8 @@ actor WholeBookReducer {
         }
 
         let coverage = WholeBookCoverage(
-            coveredSpans: coveredSpans, totalUTF16: totalUTF16, droppedSpans: droppedSpans
+            coveredSpans: coveredSpans, totalUTF16: totalUTF16,
+            droppedSpans: droppedSpans, wasCancelled: isCancelled
         )
         return WholeBookDigest(
             context: UTF16Clamp.clamp(digestText, maxUTF16: digestBudgetUTF16),
@@ -237,8 +242,12 @@ actor WholeBookReducer {
                 inaccessibleIDs.append(unit.sourceUnitID)
                 continue
             }
+            guard !chunk.text.isEmpty else {
+                inaccessibleIDs.append(unit.sourceUnitID)
+                continue
+            }
             let pieces = Self.chunk(chunk.text, budgetUTF16: chunkBudgetUTF16)
-            if pieces.isEmpty, !chunk.text.isEmpty {
+            if pieces.isEmpty {
                 inaccessibleIDs.append(unit.sourceUnitID)
             }
             for piece in pieces {
@@ -317,7 +326,8 @@ actor WholeBookReducer {
                 droppedSpans: unread.map(\.span),
                 coveredSourceUnitIDs: coveredIDs,
                 droppedSourceUnitIDs: droppedIDs,
-                hasUnknownRemainder: hasUnknown
+                hasUnknownRemainder: hasUnknown,
+                wasCancelled: isCancelled
             )
         )
     }

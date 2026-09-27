@@ -85,6 +85,7 @@ final class WholeBookRetrievalViewModel {
         readTask?.cancel()
         generation += 1
         let generation = self.generation
+        digest = nil
         phase = .reading(done: 0, total: 0)
         let reducer = reducerFactory()   // fresh, un-cancelled — no shared-flag poisoning
         self.reducer = reducer
@@ -115,6 +116,7 @@ final class WholeBookRetrievalViewModel {
                 // reported (or empty), so the UI never claims a phantom "ready".
                 let coverage = self.digest?.coverage
                     ?? WholeBookCoverage(coveredSpans: [], totalUTF16: fullText.utf16.count, droppedSpans: [])
+                self.digest = WholeBookDigest(context: "", coverage: coverage)
                 self.phase = .partial(coverage)
             }
         }
@@ -132,6 +134,7 @@ final class WholeBookRetrievalViewModel {
         readTask?.cancel()
         generation += 1
         let generation = self.generation
+        digest = nil
         phase = .reading(done: 0, total: 0)
         let reducer = reducerFactory()
         self.reducer = reducer
@@ -163,6 +166,7 @@ final class WholeBookRetrievalViewModel {
                     droppedSourceUnitIDs: manifest.units.map(\.sourceUnitID),
                     hasUnknownRemainder: true
                 )
+                self.digest = WholeBookDigest(context: "", coverage: coverage)
                 self.phase = .partial(coverage)
             }
         }

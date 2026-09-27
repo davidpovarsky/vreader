@@ -305,7 +305,10 @@ final class ReaderAICoordinator {
     @ObservationIgnored var structuredRefreshGeneration: UInt = 0
     @ObservationIgnored var wholeBookReadGeneration: UInt = 0
     @ObservationIgnored var structuredContextCache: [ChatContextScope: AIDocumentResolvedContext] = [:]
-    @ObservationIgnored var documentRegistryObserver: NSObjectProtocol?
+    /// NotificationCenter removal is thread-safe. This token has one actor-
+    /// isolated install and one nonisolated deinit read, matching the existing
+    /// ChatAnnotationCache / AIProviderPickerViewModel lifetime pattern.
+    nonisolated(unsafe) var documentRegistryObserver: NSObjectProtocol?
     /// Annotation stores for the sources cache (the `PersistenceActor`, which
     /// conforms to all three). Nil when persistence isn't injected.
     private let annotationStores: (any AnnotationPersisting & HighlightPersisting & BookmarkPersisting)?

@@ -24,6 +24,13 @@ struct AIDocumentResolvedContext: Sendable, Equatable {
 }
 
 struct AIDocumentContextResolver: Sendable {
+    private struct ChapterSlice {
+        let chunk: AIDocumentChunk
+        let text: String
+        let globalStartUTF16: Int
+        let globalEndUTF16: Int
+    }
+
     func resolve(
         snapshot: AIDocumentSnapshot,
         orderedChunks: [AIDocumentChunk],
@@ -77,7 +84,7 @@ struct AIDocumentContextResolver: Sendable {
               let bounds = snapshot.currentChapterBounds else {
             return section(snapshot: snapshot, maxUTF16: maxUTF16)
         }
-        var parts: [(AIDocumentChunk, String)] = []
+        var slices: [ChapterSlice] = []
         for chunk in chunks {
             guard let start = chunk.globalStartUTF16,
                   let end = chunk.globalEndUTF16 else { continue }
@@ -85,9 +92,72 @@ struct AIDocumentContextResolver: Sendable {
             let upper = min(end, bounds.endUTF16)
             guard lower < upper else { continue }
             let local = NSRange(location: lower - start, length: upper - lower)
-            parts.append((chunk, substring(chunk.text, range: local)))
+            slices.append(ChapterSlice(
+                chunk: chunk,
+                text: substring(chunk.text, range: local),
+                globalStartUTF16: lower,
+                globalEndUTF16: upper
+            ))
         }
-        return recencyClamp(parts, maxUTF16: maxUTF16)
+        let wholeChapter = slices.map { ($0.chunk, $0.text) }
+        guard joinedUTF16Count(wholeChapter) > maxUTF16 else {
+            return maxUTF16 > 0 ? wholeChapter : []
+        }
+
+        let chapterStart = max(0, bounds.startUTF16)
+        let chapterEnd = max(chapterStart, bounds.endUTF16)
+        let currentGlobal = snapshot.readSoFarBoundary.globalOffsetUTF16
+            ?? snapshot.currentLocator?.charOffsetUTF16
+            ?? chapterStart
+        let center = min(max(currentGlobal, chapterStart), chapterEnd)
+        var sourceSpan = min(maxUTF16, chapterEnd - chapterStart)
+
+        // Global text segments can omit paragraph separators while resolved
+        // output joins source units with two newlines. Shrink only by that
+        // measured overhead so the centered result never exceeds the budget.
+        while sourceSpan > 0 {
+            let window = centeredRange(
+                center: center,
+                span: sourceSpan,
+                lowerBound: chapterStart,
+                upperBound: chapterEnd
+            )
+            let selected = slices.compactMap { slice -> (AIDocumentChunk, String)? in
+                let lower = max(slice.globalStartUTF16, window.lowerBound)
+                let upper = min(slice.globalEndUTF16, window.upperBound)
+                guard lower < upper else { return nil }
+                let local = NSRange(
+                    location: lower - slice.globalStartUTF16,
+                    length: upper - lower
+                )
+                let text = substring(slice.text, range: local)
+                return text.isEmpty ? nil : (slice.chunk, text)
+            }
+            let resolvedCount = joinedUTF16Count(selected)
+            if resolvedCount <= maxUTF16 { return selected }
+            sourceSpan -= max(1, resolvedCount - maxUTF16)
+        }
+        return []
+    }
+
+    private func centeredRange(
+        center: Int,
+        span: Int,
+        lowerBound: Int,
+        upperBound: Int
+    ) -> Range<Int> {
+        let length = min(max(span, 0), max(upperBound - lowerBound, 0))
+        var start = max(lowerBound, center - length / 2)
+        start = min(start, upperBound - length)
+        return start..<(start + length)
+    }
+
+    private func joinedUTF16Count(
+        _ parts: [(AIDocumentChunk, String)]
+    ) -> Int {
+        guard !parts.isEmpty else { return 0 }
+        return parts.reduce(0) { $0 + $1.1.utf16.count }
+            + (parts.count - 1) * 2
     }
 
     private func bookSoFar(

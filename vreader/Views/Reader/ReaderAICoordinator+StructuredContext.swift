@@ -47,11 +47,18 @@ extension ReaderAICoordinator {
             case .chapter: boundedScope = .chapter
             case .bookSoFar, .wholeBook: boundedScope = .bookSoFar
             }
+            let maxUTF16: Int
+            switch boundedScope {
+            case .section:
+                maxUTF16 = AIContextBudget.sectionMaxUTF16
+            case .chapter, .bookSoFar:
+                maxUTF16 = AIContextBudget.defaultMaxUTF16
+            }
             return AIDocumentContextResolver().resolve(
                 snapshot: snapshot,
                 orderedChunks: chunks,
                 scope: boundedScope,
-                maxUTF16: AIContextBudget.defaultMaxUTF16
+                maxUTF16: maxUTF16
             )
         } catch {
             return nil

@@ -25,6 +25,10 @@ import Foundation
 /// existential supply this constant — either via the protocol-extension
 /// convenience overload or by passing it explicitly.
 enum AIContextBudget {
+    /// Preserves the established current-passage window used by Section.
+    /// Chapter and Book-so-far intentionally keep the larger request budget.
+    static let sectionMaxUTF16 = 2_500
+
     /// ~12 000 UTF-16 units. Conservative ceiling for a single AI request;
     /// the provider still returns a clean error if the model rejects it.
     static let defaultMaxUTF16 = 12_000

@@ -262,9 +262,13 @@ live registrations from their displayed text coordinate spaces (Markdown uses
 `renderedText`); PDF, Readium EPUB, and legacy Foliate reuse their already-open
 WI-3 providers and are never reopened for AI context. The shared
 `AIDocumentContextResolver` implements Section, Chapter, and spoiler-safe
-Book-so-far selection before applying the UTF-16 budget. Chat and Summarize both
-consume its resolved context; explicit selection translation remains on the
-existing selection path.
+Book-so-far selection before applying scope-specific UTF-16 budgets. Section
+preserves the established 2,500-unit current-passage window inside the exact
+structured source unit; Chapter and Book-so-far keep the larger 12,000-unit
+budget. An oversized TXT/Markdown Chapter is centered on the reader's exact
+document-global UTF-16 position, while Book-so-far remains recency-biased. Chat
+and Summarize both consume the resolved context; explicit selection translation
+remains on the existing selection path.
 
 Whole-book AI obtains an `AIWholeBookSourceManifest` from that same exact
 provider session and reduces ordered structured chunks. The manifest retains

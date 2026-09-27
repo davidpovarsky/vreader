@@ -33,7 +33,7 @@ struct AIContextExtractor: Sendable, AIContextExtracting {
     /// Target number of characters to extract (approximately 500 words).
     let targetCharacterCount: Int
 
-    init(targetCharacterCount: Int = 2500) {
+    init(targetCharacterCount: Int = AIContextBudget.sectionMaxUTF16) {
         self.targetCharacterCount = targetCharacterCount
     }
 

@@ -14,6 +14,22 @@ struct AIDocumentRegistration: Hashable, Sendable {
     fileprivate let generation: UUID
 }
 
+enum AIDocumentRegistryChangeKind: Sendable, Equatable {
+    case attached
+    case detached
+}
+
+struct AIDocumentRegistryChange: Sendable, Equatable {
+    let session: AIDocumentSessionID
+    let kind: AIDocumentRegistryChangeKind
+}
+
+extension Notification.Name {
+    static let aiDocumentRegistryDidChange = Notification.Name(
+        "vreader.aiDocumentRegistryDidChange"
+    )
+}
+
 @MainActor
 protocol AIDocumentProviderResolving: AnyObject {
     func resolve(session: AIDocumentSessionID) -> (any AIDocumentProvider)?
@@ -30,6 +46,11 @@ final class AIDocumentProviderRegistry: AIDocumentProviderResolving {
     }
 
     private var entries: [AIDocumentSessionID: Entry] = [:]
+    private let notificationCenter: NotificationCenter
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+    }
 
     @discardableResult
     func attach(
@@ -42,6 +63,10 @@ final class AIDocumentProviderRegistry: AIDocumentProviderResolving {
         )
         let generation = UUID()
         entries[session] = Entry(generation: generation, provider: provider)
+        notificationCenter.post(
+            name: .aiDocumentRegistryDidChange,
+            object: AIDocumentRegistryChange(session: session, kind: .attached)
+        )
         return AIDocumentRegistration(sessionID: session, generation: generation)
     }
 
@@ -50,6 +75,13 @@ final class AIDocumentProviderRegistry: AIDocumentProviderResolving {
             return
         }
         entries.removeValue(forKey: registration.sessionID)
+        notificationCenter.post(
+            name: .aiDocumentRegistryDidChange,
+            object: AIDocumentRegistryChange(
+                session: registration.sessionID,
+                kind: .detached
+            )
+        )
     }
 
     func resolve(session: AIDocumentSessionID) -> (any AIDocumentProvider)? {

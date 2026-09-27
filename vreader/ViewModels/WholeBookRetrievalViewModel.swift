@@ -120,6 +120,54 @@ final class WholeBookRetrievalViewModel {
         }
     }
 
+    /// Structured production path. The manifest retains source order,
+    /// inaccessible units, and bounded-enumeration honesty.
+    func read(
+        manifest: AIWholeBookSourceManifest,
+        chunkBudgetUTF16: Int,
+        digestBudgetUTF16: Int,
+        maxChunks: Int,
+        condense: @escaping @Sendable (String) async throws -> String
+    ) {
+        readTask?.cancel()
+        generation += 1
+        let generation = self.generation
+        phase = .reading(done: 0, total: 0)
+        let reducer = reducerFactory()
+        self.reducer = reducer
+        readTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let digest = try await reducer.reduce(
+                    manifest: manifest,
+                    chunkBudgetUTF16: chunkBudgetUTF16,
+                    digestBudgetUTF16: digestBudgetUTF16,
+                    maxChunks: maxChunks,
+                    condense: condense,
+                    onProgress: { done, total in
+                        await MainActor.run { [weak self] in
+                            guard let self, generation == self.generation else { return }
+                            self.phase = .reading(done: done, total: total)
+                        }
+                    }
+                )
+                guard generation == self.generation else { return }
+                self.digest = digest
+                self.phase = digest.coverage.isComplete
+                    ? .ready(digest.coverage) : .partial(digest.coverage)
+            } catch {
+                guard generation == self.generation else { return }
+                let coverage = WholeBookCoverage(
+                    coveredSpans: [], totalUTF16: 0, droppedSpans: [],
+                    coveredSourceUnitIDs: [],
+                    droppedSourceUnitIDs: manifest.units.map(\.sourceUnitID),
+                    hasUnknownRemainder: true
+                )
+                self.phase = .partial(coverage)
+            }
+        }
+    }
+
     /// 0…1 progress for the reading bar.
     var progressFraction: Double {
         switch phase {

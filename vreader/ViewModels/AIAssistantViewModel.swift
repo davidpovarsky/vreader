@@ -33,6 +33,10 @@ enum AIAssistantState: Sendable, Equatable {
     case featureDisabled
 }
 
+typealias AISummaryContextResolver = @MainActor @Sendable (
+    SummaryScope
+) async -> AIDocumentResolvedContext?
+
 /// ViewModel for the AI assistant UI.
 @Observable
 @MainActor
@@ -167,6 +171,48 @@ final class AIAssistantViewModel {
             scope: scope,
             chapterBounds: chapterBounds
         )
+    }
+
+    /// Feature #177 WI-4 production path: context has already been resolved
+    /// against the exact live document provider and must not be re-flattened.
+    func summarizeResolved(locator: Locator, contextText: String) async {
+        await performAction(
+            type: .summarize,
+            locator: locator,
+            fullText: "",
+            format: locator.bookFingerprint.format,
+            resolvedContextText: contextText
+        )
+    }
+
+    /// Shared UI/DebugBridge launcher. A nil resolver preserves the legacy API
+    /// for compatibility tests; production always supplies the coordinator.
+    func summarizeUsingStructuredContext(
+        fallbackLocator: Locator,
+        fullText: String,
+        format: BookFormat,
+        scope: SummaryScope,
+        chapterBounds: ChapterBounds?,
+        resolver: AISummaryContextResolver?
+    ) async {
+        if let resolver {
+            guard let resolved = await resolver(scope), !resolved.text.isEmpty else {
+                state = .error(AIError.contextExtractionFailed.localizedDescription)
+                return
+            }
+            await summarizeResolved(
+                locator: resolved.currentLocator,
+                contextText: resolved.text
+            )
+        } else {
+            await summarize(
+                locator: fallbackLocator,
+                fullText: fullText,
+                format: format,
+                scope: scope,
+                chapterBounds: chapterBounds
+            )
+        }
     }
 
     /// Explains the text around the given locator. Selection-driven —

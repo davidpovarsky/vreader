@@ -150,15 +150,18 @@ extension ReaderContainerView {
         if TTSTextSource.source(for: resolvedBookFormat) == .foliateExtraction {
             return
         }
+        // Feature #177 WI-4: opening AI must never reopen PDF/EPUB to rebuild
+        // location context. Their live providers are authoritative. TTS still
+        // loads whole text explicitly from `startTTS()` after this setup call.
+        guard format == "txt" || format == "md" else {
+            ai.refreshChatContext()
+            return
+        }
         Task {
-            if format == "txt" || format == "md" {
-                if let text = await contentCache.getText(for: resolvedFileURL, format: format) {
-                    ai.loadedTextContent = text
-                    // Feature #86 WI-1: chapter-scoped chat context via the funnel.
-                    ai.refreshChatContext()
-                } else {
-                    await ai.loadBookTextContent(fileURL: resolvedFileURL, format: format)
-                }
+            if let text = await contentCache.getText(for: resolvedFileURL, format: format) {
+                ai.loadedTextContent = text
+                // Feature #86 WI-1: chapter-scoped chat context via the funnel.
+                ai.refreshChatContext()
             } else {
                 await ai.loadBookTextContent(fileURL: resolvedFileURL, format: format)
             }
@@ -626,6 +629,9 @@ extension ReaderContainerView {
                 fullTextContent: fullText,
                 chapterBounds: chapterBounds,
                 format: resolvedBookFormat,
+                resolveStructuredSummaryContext: { scope in
+                    await ai.resolveSummaryContext(scope)
+                },
                 onDismiss: { showAIPanel = false },
                 theme: settingsStore.theme,
                 initialTab: aiInitialTab

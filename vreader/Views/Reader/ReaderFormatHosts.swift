@@ -19,13 +19,14 @@ struct TXTReaderHost: View {
     let settingsStore: ReaderSettingsStore
     let ttsService: TTSService
     var tocEntries: [TOCEntry] = []
+    var readerToken: UUID? = nil
 
     @State private var viewModel: TXTReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService, tocEntries: tocEntries)
+                TXTReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService, tocEntries: tocEntries, readerToken: readerToken)
             } else {
                 ProgressView()
             }
@@ -96,13 +97,14 @@ struct MDReaderHost: View {
     let modelContainer: ModelContainer
     let settingsStore: ReaderSettingsStore
     let ttsService: TTSService
+    var readerToken: UUID? = nil
 
     @State private var viewModel: MDReaderViewModel?
 
     var body: some View {
         Group {
             if let viewModel {
-                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService)
+                MDReaderContainerView(fileURL: fileURL, viewModel: viewModel, settingsStore: settingsStore, modelContainer: modelContainer, ttsService: ttsService, readerToken: readerToken)
             } else {
                 ProgressView()
             }

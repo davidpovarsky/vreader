@@ -78,11 +78,6 @@ struct AIReadingBoundaryPolicy: Sendable {
             return candidatePage > boundaryPage
         }
 
-        if let candidateProgress = candidate.locator.totalProgression,
-           let boundaryProgress = boundary.locator.totalProgression {
-            return candidateProgress > boundaryProgress
-        }
-
         return nil
     }
 
@@ -105,12 +100,6 @@ struct AIReadingBoundaryPolicy: Sendable {
         if let candidateOffset,
            let boundaryOffset = boundary.locator.charOffsetUTF16 {
             return candidateOffset > boundaryOffset
-        }
-
-        if candidate.locator.href == boundary.locator.href,
-           let candidateProgress = candidate.locator.progression,
-           let boundaryProgress = boundary.locator.progression {
-            return candidateProgress > boundaryProgress
         }
 
         return nil

@@ -30,6 +30,8 @@ struct MDReaderContainerView: View {
     var settingsStore: ReaderSettingsStore?
     var modelContainer: ModelContainer?
     var ttsService: TTSService?
+    var readerToken: UUID? = nil
+    @State private var aiDocumentRegistration: AITextDocumentRegistration?
 
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
@@ -233,8 +235,11 @@ struct MDReaderContainerView: View {
                     await coordinator.restoreAll()
                 }
             }
+            attachAIDocumentProviderIfAvailable()
         }
         .onDisappear {
+            aiDocumentRegistration?.teardown()
+            aiDocumentRegistration = nil
             let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
             Task {
                 await viewModel.close()
@@ -265,6 +270,10 @@ struct MDReaderContainerView: View {
             let locator = viewModel.makeLocator()
             NotificationCenter.default.post(
                 name: .readerPositionDidChange, object: locator
+            )
+            aiDocumentRegistration?.update(
+                locator: locator,
+                chapterBounds: currentAIChapterBounds
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerContentTapped)) { _ in
@@ -573,6 +582,32 @@ struct MDReaderContainerView: View {
             renderer: renderer,
             persistence: NoOpHighlightStore(),
             bookFingerprintKey: viewModel.bookFingerprintKey
+        )
+    }
+
+    private var currentAIChapterBounds: ChapterBounds? {
+        guard let headings = viewModel.headings, !headings.isEmpty else { return nil }
+        let starts = headings.map(\.charOffsetUTF16).sorted()
+        let offset = viewModel.currentOffsetUTF16
+        let start = starts.last(where: { $0 <= offset }) ?? 0
+        let end = starts.first(where: { $0 > offset })
+            ?? viewModel.renderedTextLengthUTF16
+        return ChapterBounds(startUTF16: start, endUTF16: end)
+    }
+
+    @MainActor
+    private func attachAIDocumentProviderIfAvailable() {
+        guard let readerToken, let renderedText = viewModel.renderedText else { return }
+        let registration = AITextDocumentRegistration(
+            fingerprint: viewModel.bookFingerprint,
+            readerToken: readerToken
+        )
+        aiDocumentRegistration?.teardown()
+        aiDocumentRegistration = registration
+        registration.attachMarkdown(
+            renderedText: renderedText,
+            locator: viewModel.makeLocator(),
+            chapterBounds: currentAIChapterBounds
         )
     }
 

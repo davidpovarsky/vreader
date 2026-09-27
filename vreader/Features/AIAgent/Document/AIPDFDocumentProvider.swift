@@ -85,6 +85,36 @@ final class AIPDFDocumentProvider: AIDocumentProvider {
         )
     }
 
+    func wholeBookManifest() async throws -> AIWholeBookSourceManifest {
+        let count = max(0, facade.pageCount)
+        var units: [AIWholeBookSourceUnit] = []
+        units.reserveCapacity(count)
+        for index in 0..<count {
+            try Task.checkCancellation()
+            let id = "pdf:page:\(index)"
+            do {
+                let text = try await facade.text(forPage: index)
+                units.append(AIWholeBookSourceUnit(
+                    sourceUnitID: id, sourceUnitIndex: index,
+                    availability: .available,
+                    chunk: makeChunk(pageIndex: index, text: text)
+                ))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                units.append(AIWholeBookSourceUnit(
+                    sourceUnitID: id, sourceUnitIndex: index,
+                    availability: .inaccessible, chunk: nil
+                ))
+            }
+        }
+        return AIWholeBookSourceManifest(
+            fingerprintKey: bookFingerprint.canonicalKey,
+            enumerationCompleteness: .complete,
+            units: units
+        )
+    }
+
     private func makeChunk(pageIndex: Int, text: String) -> AIDocumentChunk {
         let sourceUnitID = "pdf:page:\(pageIndex)"
         let locator = Locator.validated(

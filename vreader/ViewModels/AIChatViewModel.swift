@@ -166,6 +166,10 @@ final class AIChatViewModel {
     /// coordinator re-computes `bookContext` for the new scope.
     var onScopeChanged: (() -> Void)?
 
+    /// WI-4: awaited immediately before every send snapshots book context.
+    /// The reader coordinator resolves the exact live document session here.
+    var onContextRefreshRequested: (@MainActor () async -> Void)?
+
     /// Selects a new Chat context scope and re-assembles the book context.
     /// A no-op when the scope is unchanged (avoids a redundant re-assembly).
     func setScope(_ newScope: ChatContextScope) {

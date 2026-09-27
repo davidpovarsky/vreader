@@ -38,6 +38,27 @@ struct WholeBookCoverage: Sendable, Equatable {
     let totalUTF16: Int
     /// UTF-16 spans deliberately NOT read (overflow drop / cancel) — never silent.
     let droppedSpans: [ClosedRange<Int>]
+    /// Structured source identities. UTF-16 spans above are reduction-stream
+    /// coverage only and must never be used for reader navigation.
+    let coveredSourceUnitIDs: [String]
+    let droppedSourceUnitIDs: [String]
+    let hasUnknownRemainder: Bool
+
+    init(
+        coveredSpans: [ClosedRange<Int>],
+        totalUTF16: Int,
+        droppedSpans: [ClosedRange<Int>],
+        coveredSourceUnitIDs: [String] = [],
+        droppedSourceUnitIDs: [String] = [],
+        hasUnknownRemainder: Bool = false
+    ) {
+        self.coveredSpans = coveredSpans
+        self.totalUTF16 = totalUTF16
+        self.droppedSpans = droppedSpans
+        self.coveredSourceUnitIDs = coveredSourceUnitIDs
+        self.droppedSourceUnitIDs = droppedSourceUnitIDs
+        self.hasUnknownRemainder = hasUnknownRemainder
+    }
 
     var coveredUTF16: Int {
         coveredSpans.reduce(0) { $0 + ($1.upperBound - $1.lowerBound + 1) }
@@ -49,7 +70,8 @@ struct WholeBookCoverage: Sendable, Equatable {
     }
     /// True only when nothing was dropped AND the whole book was covered.
     var isComplete: Bool {
-        droppedSpans.isEmpty && coveredUTF16 >= totalUTF16
+        droppedSpans.isEmpty && droppedSourceUnitIDs.isEmpty
+            && !hasUnknownRemainder && coveredUTF16 >= totalUTF16
     }
 }
 
@@ -186,6 +208,117 @@ actor WholeBookReducer {
         return WholeBookDigest(
             context: UTF16Clamp.clamp(digestText, maxUTF16: digestBudgetUTF16),
             coverage: coverage
+        )
+    }
+
+    /// Structured production reducer. Source-unit order and availability come
+    /// from the live provider manifest; virtual spans describe only this
+    /// reduction stream and are never mapped back to navigation.
+    func reduce(
+        manifest: AIWholeBookSourceManifest,
+        chunkBudgetUTF16: Int,
+        digestBudgetUTF16: Int,
+        maxChunks: Int,
+        condense: @Sendable (String) async throws -> String,
+        onProgress: @Sendable (Int, Int) async -> Void
+    ) async throws -> WholeBookDigest {
+        struct Work: Sendable {
+            let text: String
+            let span: ClosedRange<Int>
+            let sourceUnitID: String
+        }
+
+        var work: [Work] = []
+        var inaccessibleIDs: [String] = []
+        var cursor = 0
+        for unit in manifest.units {
+            try Task.checkCancellation()
+            guard unit.availability == .available, let chunk = unit.chunk else {
+                inaccessibleIDs.append(unit.sourceUnitID)
+                continue
+            }
+            let pieces = Self.chunk(chunk.text, budgetUTF16: chunkBudgetUTF16)
+            if pieces.isEmpty, !chunk.text.isEmpty {
+                inaccessibleIDs.append(unit.sourceUnitID)
+            }
+            for piece in pieces {
+                let length = piece.text.utf16.count
+                work.append(Work(
+                    text: piece.text,
+                    span: cursor...(cursor + max(0, length - 1)),
+                    sourceUnitID: unit.sourceUnitID
+                ))
+                cursor += length
+            }
+        }
+        let totalUTF16 = cursor
+        let hasUnknown = manifest.enumerationCompleteness == .boundedUnknownRemainder
+        guard chunkBudgetUTF16 > 0, digestBudgetUTF16 > 0, maxChunks > 0 else {
+            let span = totalUTF16 > 0 ? [0...(totalUTF16 - 1)] : []
+            return WholeBookDigest(
+                context: "",
+                coverage: WholeBookCoverage(
+                    coveredSpans: [], totalUTF16: totalUTF16, droppedSpans: span,
+                    coveredSourceUnitIDs: [],
+                    droppedSourceUnitIDs: manifest.units.map(\.sourceUnitID),
+                    hasUnknownRemainder: hasUnknown
+                )
+            )
+        }
+
+        let kept = Array(work.prefix(maxChunks))
+        let overflow = Array(work.dropFirst(maxChunks))
+        var condensed: [String] = []
+        var coveredSpans: [ClosedRange<Int>] = []
+        var coveredIDs: [String] = []
+        let total = kept.count
+        for (index, item) in kept.enumerated() {
+            if isCancelled { break }
+            await onProgress(index, total)
+            if isCancelled { break }
+            condensed.append(try await condense(item.text))
+            coveredSpans.append(item.span)
+            if !coveredIDs.contains(item.sourceUnitID) { coveredIDs.append(item.sourceUnitID) }
+        }
+        if !isCancelled { await onProgress(condensed.count, total) }
+
+        var digestText = condensed.joined(separator: "\n\n")
+        var rounds = 0
+        while digestText.utf16.count > digestBudgetUTF16, !isCancelled, rounds < 8 {
+            rounds += 1
+            let normalized = condensed.flatMap { value in
+                value.utf16.count <= chunkBudgetUTF16
+                    ? [value]
+                    : Self.chunk(value, budgetUTF16: chunkBudgetUTF16).map(\.text)
+            }
+            let groups = Self.group(normalized, budgetUTF16: chunkBudgetUTF16)
+            var next: [String] = []
+            var cancelled = false
+            for group in groups {
+                if isCancelled { cancelled = true; break }
+                next.append(try await condense(group))
+            }
+            if cancelled { break }
+            condensed = next
+            digestText = next.joined(separator: "\n\n")
+        }
+
+        let reached = coveredSpans.count
+        let unread = Array(kept.dropFirst(reached)) + overflow
+        var droppedIDs = inaccessibleIDs
+        for id in unread.map(\.sourceUnitID) where !droppedIDs.contains(id) {
+            droppedIDs.append(id)
+        }
+        return WholeBookDigest(
+            context: UTF16Clamp.clamp(digestText, maxUTF16: digestBudgetUTF16),
+            coverage: WholeBookCoverage(
+                coveredSpans: coveredSpans,
+                totalUTF16: totalUTF16,
+                droppedSpans: unread.map(\.span),
+                coveredSourceUnitIDs: coveredIDs,
+                droppedSourceUnitIDs: droppedIDs,
+                hasUnknownRemainder: hasUnknown
+            )
         )
     }
 

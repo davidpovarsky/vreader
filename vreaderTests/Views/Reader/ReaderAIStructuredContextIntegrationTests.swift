@@ -149,13 +149,14 @@ private final class StaticDocumentProvider: AIDocumentProvider {
 private final class ControlledSnapshotProvider: AIDocumentProvider {
     let bookFingerprint: DocumentFingerprint
     private var currentSnapshot: AIDocumentSnapshot
+    private let originalSnapshot: AIDocumentSnapshot
     private var currentChunks: [AIDocumentChunk]
     private let startedPair = AsyncStream<Void>.makeStream()
     private var oldContinuation: CheckedContinuation<AIDocumentSnapshot, Never>?
     private var shouldGate = true
 
     init(fp: DocumentFingerprint, old: AIDocumentSnapshot, chunks: [AIDocumentChunk]) {
-        bookFingerprint = fp; currentSnapshot = old; currentChunks = chunks
+        bookFingerprint = fp; currentSnapshot = old; originalSnapshot = old; currentChunks = chunks
     }
     func snapshot() async throws -> AIDocumentSnapshot {
         if shouldGate {
@@ -172,5 +173,5 @@ private final class ControlledSnapshotProvider: AIDocumentProvider {
     func replace(snapshot: AIDocumentSnapshot, chunks: [AIDocumentChunk]) {
         currentSnapshot = snapshot; currentChunks = chunks
     }
-    func releaseOldSnapshot() { oldContinuation?.resume(returning: currentSnapshot); oldContinuation = nil }
+    func releaseOldSnapshot() { oldContinuation?.resume(returning: originalSnapshot); oldContinuation = nil }
 }

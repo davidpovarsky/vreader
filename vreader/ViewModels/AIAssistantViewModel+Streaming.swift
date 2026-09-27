@@ -75,7 +75,8 @@ extension AIAssistantViewModel {
         scope: SummaryScope = .section,
         chapterBounds: ChapterBounds? = nil,
         userPrompt: String? = nil,
-        targetLanguage: String? = nil
+        targetLanguage: String? = nil,
+        resolvedContextText: String? = nil
     ) async {
         // Supersede any pending request, and bump the op token so a stale
         // task's post-`await` writes are dropped.
@@ -108,7 +109,7 @@ extension AIAssistantViewModel {
         // requirement is called with `maxUTF16` passed explicitly — a
         // protocol-requirement default argument is not visible through
         // the existential (see AIContextExtracting.swift).
-        let context = contextExtractor.extractContext(
+        let context = resolvedContextText ?? contextExtractor.extractContext(
             locator: locator,
             fullText: fullText,
             format: format,

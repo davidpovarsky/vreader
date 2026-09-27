@@ -79,6 +79,9 @@ struct AIReaderPanel: View {
     /// The book format (determines context extraction strategy).
     let format: BookFormat
 
+    /// Feature #177 WI-4 exact live-document context source for Summarize.
+    var resolveStructuredSummaryContext: AISummaryContextResolver? = nil
+
     /// Dismiss action provided by the presenting sheet.
     let onDismiss: () -> Void
 
@@ -145,6 +148,7 @@ struct AIReaderPanel: View {
                         fullTextContent: fullTextContent,
                         chapterBounds: chapterBounds,
                         format: format,
+                        resolveStructuredContext: resolveStructuredSummaryContext,
                         theme: theme,
                         onShare: { summaryShareItem = SummaryShareItem(text: $0) }
                     )

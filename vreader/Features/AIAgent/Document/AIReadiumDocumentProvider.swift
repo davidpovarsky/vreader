@@ -88,6 +88,30 @@ final class AIReadiumDocumentProvider: AIDocumentProvider {
         )
     }
 
+    func wholeBookManifest() async throws -> AIWholeBookSourceManifest {
+        let resources = try await facade.resources()
+        try Task.checkCancellation()
+        return AIWholeBookSourceManifest(
+            fingerprintKey: bookFingerprint.canonicalKey,
+            enumerationCompleteness: .complete,
+            units: try resources.map { resource in
+                try Task.checkCancellation()
+                let id = "epub:\(resource.href)"
+                guard let text = resource.text else {
+                    return AIWholeBookSourceUnit(
+                        sourceUnitID: id, sourceUnitIndex: resource.sourceUnitIndex,
+                        availability: .inaccessible, chunk: nil
+                    )
+                }
+                return AIWholeBookSourceUnit(
+                    sourceUnitID: id, sourceUnitIndex: resource.sourceUnitIndex,
+                    availability: .available,
+                    chunk: makeChunk(resource: resource, text: text)
+                )
+            }
+        )
+    }
+
     private func makeChunk(
         resource: AIReadiumResource,
         text: String

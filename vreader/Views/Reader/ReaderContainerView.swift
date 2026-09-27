@@ -1066,6 +1066,7 @@ struct ReaderContainerView: View {
             fallbackTitle: book.title,
             bookFormat: resolvedBookFormat,
             fingerprintKey: book.fingerprintKey,
+            readerToken: readerToken,
             annotationStores: aiAnnotationStores,   // Feature #86 WI-4 (nil when no persistence)
             chatSessionStore: persistenceActor       // Feature #88 (nil when no persistence)
         )
@@ -1224,7 +1225,8 @@ struct ReaderContainerView: View {
                 modelContainer: modelContext.container,
                 settingsStore: settingsStore,
                 ttsService: ttsService,
-                tocEntries: tocEntries
+                tocEntries: tocEntries,
+                readerToken: readerToken
             )
         case .markdownNative:
             MDReaderHost(
@@ -1232,7 +1234,8 @@ struct ReaderContainerView: View {
                 fingerprint: fingerprint,
                 modelContainer: modelContext.container,
                 settingsStore: settingsStore,
-                ttsService: ttsService
+                ttsService: ttsService,
+                readerToken: readerToken
             )
         case .foliateWeb:
             // Feature #56 WI-11: wraps the live AZW3/MOBI spike

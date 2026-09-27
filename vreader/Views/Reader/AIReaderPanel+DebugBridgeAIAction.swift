@@ -105,12 +105,13 @@ extension AIReaderPanel {
                 break
             }
             Task {
-                await viewModel.summarize(
-                    locator: locator,
+                await viewModel.summarizeUsingStructuredContext(
+                    fallbackLocator: locator,
                     fullText: fullTextContent,
                     format: format,
                     scope: viewModel.selectedScope,
-                    chapterBounds: chapterBounds
+                    chapterBounds: chapterBounds,
+                    resolver: resolveStructuredSummaryContext
                 )
                 // Feature #90 WI-3 (Gate-4 round-2): mirror
                 // `AISummaryTabView.runSummarize` — `summarize` resets the

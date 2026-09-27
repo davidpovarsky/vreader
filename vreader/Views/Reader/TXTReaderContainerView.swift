@@ -35,6 +35,9 @@ struct TXTReaderContainerView: View {
     var ttsService: TTSService?
     /// TOC entries from regex detection — used for chapter progress in legacy mode (bug #31).
     var tocEntries: [TOCEntry] = []
+    var readerToken: UUID? = nil
+    @State private var aiDocumentRegistration: AITextDocumentRegistration?
+    @State private var aiDocumentAttachTask: Task<Void, Never>?
 
     @Environment(\.scenePhase) private var scenePhase
     /// Mirrors ReaderContainerView's chrome toggle so the bottom overlay hides with the nav bar.
@@ -260,6 +263,10 @@ struct TXTReaderContainerView: View {
                 await rebuildAttributedStringForCurrentKey()
             }
             .onDisappear {
+                aiDocumentAttachTask?.cancel()
+                aiDocumentAttachTask = nil
+                aiDocumentRegistration?.teardown()
+                aiDocumentRegistration = nil
                 let bgTaskID = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
                 Task {
                     await viewModel.close()
@@ -271,6 +278,10 @@ struct TXTReaderContainerView: View {
             // Wire scroll progress to the ReadingProgressBar scrubber (bug #31).
             .onChange(of: viewModel.currentOffsetUTF16) { _, _ in
                 updateChapterScrollFraction()
+                aiDocumentRegistration?.update(
+                    locator: viewModel.makeLocator(),
+                    chapterBounds: currentAIChapterBounds
+                )
             }
             .onChange(of: viewModel.currentChapterIdx) { _, _ in
                 updateChapterScrollFraction()
@@ -559,6 +570,7 @@ struct TXTReaderContainerView: View {
         } else {
             initialRestoreOffset = viewModel.currentOffsetUTF16
         }
+        await attachAIDocumentProviderIfAvailable()
         // Bug #160: wire the renderer + HighlightCoordinator so gesture-driven
         // highlights reach the real PersistenceActor (mirrors MD).
         let renderer = TextHighlightRenderer(uiState: uiState)
@@ -576,6 +588,50 @@ struct TXTReaderContainerView: View {
             highlightCoordinator = coordinator
             await coordinator.restoreAll()
         }
+    }
+
+    private var currentAIChapterBounds: ChapterBounds? {
+        guard let index = viewModel.chapterIndex,
+              !index.chapters.isEmpty else { return nil }
+        let offset = viewModel.currentOffsetUTF16
+        let chapter = index.chapters.last(where: {
+            $0.globalStartUTF16 >= 0 && $0.globalStartUTF16 <= offset
+        }) ?? index.chapters[0]
+        guard chapter.globalStartUTF16 >= 0, chapter.textLengthUTF16 >= 0 else { return nil }
+        return ChapterBounds(
+            startUTF16: chapter.globalStartUTF16,
+            endUTF16: chapter.globalStartUTF16 + chapter.textLengthUTF16
+        )
+    }
+
+    @MainActor
+    private func attachAIDocumentProviderIfAvailable() async {
+        guard let readerToken else { return }
+        let registration = AITextDocumentRegistration(
+            fingerprint: viewModel.bookFingerprint,
+            readerToken: readerToken
+        )
+        aiDocumentRegistration?.teardown()
+        aiDocumentRegistration = registration
+        let locator = viewModel.makeLocator()
+        let bounds = currentAIChapterBounds
+        let task: Task<Void, Never>
+        if let loader = viewModel.chapterContentLoader {
+            task = registration.beginTXTAttach(
+                loadText: { try await loader.fullDecodedText() },
+                locator: locator,
+                chapterBounds: bounds
+            )
+        } else {
+            let text = viewModel.textContent ?? ""
+            task = registration.beginTXTAttach(
+                loadText: { text },
+                locator: locator,
+                chapterBounds: bounds
+            )
+        }
+        aiDocumentAttachTask = task
+        await task.value
     }
 
     // MARK: - Attributed String Rebuild

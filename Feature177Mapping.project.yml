@@ -18,9 +18,11 @@ targets:
     platform: iOS
     sources:
       - path: vreader/Features/AIAgent/Core/AIDocumentModels.swift
+      - path: vreader/Features/AIAgent/Core/AIReadingBoundaryPolicy.swift
       - path: vreader/Features/AIAgent/Document/AIDocumentProvider.swift
       - path: vreader/Features/AIAgent/Document/AIDocumentProviderRegistry.swift
       - path: vreader/Features/AIAgent/Document/AIDocumentContextResolver.swift
+      - path: vreader/Features/AIAgent/Document/AITextDocumentRegistration.swift
       - path: vreader/Features/AIAgent/Document/AITextDocumentProviders.swift
       - path: vreader/Features/AIAgent/Document/AIPDFDocumentProvider.swift
       - path: vreader/Features/AIAgent/Document/AIReadiumDocumentProvider.swift

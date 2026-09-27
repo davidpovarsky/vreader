@@ -8,15 +8,23 @@ final class AITXTDocumentProvider: AIDocumentProvider {
     let bookFingerprint: DocumentFingerprint
     private let text: String
     private var currentLocator: Locator
+    private var currentChapterBounds: ChapterBounds?
 
-    init(fingerprint: DocumentFingerprint, text: String, currentLocator: Locator) {
+    init(
+        fingerprint: DocumentFingerprint,
+        text: String,
+        currentLocator: Locator,
+        currentChapterBounds: ChapterBounds? = nil
+    ) {
         bookFingerprint = fingerprint
         self.text = text
         self.currentLocator = currentLocator
+        self.currentChapterBounds = currentChapterBounds
     }
 
-    func updateCurrentLocator(_ locator: Locator) {
+    func updateCurrentLocator(_ locator: Locator, chapterBounds: ChapterBounds? = nil) {
         currentLocator = locator
+        currentChapterBounds = chapterBounds
     }
 
     func chunks() async throws -> [AIDocumentChunk] {
@@ -32,7 +40,8 @@ final class AITXTDocumentProvider: AIDocumentProvider {
             fingerprint: bookFingerprint,
             text: text,
             sourcePrefix: "txt",
-            currentLocator: currentLocator
+            currentLocator: currentLocator,
+            currentChapterBounds: currentChapterBounds
         )
     }
 }
@@ -42,15 +51,23 @@ final class AIMarkdownDocumentProvider: AIDocumentProvider {
     let bookFingerprint: DocumentFingerprint
     private let renderedText: String
     private var currentLocator: Locator
+    private var currentChapterBounds: ChapterBounds?
 
-    init(fingerprint: DocumentFingerprint, renderedText: String, currentLocator: Locator) {
+    init(
+        fingerprint: DocumentFingerprint,
+        renderedText: String,
+        currentLocator: Locator,
+        currentChapterBounds: ChapterBounds? = nil
+    ) {
         bookFingerprint = fingerprint
         self.renderedText = renderedText
         self.currentLocator = currentLocator
+        self.currentChapterBounds = currentChapterBounds
     }
 
-    func updateCurrentLocator(_ locator: Locator) {
+    func updateCurrentLocator(_ locator: Locator, chapterBounds: ChapterBounds? = nil) {
         currentLocator = locator
+        currentChapterBounds = chapterBounds
     }
 
     func chunks() async throws -> [AIDocumentChunk] {
@@ -66,7 +83,8 @@ final class AIMarkdownDocumentProvider: AIDocumentProvider {
             fingerprint: bookFingerprint,
             text: renderedText,
             sourcePrefix: "md",
-            currentLocator: currentLocator
+            currentLocator: currentLocator,
+            currentChapterBounds: currentChapterBounds
         )
     }
 }
@@ -115,7 +133,8 @@ private enum AITextDocumentMapper {
         fingerprint: DocumentFingerprint,
         text: String,
         sourcePrefix: String,
-        currentLocator: Locator
+        currentLocator: Locator,
+        currentChapterBounds: ChapterBounds?
     ) throws -> AIDocumentSnapshot {
         try Task.checkCancellation()
         let allChunks = try chunks(
@@ -148,7 +167,7 @@ private enum AITextDocumentMapper {
             currentSectionChunks: currentChunks,
             visibleChunks: currentChunks,
             currentChapterLabel: nil,
-            currentChapterBounds: nil,
+            currentChapterBounds: currentChapterBounds,
             tocSummary: [],
             readSoFarBoundary: AIReadSoFarBoundary(
                 locator: exactLocator,

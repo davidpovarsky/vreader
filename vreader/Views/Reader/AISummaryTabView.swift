@@ -48,6 +48,10 @@ struct AISummaryTabView: View {
     /// The book format (determines context extraction strategy).
     let format: BookFormat
 
+    /// Feature #177 WI-4 exact-session structured resolver. Nil keeps preview
+    /// and compatibility-test initializers on the legacy extractor path.
+    var resolveStructuredContext: AISummaryContextResolver? = nil
+
     /// Visual-identity-v2 theme tokens.
     let theme: ReaderThemeV2
 
@@ -222,12 +226,13 @@ struct AISummaryTabView: View {
             // chip, over the FULL flattened book text. `chapterBounds`
             // bounds the Chapter scope; a nil bounds degrades Chapter to
             // Section inside the extractor.
-            await viewModel.summarize(
-                locator: locator,
+            await viewModel.summarizeUsingStructuredContext(
+                fallbackLocator: locator,
                 fullText: fullTextContent,
                 format: format,
                 scope: viewModel.selectedScope,
-                chapterBounds: chapterBounds
+                chapterBounds: chapterBounds,
+                resolver: resolveStructuredContext
             )
             // Feature #90 WI-3 (Gate-4 High): `summarize` goes through
             // `performAction`, which resets the translation to `.none` — and the

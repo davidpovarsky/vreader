@@ -78,7 +78,10 @@ final class ReaderAICoordinator {
     /// broadest synchronous scope). Any unresolvable case degrades to
     /// `currentTextContent` (`.section`), so EPUB chat / no-context are unchanged.
     func scopedChatContext(_ scope: ChatContextScope) -> String {
-        let section = currentTextContent
+        if let cached = cachedStructuredContext(for: scope), !cached.text.isEmpty {
+            return cached.text
+        }
+        let section = compatibilityTextFallback
         guard let summaryScope = scope.summaryScope else {
             // .wholeBook (WI-5b): use the retrieved digest once available; until the
             // read completes, fall back to the broadest synchronous scope.
@@ -87,7 +90,11 @@ final class ReaderAICoordinator {
             }
             return scopedChatContext(.bookSoFar)
         }
-        if summaryScope == .section { return section }
+        // Compatibility for isolated legacy tests/callers without a mounted
+        // provider. Production TXT/MD hosts always register a structured source;
+        // PDF/EPUB/AZW3 never use flattened fallback.
+        guard bookFormat == .txt || bookFormat == .md else { return section }
+        if summaryScope == .section { return currentTextContent }
         guard let loaded = loadedTextContent, !loaded.isEmpty,
               let locator = currentLocator
         else { return section }
@@ -115,7 +122,18 @@ final class ReaderAICoordinator {
     /// and the chat VM calls it on a scope change, so a late TOC upgrades the
     /// context and a scroll never reverts it.
     func refreshChatContext() {
+        Task { @MainActor [weak self] in await self?.refreshChatContextNow() }
+    }
+
+    func refreshChatContextNow() async {
         guard let chatVM = chatViewModel else { return }
+        if chatVM.scope != .wholeBook {
+            await refreshStructuredContext(for: chatVM.scope)
+        }
+        assembleChatContext(chatVM)
+    }
+
+    private func assembleChatContext(_ chatVM: AIChatViewModel) {
         let scopeText = scopedChatContext(chatVM.scope)
         // Feature #86 WI-4: fold in the reader's selected annotation kinds, read
         // from the in-memory cache (NO SwiftData fetch on relocate). When no cache
@@ -178,6 +196,7 @@ final class ReaderAICoordinator {
             // scope unchanged (e.g. a sources toggle) → preserve the read state.
         }
         lastChatScope = scope
+        invalidateStructuredContext()
         refreshChatContext()
     }
 
@@ -188,15 +207,17 @@ final class ReaderAICoordinator {
     func runWholeBookRead() async {
         guard let retrieval = chatViewModel?.wholeBookRetrieval,
               let service = pinnedAIService,
-              let text = loadedTextContent, !text.isEmpty
+              let provider = documentProviderResolver.resolve(session: documentSessionID)
         else { return }
         if retrieval.isReady { return }
         if case .reading = retrieval.phase { await retrieval.readTask?.value; return }
 
         do {
+            let manifest = try await provider.wholeBookManifest()
+            guard manifest.fingerprintKey == fingerprintKey else { return }
             let config = try await service.resolveActiveProviderConfig()
             retrieval.read(
-                fullText: text,
+                manifest: manifest,
                 chunkBudgetUTF16: AIContextBudget.defaultMaxUTF16,
                 digestBudgetUTF16: AIContextBudget.defaultMaxUTF16,
                 maxChunks: 30,   // overflow bound on provider calls — large books read a bounded digest
@@ -215,15 +236,23 @@ final class ReaderAICoordinator {
             // Provider/config failure → the VM lands in .partial; the scope text
             // falls back to book-so-far. Never blocks the send.
         }
-        refreshChatContext()
+        await refreshChatContextNow()
     }
 
     /// Book title used as fallback when no text content is available.
-    private let fallbackTitle: String
+    let fallbackTitle: String
     /// Resolved book format for context extraction.
-    private let bookFormat: BookFormat
+    let bookFormat: BookFormat
     /// Fingerprint key for creating chat VM.
-    private let fingerprintKey: String
+    let fingerprintKey: String
+    let readerToken: UUID
+    let documentProviderResolver: any AIDocumentProviderResolving
+    var documentSessionID: AIDocumentSessionID {
+        AIDocumentSessionID(fingerprintKey: fingerprintKey, readerToken: readerToken)
+    }
+    @ObservationIgnored var structuredRefreshGeneration: UInt = 0
+    @ObservationIgnored var structuredContextCache: [ChatContextScope: AIDocumentResolvedContext] = [:]
+    @ObservationIgnored var documentRegistryObserver: NSObjectProtocol?
     /// Annotation stores for the sources cache (the `PersistenceActor`, which
     /// conforms to all three). Nil when persistence isn't injected.
     private let annotationStores: (any AnnotationPersisting & HighlightPersisting & BookmarkPersisting)?
@@ -238,20 +267,31 @@ final class ReaderAICoordinator {
         fallbackTitle: String,
         bookFormat: BookFormat,
         fingerprintKey: String,
+        readerToken: UUID = UUID(),
+        documentProviderResolver: any AIDocumentProviderResolving = AIDocumentProviderRegistry.shared,
         annotationStores: (any AnnotationPersisting & HighlightPersisting & BookmarkPersisting)? = nil,
         chatSessionStore: (any ChatSessionPersisting)? = nil
     ) {
         self.fallbackTitle = fallbackTitle
         self.bookFormat = bookFormat
         self.fingerprintKey = fingerprintKey
+        self.readerToken = readerToken
+        self.documentProviderResolver = documentProviderResolver
         self.annotationStores = annotationStores
         self.chatSessionStore = chatSessionStore
+    }
+
+    deinit {
+        if let documentRegistryObserver {
+            NotificationCenter.default.removeObserver(documentRegistryObserver)
+        }
     }
 
     /// Creates the AI ViewModels if AI features are available.
     func setupIfNeeded() {
         guard aiViewModel == nil, isAIAvailable else { return }
         let flags = FeatureFlags.shared
+        startDocumentRegistryObservationIfNeeded()
         let keychain = KeychainService()
         // Feature #50 WI-5: AIService now dispatches on the active
         // ProviderProfile via ProviderProfileStore.shared. The shared
@@ -309,6 +349,9 @@ final class ReaderAICoordinator {
         // Feature #86 WI-3/4/5b: re-assemble the context when the user changes scope
         // OR toggles sources, through the same single funnel; whole-book select arms.
         chatVM.onScopeChanged = { [weak self] in self?.handleChatContextChanged() }
+        chatVM.onContextRefreshRequested = { [weak self] in
+            await self?.refreshChatContextNow()
+        }
 
         // Feature #86 WI-4: the sources cache. Loads once now and refreshes on
         // `.readerAnnotationsDidChange`; each (re)load re-assembles the context +

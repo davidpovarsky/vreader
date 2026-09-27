@@ -102,6 +102,10 @@ extension AIChatViewModel {
             await onWholeBookReadRequested?()
         }
 
+        // Feature #177 WI-4: every bounded send awaits the exact-session
+        // structured snapshot. Whole-book also re-assembles after its pre-read.
+        await onContextRefreshRequested?()
+
         // Feature #87 WI-1 (round-3 High): a Stop during the whole-book pre-read
         // must land no reply. The pre-read await unwinds even after cancel
         // (WholeBookRetrievalViewModel.cancel() does not force-kill the read), so

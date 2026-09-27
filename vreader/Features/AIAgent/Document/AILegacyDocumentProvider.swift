@@ -67,6 +67,24 @@ final class AILegacyDocumentProvider: AIDocumentProvider {
         )
     }
 
+    func wholeBookManifest() async throws -> AIWholeBookSourceManifest {
+        try Task.checkCancellation()
+        let units = currentSection.map { section in
+            let chunk = makeChunk(from: section)
+            return [AIWholeBookSourceUnit(
+                sourceUnitID: chunk.sourceUnitID,
+                sourceUnitIndex: chunk.sourceUnitIndex,
+                availability: .available,
+                chunk: chunk
+            )]
+        } ?? []
+        return AIWholeBookSourceManifest(
+            fingerprintKey: bookFingerprint.canonicalKey,
+            enumerationCompleteness: .boundedUnknownRemainder,
+            units: units
+        )
+    }
+
     private func makeChunk(from section: AILegacyDocumentSection) -> AIDocumentChunk {
         let unitID = sourceUnitID(section)
         return AIDocumentChunk(

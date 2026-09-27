@@ -194,6 +194,30 @@ struct AIChatViewModelTests {
         }
     }
 
+    @Test @MainActor func boundedSendAwaitsFreshStructuredContextBeforeSnapshot() async {
+        let stub = StubChatAIProvider()
+        stub.stubbedResponse = AIResponse(
+            content: "fresh", actionType: .questionAnswer,
+            promptVersion: "v1", createdAt: Date()
+        )
+        let fp = DocumentFingerprint(
+            contentSHA256: String(repeating: "c", count: 64),
+            fileByteCount: 10, format: .epub
+        )
+        let (vm, _) = makeSUT(provider: stub, bookFingerprint: fp)
+        vm.bookContext = "STALE OLD HREF"
+        vm.onContextRefreshRequested = {
+            await Task.yield()
+            vm.bookContext = "FRESH EXACT HREF B"
+        }
+        vm.setScope(.section)
+
+        await vm.sendMessage("question")
+
+        #expect(stub.lastRequest?.contextText.contains("FRESH EXACT HREF B") == true)
+        #expect(stub.lastRequest?.contextText.contains("STALE OLD HREF") == false)
+    }
+
     // MARK: - General Mode Has No Book Context
 
     @Test @MainActor func generalModeHasNoBookContext() async {

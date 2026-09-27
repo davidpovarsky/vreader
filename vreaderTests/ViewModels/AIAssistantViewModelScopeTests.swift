@@ -193,6 +193,20 @@ struct AIAssistantViewModelScopeTests {
         #expect(extractor.lastCall?.scope == .section)
     }
 
+    @Test @MainActor func summarizeResolvedUsesStructuredContextWithoutExtractor() async {
+        let extractor = RecordingExtractor()
+        let provider = StubAIProvider()
+        provider.stubbedResponse = okResponse()
+        let (vm, _) = makeViewModel(extractor: extractor, provider: provider)
+        let locator = WI11TestHelpers.makeLocator()
+
+        await vm.summarizeResolved(locator: locator, contextText: "STRUCTURED PAGE 50")
+
+        #expect(extractor.calls.isEmpty)
+        #expect(provider.lastRequest?.contextText == "STRUCTURED PAGE 50")
+        #expect(vm.state == .complete)
+    }
+
     // MARK: - selectedScope changes during a genuine in-flight request
 
     /// An AI provider whose `sendRequest` blocks until the test releases

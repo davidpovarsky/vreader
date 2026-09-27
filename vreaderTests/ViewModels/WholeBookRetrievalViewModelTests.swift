@@ -10,6 +10,42 @@ import Foundation
 @MainActor
 struct WholeBookRetrievalViewModelTests {
 
+    @Test func structuredManifestRead_preservesPartialCoverage() async {
+        let fp = DocumentFingerprint(
+            contentSHA256: String(repeating: "e", count: 64),
+            fileByteCount: 20, format: .epub
+        )
+        let available = AIDocumentChunk(
+            id: "a", bookFingerprintKey: fp.canonicalKey,
+            sourceUnitID: "epub:a", sourceUnitIndex: 0, text: "A",
+            locator: Locator.validated(bookFingerprint: fp, href: "a")!,
+            sourceLabel: nil, chapterTitle: nil, pageIndex: nil, href: "a",
+            localStartUTF16: 0, localEndUTF16: 1,
+            globalStartUTF16: nil, globalEndUTF16: nil, isOCRDerived: false
+        )
+        let manifest = AIWholeBookSourceManifest(
+            fingerprintKey: fp.canonicalKey,
+            enumerationCompleteness: .complete,
+            units: [
+                AIWholeBookSourceUnit(sourceUnitID: "epub:a", sourceUnitIndex: 0, availability: .available, chunk: available),
+                AIWholeBookSourceUnit(sourceUnitID: "epub:locked", sourceUnitIndex: 1, availability: .inaccessible, chunk: nil),
+            ]
+        )
+        let vm = WholeBookRetrievalViewModel()
+
+        vm.read(
+            manifest: manifest, chunkBudgetUTF16: 100,
+            digestBudgetUTF16: 10_000, maxChunks: 50
+        ) { $0 }
+        await vm.readTask?.value
+
+        guard case let .partial(coverage) = vm.phase else {
+            Issue.record("expected .partial, got \(vm.phase)"); return
+        }
+        #expect(coverage.coveredSourceUnitIDs == ["epub:a"])
+        #expect(coverage.droppedSourceUnitIDs == ["epub:locked"])
+    }
+
     @Test func arm_fromIdle_movesToArmed() {
         let vm = WholeBookRetrievalViewModel()
         #expect(vm.phase == .idle)

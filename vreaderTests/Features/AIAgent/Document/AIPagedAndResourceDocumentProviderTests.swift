@@ -143,6 +143,28 @@ struct AIPagedAndResourceDocumentProviderTests {
         #expect(chunks.allSatisfy { $0.bookFingerprintKey == epubFingerprint.canonicalKey })
     }
 
+    @Test("Whole-book manifest retains inaccessible Readium units in source order")
+    func wholeBookManifestRetainsInaccessibleResource() async throws {
+        let facade = ReadiumValueFacade(
+            resources: [
+                resource(index: 0, href: "a.xhtml", text: "A"),
+                resource(index: 1, href: "locked.xhtml", text: nil),
+                resource(index: 2, href: "c.xhtml", text: "C"),
+            ],
+            currentLocator: epubLocator(href: "a.xhtml", progression: 0, total: 0)
+        )
+        let provider = AIReadiumDocumentProvider(fingerprint: epubFingerprint, facade: facade)
+
+        let manifest = try await provider.wholeBookManifest()
+
+        #expect(manifest.enumerationCompleteness == .complete)
+        #expect(manifest.units.map(\.sourceUnitID) == [
+            "epub:a.xhtml", "epub:locked.xhtml", "epub:c.xhtml"
+        ])
+        #expect(manifest.units[1].availability == .inaccessible)
+        #expect(manifest.units[1].chunk == nil)
+    }
+
     private func resource(index: Int, href: String, text: String?) -> AIReadiumResource {
         AIReadiumResource(
             href: href,

@@ -199,6 +199,24 @@ struct AIRegistryLegacyAndCancellationTests {
         #expect(!(try await provider.snapshot()).exactMappingAvailable)
     }
 
+    @Test("legacy Whole-book manifest is explicitly bounded with unknown remainder")
+    func legacyWholeBookManifestNeverClaimsCompleteEnumeration() async throws {
+        let fp = fingerprint("e", format: .azw3)
+        let provider = AILegacyDocumentProvider(
+            fingerprint: fp,
+            currentSection: AILegacyDocumentSection(
+                sectionIndex: 4, href: "section-4", title: "Four", text: "bounded",
+                locator: Locator.validated(bookFingerprint: fp, href: "section-4", cfi: "epubcfi(/6/8)")!,
+                mappingPrecision: .approximate
+            )
+        )
+
+        let manifest = try await provider.wholeBookManifest()
+
+        #expect(manifest.enumerationCompleteness == .boundedUnknownRemainder)
+        #expect(manifest.units.map(\.sourceUnitID) == ["foliate:section:4"])
+    }
+
     private func textProvider(fp: DocumentFingerprint, text: String) -> AITXTDocumentProvider {
         AITXTDocumentProvider(
             fingerprint: fp,

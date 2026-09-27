@@ -17,6 +17,54 @@ private actor CondenseRecorder {
 @Suite("WholeBookReducer (Feature #86 WI-5a)")
 struct WholeBookReducerTests {
 
+    @Test func structuredReduce_preservesSourceOrder() async throws {
+        let reducer = WholeBookReducer()
+        let manifest = WI4WholeBookTestFactory.manifest(texts: ["A", "B", "C"])
+        let rec = CondenseRecorder()
+
+        let digest = try await reducer.reduce(
+            manifest: manifest, chunkBudgetUTF16: 100, digestBudgetUTF16: 10_000,
+            maxChunks: 10,
+            condense: { text in await rec.record(text); return text.lowercased() },
+            onProgress: { _, _ in }
+        )
+
+        #expect(await rec.seenChunks == ["A", "B", "C"])
+        #expect(digest.coverage.coveredSourceUnitIDs == ["unit:0", "unit:1", "unit:2"])
+        #expect(digest.coverage.isComplete)
+    }
+
+    @Test func structuredReduce_overflowReportsDroppedSourceIDs() async throws {
+        let reducer = WholeBookReducer()
+        let manifest = WI4WholeBookTestFactory.manifest(texts: ["A", "B", "C", "D"])
+
+        let digest = try await reducer.reduce(
+            manifest: manifest, chunkBudgetUTF16: 100, digestBudgetUTF16: 10_000,
+            maxChunks: 2, condense: { $0 }, onProgress: { _, _ in }
+        )
+
+        #expect(digest.coverage.coveredSourceUnitIDs == ["unit:0", "unit:1"])
+        #expect(digest.coverage.droppedSourceUnitIDs == ["unit:2", "unit:3"])
+        #expect(!digest.coverage.isComplete)
+    }
+
+    @Test func structuredReduce_inaccessibleAndUnknownRemainderStayPartial() async throws {
+        let reducer = WholeBookReducer()
+        let manifest = WI4WholeBookTestFactory.manifest(
+            texts: ["A", nil], completeness: .boundedUnknownRemainder
+        )
+
+        let digest = try await reducer.reduce(
+            manifest: manifest, chunkBudgetUTF16: 100, digestBudgetUTF16: 10_000,
+            maxChunks: 10, condense: { $0 }, onProgress: { _, _ in }
+        )
+
+        #expect(digest.coverage.coveredSourceUnitIDs == ["unit:0"])
+        #expect(digest.coverage.droppedSourceUnitIDs == ["unit:1"])
+        #expect(digest.coverage.hasUnknownRemainder)
+        #expect(!digest.coverage.isComplete)
+    }
+
     // MARK: - Chunking (pure)
 
     @Test func chunk_splitsAtBudget_withContiguousSpans() {
@@ -190,5 +238,39 @@ struct WholeBookReducerTests {
 
         let empty = WholeBookCoverage(coveredSpans: [], totalUTF16: 0, droppedSpans: [])
         #expect(empty.fraction == 0)
+    }
+}
+
+private enum WI4WholeBookTestFactory {
+    static func manifest(
+        texts: [String?],
+        completeness: AIWholeBookEnumerationCompleteness = .complete
+    ) -> AIWholeBookSourceManifest {
+        let fp = DocumentFingerprint(
+            contentSHA256: String(repeating: "f", count: 64),
+            fileByteCount: 100, format: .txt
+        )
+        return AIWholeBookSourceManifest(
+            fingerprintKey: fp.canonicalKey,
+            enumerationCompleteness: completeness,
+            units: texts.enumerated().map { index, text in
+                let id = "unit:\(index)"
+                let chunk = text.map {
+                    AIDocumentChunk(
+                        id: id, bookFingerprintKey: fp.canonicalKey,
+                        sourceUnitID: id, sourceUnitIndex: index, text: $0,
+                        locator: Locator.validated(bookFingerprint: fp, charOffsetUTF16: index)!,
+                        sourceLabel: nil, chapterTitle: nil, pageIndex: nil, href: nil,
+                        localStartUTF16: 0, localEndUTF16: $0.utf16.count,
+                        globalStartUTF16: nil, globalEndUTF16: nil, isOCRDerived: false
+                    )
+                }
+                return AIWholeBookSourceUnit(
+                    sourceUnitID: id, sourceUnitIndex: index,
+                    availability: chunk == nil ? .inaccessible : .available,
+                    chunk: chunk
+                )
+            }
+        )
     }
 }

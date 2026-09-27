@@ -270,6 +270,15 @@ jobs:
             -only-testing:vreaderTests/PDFViewBridgeThemeTests \
             -only-testing:vreaderTests/ReadiumEPUBNavigationMappingTests \
             -only-testing:vreaderTests/ReadiumEPUBHostTests \
+            -only-testing:vreaderTests/ReaderAICoordinatorChatContextTests \
+            -only-testing:vreaderTests/ReaderAIStructuredContextIntegrationTests \
+            -only-testing:vreaderTests/AIAssistantViewModelScopeTests \
+            -only-testing:vreaderTests/AISummaryTabViewScopeTests \
+            -only-testing:vreaderTests/AIChatViewModelTests \
+            -only-testing:vreaderTests/ChatContextFoundationTests \
+            -only-testing:vreaderTests/ChatAnnotationCacheTests \
+            -only-testing:vreaderTests/WholeBookReducerTests \
+            -only-testing:vreaderTests/WholeBookRetrievalViewModelTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -302,7 +311,16 @@ jobs:
             vreaderTests/PDFReaderViewModelLocatorTests \
             vreaderTests/PDFViewBridgeThemeTests \
             vreaderTests/ReadiumEPUBNavigationMappingTests \
-            vreaderTests/ReadiumEPUBHostTests
+            vreaderTests/ReadiumEPUBHostTests \
+            vreaderTests/ReaderAICoordinatorChatContextTests \
+            vreaderTests/ReaderAIStructuredContextIntegrationTests \
+            vreaderTests/AIAssistantViewModelScopeTests \
+            vreaderTests/AISummaryTabViewScopeTests \
+            vreaderTests/AIChatViewModelTests \
+            vreaderTests/ChatContextFoundationTests \
+            vreaderTests/ChatAnnotationCacheTests \
+            vreaderTests/WholeBookReducerTests \
+            vreaderTests/WholeBookRetrievalViewModelTests
 
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}

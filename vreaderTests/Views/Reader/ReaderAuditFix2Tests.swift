@@ -20,13 +20,13 @@ struct PDFSearchHighlightGuardTests {
 
     @Test("Coordinator isSearchHighlighting defaults to false")
     @MainActor func coordinatorDefaultsFalse() {
-        let coordinator = PDFViewBridge.Coordinator()
+        let coordinator = PDFViewBridge.Coordinator(readerToken: UUID())
         #expect(coordinator.isSearchHighlighting == false)
     }
 
     @Test("Coordinator isSearchHighlighting can be set to true and back")
     @MainActor func coordinatorFlagToggle() {
-        let coordinator = PDFViewBridge.Coordinator()
+        let coordinator = PDFViewBridge.Coordinator(readerToken: UUID())
         coordinator.isSearchHighlighting = true
         #expect(coordinator.isSearchHighlighting == true)
         coordinator.isSearchHighlighting = false

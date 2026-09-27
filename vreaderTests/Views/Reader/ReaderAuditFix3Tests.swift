@@ -75,14 +75,14 @@ struct PDFSearchHighlightDedupeTests {
     @Test("PDFViewBridge Coordinator has a clearSearchWorkItem property")
     @MainActor
     func coordinatorHasClearWorkItem() {
-        let coordinator = PDFViewBridge.Coordinator()
+        let coordinator = PDFViewBridge.Coordinator(readerToken: UUID())
         #expect(coordinator.clearSearchWorkItem == nil)
     }
 
     @Test("PDFViewBridge Coordinator resets lastSearchHighlightText when work item fires")
     @MainActor
     func coordinatorResetsSearchTextOnClear() {
-        let coordinator = PDFViewBridge.Coordinator()
+        let coordinator = PDFViewBridge.Coordinator(readerToken: UUID())
         coordinator.lastSearchHighlightText = "test quote"
         coordinator.lastSearchHighlightText = nil
         #expect(coordinator.lastSearchHighlightText == nil)
@@ -97,7 +97,7 @@ struct PDFCancellableClearTimerTests {
     @Test("Coordinator clearSearchWorkItem can be cancelled")
     @MainActor
     func clearWorkItemCancellable() {
-        let coordinator = PDFViewBridge.Coordinator()
+        let coordinator = PDFViewBridge.Coordinator(readerToken: UUID())
         let workItem = DispatchWorkItem { }
         coordinator.clearSearchWorkItem = workItem
         workItem.cancel()
@@ -107,7 +107,7 @@ struct PDFCancellableClearTimerTests {
     @Test("Setting new clearSearchWorkItem replaces old one")
     @MainActor
     func clearWorkItemReplaceable() {
-        let coordinator = PDFViewBridge.Coordinator()
+        let coordinator = PDFViewBridge.Coordinator(readerToken: UUID())
         let oldItem = DispatchWorkItem { }
         coordinator.clearSearchWorkItem = oldItem
         let newItem = DispatchWorkItem { }

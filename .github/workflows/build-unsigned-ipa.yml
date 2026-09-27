@@ -272,6 +272,7 @@ jobs:
             -only-testing:vreaderTests/ReadiumEPUBHostTests \
             -only-testing:vreaderTests/ReaderAICoordinatorChatContextTests \
             -only-testing:vreaderTests/ReaderAIStructuredContextIntegrationTests \
+            -only-testing:vreaderTests/ReaderAIFinalCorrectionsIntegrationTests \
             -only-testing:vreaderTests/AIAssistantViewModelScopeTests \
             -only-testing:vreaderTests/AISummaryTabViewScopeTests \
             -only-testing:vreaderTests/AIChatViewModelTests \
@@ -314,6 +315,7 @@ jobs:
             vreaderTests/ReadiumEPUBHostTests \
             vreaderTests/ReaderAICoordinatorChatContextTests \
             vreaderTests/ReaderAIStructuredContextIntegrationTests \
+            vreaderTests/ReaderAIFinalCorrectionsIntegrationTests \
             vreaderTests/AIAssistantViewModelScopeTests \
             vreaderTests/AISummaryTabViewScopeTests \
             vreaderTests/AIChatViewModelTests \

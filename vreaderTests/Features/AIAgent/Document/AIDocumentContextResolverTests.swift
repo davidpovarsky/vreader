@@ -69,6 +69,42 @@ struct AIDocumentContextResolverTests {
         #expect(!result.text.contains("Rendered first"))
     }
 
+    @Test("Oversized TXT Chapter stays centered on the exact reader offset")
+    func oversizedTXTChapterStaysCenteredOnReader() {
+        let fp = fingerprint("8", .txt)
+        let currentMarker = "<<CURRENT POSITION>>"
+        let tailMarker = "<<CHAPTER TAIL>>"
+        let text = String(repeating: "A", count: 15_000)
+            + currentMarker
+            + String(repeating: "B", count: 24_000)
+            + tailMarker
+        let unit = chunk(
+            fp, id: "txt:segment:0", index: 0, text: text, globalStart: 0
+        )
+        let currentOffset = (text as NSString).range(of: currentMarker).location
+        let bounds = ChapterBounds(
+            startUTF16: 0,
+            endUTF16: text.utf16.count
+        )
+        let snapshot = makeSnapshot(
+            fp, format: .txt, current: unit,
+            boundaryLocal: currentOffset,
+            boundaryGlobal: currentOffset,
+            chapterBounds: bounds
+        )
+
+        let result = resolver.resolve(
+            snapshot: snapshot,
+            orderedChunks: [unit],
+            scope: .chapter,
+            maxUTF16: 12_000
+        )
+
+        #expect(result.text.utf16.count <= 12_000)
+        #expect(result.text.contains(currentMarker))
+        #expect(!result.text.contains(tailMarker))
+    }
+
     @Test("PDF Book-so-far excludes all later pages")
     func pdfBookSoFarDoesNotReadAhead() {
         let fp = fingerprint("5", .pdf)

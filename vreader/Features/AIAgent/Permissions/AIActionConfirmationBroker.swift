@@ -4,26 +4,36 @@
 import Foundation
 
 actor AIActionConfirmationBroker {
-    private final class CancellationFlag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var cancelled = false
-
-        func cancel() {
-            lock.lock()
-            cancelled = true
-            lock.unlock()
+    private final class TerminalGate: @unchecked Sendable {
+        private enum State {
+            case pending
+            case cancelled
+            case resolved
         }
 
-        var isCancelled: Bool {
+        private let lock = NSLock()
+        private var state = State.pending
+
+        func cancel() -> Bool {
             lock.lock()
             defer { lock.unlock() }
-            return cancelled
+            guard state == .pending else { return false }
+            state = .cancelled
+            return true
+        }
+
+        func resolve() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard state == .pending else { return false }
+            state = .resolved
+            return true
         }
     }
 
     private struct Pending {
         let request: AIActionConfirmationRequest
-        let cancellationFlag: CancellationFlag
+        let terminalGate: TerminalGate
         let continuation: CheckedContinuation<AIActionConfirmationOutcome, Never>
     }
 
@@ -57,18 +67,17 @@ actor AIActionConfirmationBroker {
     func requestConfirmation(
         _ request: AIActionConfirmationRequest
     ) async -> AIActionConfirmationOutcome {
-        let cancellationFlag = CancellationFlag()
+        let terminalGate = TerminalGate()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard !Task.isCancelled,
-                      !cancellationFlag.isCancelled,
-                      pending[request.id] == nil else {
+                guard !Task.isCancelled, pending[request.id] == nil else {
+                    _ = terminalGate.cancel()
                     continuation.resume(returning: .cancelled)
                     return
                 }
                 pending[request.id] = Pending(
                     request: request,
-                    cancellationFlag: cancellationFlag,
+                    terminalGate: terminalGate,
                     continuation: continuation
                 )
                 publishPendingRequests()
@@ -76,8 +85,9 @@ actor AIActionConfirmationBroker {
         } onCancel: {
             // Mark synchronously before hopping back to the actor. A UI approval
             // racing this cancellation cannot observe stale "not cancelled" state.
-            cancellationFlag.cancel()
-            Task { await self.invalidate(request.id) }
+            if terminalGate.cancel() {
+                Task { await self.invalidate(request.id) }
+            }
         }
     }
 
@@ -88,14 +98,17 @@ actor AIActionConfirmationBroker {
     ) async -> Bool {
         guard let entry = pending[requestID] else { return false }
 
-        if response == .alwaysAllow, !entry.request.rememberAllowEligible {
+        if response == .alwaysAllow,
+           (!entry.request.rememberAllowEligible
+            || entry.request.isDestructive
+            || entry.request.permissionCategory == .removeData) {
             return false
         }
 
         pending.removeValue(forKey: requestID)
         publishPendingRequests()
 
-        guard !entry.cancellationFlag.isCancelled else {
+        guard entry.terminalGate.resolve() else {
             entry.continuation.resume(returning: .cancelled)
             return false
         }
@@ -124,6 +137,7 @@ actor AIActionConfirmationBroker {
 
     func invalidate(_ requestID: UUID) {
         guard let entry = pending.removeValue(forKey: requestID) else { return }
+        _ = entry.terminalGate.cancel()
         publishPendingRequests()
         entry.continuation.resume(returning: .cancelled)
     }
@@ -145,6 +159,7 @@ actor AIActionConfirmationBroker {
         guard !entries.isEmpty else { return }
         publishPendingRequests()
         for entry in entries {
+            _ = entry.terminalGate.cancel()
             entry.continuation.resume(returning: .cancelled)
         }
     }

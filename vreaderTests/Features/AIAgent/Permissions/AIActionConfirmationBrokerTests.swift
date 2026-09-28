@@ -95,6 +95,24 @@ struct AIActionConfirmationBrokerTests {
         #expect(await store.load().decision(for: .removeData) != .allow)
     }
 
+    @Test("decoded remove-data requests cannot forge remember eligibility")
+    func decodedDestructiveRequestIsNormalized() async throws {
+        let id = UUID()
+        let data = Data(
+            #"{"id":"\#(id.uuidString)","toolName":"delete_note","actionDescription":"Delete a note","permissionCategory":"removeData","metadata":{},"isDestructive":false,"rememberAllowEligible":true}"#.utf8
+        )
+        let request = try JSONDecoder().decode(AIActionConfirmationRequest.self, from: data)
+        #expect(request.isDestructive)
+        #expect(!request.rememberAllowEligible)
+
+        let (broker, store) = Self.makeBroker()
+        let (task, _) = await Self.startPending(request, broker: broker)
+        #expect(!(await broker.resolve(request.id, with: .alwaysAllow)))
+        #expect(await broker.resolve(request.id, with: .deny))
+        #expect(await task.value == .denied)
+        #expect(await store.load().decision(for: .removeData) != .allow)
+    }
+
     @Test("task cancellation terminates pending confirmation")
     func cancellationWhilePending() async {
         let (broker, _) = Self.makeBroker()
@@ -104,6 +122,7 @@ struct AIActionConfirmationBrokerTests {
         var updates = pending.1
 
         task.cancel()
+        #expect(!(await broker.resolve(request.id, with: .alwaysAllow)))
         #expect(await task.value == .cancelled)
         #expect(await updates.next()?.isEmpty == true)
         #expect(await broker.pendingRequestCount == 0)

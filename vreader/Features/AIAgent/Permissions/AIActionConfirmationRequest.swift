@@ -59,7 +59,7 @@ struct AIToolAuthorizationContext: Equatable, Sendable {
             turnID: turnID,
             toolCallID: toolCallID,
             bookFingerprintKey: bookFingerprintKey,
-            sourceLocator: sourceLocator ?? overrideLocator,
+            sourceLocator: overrideLocator ?? sourceLocator,
             externalServerIdentifier: externalServerIdentifier
         )
     }
@@ -108,6 +108,57 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
         self.bookFingerprintKey = bookFingerprintKey
         self.sourceLocator = sourceLocator
         self.externalServerIdentifier = externalServerIdentifier
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case toolName
+        case actionDescription
+        case permissionCategory
+        case metadata
+        case isDestructive
+        case rememberAllowEligible
+        case turnID
+        case toolCallID
+        case bookFingerprintKey
+        case sourceLocator
+        case externalServerIdentifier
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            toolName: try container.decode(String.self, forKey: .toolName),
+            actionDescription: try container.decode(String.self, forKey: .actionDescription),
+            permissionCategory: try container.decode(
+                AIToolPermissionCategory.self,
+                forKey: .permissionCategory
+            ),
+            metadata: try container.decodeIfPresent(
+                [String: String].self,
+                forKey: .metadata
+            ) ?? [:],
+            isDestructive: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .isDestructive
+            ) ?? false,
+            rememberAllowEligible: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .rememberAllowEligible
+            ) ?? false,
+            turnID: try container.decodeIfPresent(String.self, forKey: .turnID),
+            toolCallID: try container.decodeIfPresent(String.self, forKey: .toolCallID),
+            bookFingerprintKey: try container.decodeIfPresent(
+                String.self,
+                forKey: .bookFingerprintKey
+            ),
+            sourceLocator: try container.decodeIfPresent(Locator.self, forKey: .sourceLocator),
+            externalServerIdentifier: try container.decodeIfPresent(
+                String.self,
+                forKey: .externalServerIdentifier
+            )
+        )
     }
 }
 

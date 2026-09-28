@@ -65,7 +65,8 @@ struct AIReadAheadAuthorizationTests {
             toolName: "read_ahead_test",
             actionDescription: "Read a later page",
             permissionCategory: .readAhead,
-            bookFingerprintKey: fingerprint.canonicalKey
+            bookFingerprintKey: fingerprint.canonicalKey,
+            sourceLocator: locator(page: 4)
         )
     }
 
@@ -92,6 +93,7 @@ struct AIReadAheadAuthorizationTests {
         let pending = await updates.next()
         #expect(pending?.count == 1)
         #expect(pending?.first?.permissionCategory == .readAhead)
+        #expect(pending?.first?.sourceLocator == locator(page: 5))
 
         task.cancel()
         #expect(await task.value == nil)

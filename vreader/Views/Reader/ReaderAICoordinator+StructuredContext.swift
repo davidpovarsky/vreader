@@ -47,21 +47,38 @@ extension ReaderAICoordinator {
             case .chapter: boundedScope = .chapter
             case .bookSoFar, .wholeBook: boundedScope = .bookSoFar
             }
-            let maxUTF16: Int
-            switch boundedScope {
-            case .section:
-                maxUTF16 = AIContextBudget.sectionMaxUTF16
-            case .chapter, .bookSoFar:
-                maxUTF16 = AIContextBudget.defaultMaxUTF16
-            }
             return AIDocumentContextResolver().resolve(
                 snapshot: snapshot,
                 orderedChunks: chunks,
                 scope: boundedScope,
-                maxUTF16: maxUTF16
+                maxUTF16: structuredContextBudget(
+                    for: boundedScope,
+                    format: snapshot.format
+                )
             )
         } catch {
             return nil
+        }
+    }
+
+    private func structuredContextBudget(
+        for scope: AIDocumentContextScope,
+        format: BookFormat
+    ) -> Int {
+        switch scope {
+        case .section:
+            return AIContextBudget.sectionMaxUTF16
+        case .chapter:
+            switch format {
+            case .pdf, .azw3:
+                // Neither provider exposes exact structured chapter data, so
+                // Chapter degrades completely to bounded Section semantics.
+                return AIContextBudget.sectionMaxUTF16
+            case .txt, .md, .epub:
+                return AIContextBudget.defaultMaxUTF16
+            }
+        case .bookSoFar:
+            return AIContextBudget.defaultMaxUTF16
         }
     }
 

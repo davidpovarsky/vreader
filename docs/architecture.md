@@ -264,11 +264,14 @@ WI-3 providers and are never reopened for AI context. The shared
 `AIDocumentContextResolver` implements Section, Chapter, and spoiler-safe
 Book-so-far selection before applying scope-specific UTF-16 budgets. Section
 preserves the established 2,500-unit current-passage window inside the exact
-structured source unit; Chapter and Book-so-far keep the larger 12,000-unit
-budget. An oversized TXT/Markdown Chapter is centered on the reader's exact
-document-global UTF-16 position, while Book-so-far remains recency-biased. Chat
-and Summarize both consume the resolved context; explicit selection translation
-remains on the existing selection path.
+structured source unit. TXT/Markdown Chapter and EPUB's exact-resource
+Chapter-equivalent use the larger 12,000-unit budget; PDF and legacy Foliate,
+which have no exact structured chapter mapping, degrade completely to their
+current-page/current-section semantics and the 2,500-unit Section budget.
+Book-so-far keeps 12,000 units and remains recency-biased. An oversized
+TXT/Markdown Chapter is centered on the reader's exact document-global UTF-16
+position. Chat and Summarize both consume the resolved context; explicit
+selection translation remains on the existing selection path.
 
 Whole-book AI obtains an `AIWholeBookSourceManifest` from that same exact
 provider session and reduces ordered structured chunks. The manifest retains

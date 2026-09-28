@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
       run_feature_177_regression_tests:
-        description: Run targeted WI-3 search and reader regression tests
+        description: Run targeted Feature 177 reader and permission regressions
         required: false
         default: false
         type: boolean
@@ -281,6 +281,10 @@ jobs:
             -only-testing:vreaderTests/ChatAnnotationCacheTests \
             -only-testing:vreaderTests/WholeBookReducerTests \
             -only-testing:vreaderTests/WholeBookRetrievalViewModelTests \
+            -only-testing:vreaderTests/AIAgentPreferencesStoreTests \
+            -only-testing:vreaderTests/AIToolAuthorizationPolicyTests \
+            -only-testing:vreaderTests/AIActionConfirmationBrokerTests \
+            -only-testing:vreaderTests/AIReadAheadAuthorizationTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -324,7 +328,11 @@ jobs:
             vreaderTests/ChatContextFoundationTests \
             vreaderTests/ChatAnnotationCacheTests \
             vreaderTests/WholeBookReducerTests \
-            vreaderTests/WholeBookRetrievalViewModelTests
+            vreaderTests/WholeBookRetrievalViewModelTests \
+            vreaderTests/AIAgentPreferencesStoreTests \
+            vreaderTests/AIToolAuthorizationPolicyTests \
+            vreaderTests/AIActionConfirmationBrokerTests \
+            vreaderTests/AIReadAheadAuthorizationTests
 
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}

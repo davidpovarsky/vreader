@@ -283,6 +283,29 @@ shown by whole-book coverage describe only the transient reduction stream;
 they are not navigation or document-location truth. Legacy Foliate therefore
 remains partial unless it can enumerate the complete book.
 
+#### AI-agent permissions (`Features/AIAgent/Permissions/`)
+
+Feature #177 WI-5 adds an actor-isolated `AIAgentPreferencesStore` over the
+existing `PreferenceStoring` seam. Its tolerant JSON model persists Allow / Ask
+/ Deny decisions for semantic tool categories plus the independent read-ahead
+mode, whose default is Never read ahead. `AIToolAuthorizationPolicy` is the one
+typed decision point for category policy and delegates all location ordering to
+the existing `AIReadingBoundaryPolicy`; it never reconstructs a flattened
+position. A whole-book mode relaxes only that spoiler boundary, while the
+operation's own permission remains in force. Destructive/remove-data actions
+can be denied but can never be immediately allowed or remembered as Always
+Allow.
+
+`AIActionConfirmationBroker` owns pending checked continuations inside an
+actor, publishes UI-neutral pending-request snapshots through `AsyncStream`,
+and removes a request before resolving it. Request identity isolates concurrent
+tool calls; task/turn cancellation, invalidation, and teardown resume pending
+work as cancelled, while duplicate or late responses are harmless. The
+`AIReadAheadAuthorizationBridge` withholds the structured chunk itself until
+the boundary/category decision allows it or the matching confirmation resolves
+successfully. WI-5 intentionally adds no settings or confirmation UI and does
+not route the existing tools yet.
+
 ### 6. Data Layer (`vreader/Models/`)
 
 SwiftData SchemaV10 entities (V9→V10 adds the additive optional `Book.sourceCanonicalKey: String?` — feature #108's converted-Kindle cross-platform identity, carried in the backup manifest; feature #109's NFC locator-key recompute runs as the launch-time `LocatorKeyBackfillMigration`, not a schema migration — see the App Layer note above):

@@ -68,7 +68,7 @@ actor AIActionConfirmationBroker {
         _ request: AIActionConfirmationRequest
     ) async -> AIActionConfirmationOutcome {
         let terminalGate = TerminalGate()
-        await withTaskCancellationHandler {
+        return await withTaskCancellationHandler {
             await withCheckedContinuation {
                 (continuation: CheckedContinuation<AIActionConfirmationOutcome, Never>) in
                 guard !Task.isCancelled, pending[request.id] == nil else {

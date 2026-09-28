@@ -18,9 +18,11 @@ struct AIAgentPreferencesStoreTests {
     func deterministicDefaults() async {
         let (first, _) = Self.makeStore()
         let (second, _) = Self.makeStore()
+        let firstLoaded = await first.load()
+        let secondLoaded = await second.load()
 
-        #expect(await first.load() == await second.load())
-        #expect(await first.load() == .default)
+        #expect(firstLoaded == secondLoaded)
+        #expect(firstLoaded == .default)
     }
 
     @Test("read-ahead defaults to never")

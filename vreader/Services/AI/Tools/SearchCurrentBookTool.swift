@@ -170,6 +170,12 @@ struct SearchCurrentBookTool: AITool {
         maxBytes: Int
     ) -> String {
         guard !results.isEmpty else {
+            if originalPage.results.isEmpty {
+                return ToolResultText.clamp(
+                    "No matches for \"\(displayQuery)\" in the current book.",
+                    toBytes: maxBytes
+                )
+            }
             return ToolResultText.clamp(
                 "No authorized matches for \"\(displayQuery)\" within the current reading boundary.",
                 toBytes: maxBytes

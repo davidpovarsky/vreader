@@ -43,8 +43,19 @@ struct AIAnnotationReadToolsTests {
         ).run(.object(["query": .string("dragon")]))
         #expect(!result.isError)
         #expect(result.content.contains("dragon note"))
-        #expect(result.content.contains(fixture.current.canonicalKey))
-        #expect(result.content.contains("charOffsetUTF16"))
+        let noteLine = result.content
+            .components(separatedBy: .newlines)
+            .first { $0.contains("dragon note") } ?? ""
+        guard let markerRange = noteLine.range(of: "locator_json=") else {
+            Issue.record("Missing locator_json in output line: \(noteLine)")
+            return
+        }
+        let rawLocatorJSON = String(noteLine[markerRange.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let locator = AIReaderToolOutput.decodeLocator(.object(["locator_json": .string(rawLocatorJSON)]))
+        #expect(locator != nil)
+        #expect(locator?.bookFingerprint == fixture.current)
+        #expect(locator?.charOffsetUTF16 == 10)
     }
 
     @Test("annotation query is strict and empty input performs no read")

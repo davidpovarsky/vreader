@@ -298,6 +298,11 @@ jobs:
             -only-testing:vreaderTests/AIPendingBookNavigationStoreTests \
             -only-testing:vreaderTests/AIExactSessionToolIsolationTests \
             -only-testing:vreaderTests/AIAgentToolRegistryIntegrationTests \
+            -only-testing:vreaderTests/SearchCurrentBookToolTests \
+            -only-testing:vreaderTests/SearchOtherBooksToolTests \
+            -only-testing:vreaderTests/GetBookContentToolTests \
+            -only-testing:vreaderTests/ListLibraryToolTests \
+            -only-testing:vreaderTests/AgenticToolRegistryBuilderTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -338,6 +343,31 @@ jobs:
             vreaderTests/AIPendingBookNavigationStoreTests \
             vreaderTests/AIExactSessionToolIsolationTests \
             vreaderTests/AIAgentToolRegistryIntegrationTests
+
+      - name: Run directly affected existing tool suites
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        shell: bash
+        env:
+          TEST_UDID: ${{ env.FEATURE_TEST_UDID }}
+          TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-existing-tool-tests.log
+          TEST_CONFIGURATION: Debug
+          TEST_ENABLE_TESTABILITY: YES
+          TEST_ONLY_ACTIVE_ARCH: YES
+          TEST_XCODEBUILD_ACTION: test-without-building
+          TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
+          TEST_SCHEME: vreader
+          TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177ExistingToolTests.xcresult
+          TEST_COLLECT_DIAGNOSTICS: never
+          TIMEOUT_SECS: 300
+        run: |
+          set -euo pipefail
+          scripts/run-tests.sh \
+            vreaderTests/SearchCurrentBookToolTests \
+            vreaderTests/SearchOtherBooksToolTests \
+            vreaderTests/GetBookContentToolTests \
+            vreaderTests/ListLibraryToolTests \
+            vreaderTests/AgenticToolRegistryBuilderTests
 
       - name: Run focused Feature 177 WI-5 permission tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
@@ -495,9 +525,11 @@ jobs:
           path: |
             build/feature-177-regression-compile.log
             build/feature-177-wi6-tests.log
+            build/feature-177-existing-tool-tests.log
             build/feature-177-wi5-tests.log
             build/feature-177-regression-tests.log
             build/Feature177WI6Tests.xcresult
+            build/Feature177ExistingToolTests.xcresult
             build/Feature177WI5Tests.xcresult
             build/Feature177RegressionTests.xcresult
             vreader.xcodeproj/project.pbxproj

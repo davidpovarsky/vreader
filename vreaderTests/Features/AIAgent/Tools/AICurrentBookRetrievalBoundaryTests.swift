@@ -107,7 +107,7 @@ struct AICurrentBookRetrievalBoundaryTests {
             crossing, boundary: boundary, toolName: "test", actionDescription: "read"
         )
         #expect(safe?.text == "345")
-        #expect(!((safe?.text ?? "").contains("678")))
+        #expect((safe?.text ?? "").contains("678") == false)
         #expect(safe?.globalEndUTF16 == 6)
     }
 

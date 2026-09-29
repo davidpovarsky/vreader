@@ -47,7 +47,17 @@ struct AIReaderContextToolsTests {
         let result = await GetCurrentLocationTool(
             context: context, authorizationGate: allowCurrentGate()
         ).run(.object([:]))
-        #expect(result.content.contains("Text/ch2.xhtml"))
+        #expect(!result.isError)
+        struct LocationPayload: Decodable {
+            let title: String
+            let href: String?
+            let format: String
+        }
+        let payload = try? JSONDecoder().decode(
+            LocationPayload.self,
+            from: Data(result.content.utf8)
+        )
+        #expect(payload?.href == "Text/ch2.xhtml")
         #expect(!result.content.contains("global_offset"))
     }
 

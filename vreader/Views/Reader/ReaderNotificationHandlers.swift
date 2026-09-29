@@ -47,6 +47,7 @@ protocol ReaderNotificationHandlerStateProtocol: AnyObject {
 struct ReaderNotificationDeps {
     let bookFingerprintKey: String
     let bookFingerprint: DocumentFingerprint
+    let readerToken: UUID?
     let bookmarkPersistence: any BookmarkPersisting
     let highlightPersistence: any HighlightPersisting
     let annotationPersistence: any AnnotationPersisting
@@ -60,6 +61,7 @@ struct ReaderNotificationDeps {
     init(
         bookFingerprintKey: String,
         bookFingerprint: DocumentFingerprint,
+        readerToken: UUID? = nil,
         bookmarkPersistence: any BookmarkPersisting,
         highlightPersistence: any HighlightPersisting,
         annotationPersistence: any AnnotationPersisting,
@@ -71,6 +73,7 @@ struct ReaderNotificationDeps {
     ) {
         self.bookFingerprintKey = bookFingerprintKey
         self.bookFingerprint = bookFingerprint
+        self.readerToken = readerToken
         self.bookmarkPersistence = bookmarkPersistence
         self.highlightPersistence = highlightPersistence
         self.annotationPersistence = annotationPersistence

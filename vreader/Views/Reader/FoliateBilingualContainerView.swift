@@ -343,7 +343,9 @@ struct FoliateBilingualContainerView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .readerNavigateToLocator)
         ) { notification in
-            guard let locator = notification.object as? Locator,
+            guard AIReaderNavigationTarget.accepts(
+                notification, readerToken: readerToken
+            ), let locator = notification.object as? Locator,
                   let target = FoliateNavSeek.navigationTarget(for: locator)
             else { return }
             NotificationCenter.default.post(

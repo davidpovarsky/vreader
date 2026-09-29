@@ -306,6 +306,34 @@ the boundary/category decision allows it or the matching confirmation resolves
 successfully. WI-5 intentionally adds no settings or confirmation UI and does
 not route the existing tools yet.
 
+Feature #177 WI-6 routes every agent tool through
+`AIAgentToolExecutionGate`, which composes the WI-5 preference, policy, and
+confirmation seams. Production has no confirmation surface yet, so Ask fails
+closed; tests can connect the broker directly to prove allow, deny, and
+cancellation behavior. Existing library search/list/content tools now authorize
+before touching their backends, and current-book content never falls back to a
+closed-book flattened extractor.
+
+`AILiveReaderToolContext` resolves only the exact WI-3 document session
+`(fingerprint, readerToken)`. `AICurrentBookRetrievalBoundary` is the shared
+spoiler boundary for current search, context/chapter/TOC, and annotation reads:
+exact TXT/Markdown overlaps are clipped in structured UTF-16 coordinates,
+page/resource candidates are atomic, unknown ordering fails closed, and
+whole-book permission is the only boundary bypass. Read-only annotation tools
+consume `AnnotationPersisting`, `HighlightPersisting`, and
+`BookmarkPersisting`; they expose no mutation seam.
+
+The reader registry additionally exposes `get_current_location`,
+`get_current_context`, `get_current_chapter`, `get_table_of_contents`,
+`search_annotations`, `get_annotations`, `open_location`, and `open_book`.
+Navigation uses structured `Locator` values through
+`AIReaderNavigationRouting`. Current-reader navigation includes the reader
+token in the existing notification route so another mounted reader cannot
+consume it; book opening goes through the normal library navigation path and a
+one-shot pending-locator store claimed by the newly-created reader token and
+released only after that exact session's document provider attaches. All tool outputs remain bounded and all async
+paths check task cancellation before releasing content or navigation effects.
+
 ### 6. Data Layer (`vreader/Models/`)
 
 SwiftData SchemaV10 entities (V9→V10 adds the additive optional `Book.sourceCanonicalKey: String?` — feature #108's converted-Kindle cross-platform identity, carried in the backup manifest; feature #109's NFC locator-key recompute runs as the launch-time `LocatorKeyBackfillMigration`, not a schema migration — see the App Layer note above):

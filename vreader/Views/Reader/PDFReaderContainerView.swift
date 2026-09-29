@@ -274,7 +274,9 @@ struct PDFReaderContainerView: View {
             viewModel.pageDidChange(to: page)
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-            guard let locator = notification.object as? Locator,
+            guard AIReaderNavigationTarget.accepts(
+                notification, readerToken: readerToken
+            ), let locator = notification.object as? Locator,
                   let page = locator.page else { return }
             restoredPage = page
             viewModel.pageDidChange(to: page)

@@ -85,7 +85,9 @@ struct FoliateReaderContainerView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-            guard let locator = notification.object as? Locator,
+            guard AIReaderNavigationTarget.accepts(
+                notification, readerToken: nil
+            ), let locator = notification.object as? Locator,
                   let cfi = locator.cfi else { return }
             navigateToSearchResult(cfi: cfi)
         }

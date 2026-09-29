@@ -54,6 +54,7 @@ private actor CapturingSearch: SearchProviding {
     func isIndexed(fingerprint: DocumentFingerprint) async -> Bool { true }
 }
 
+@MainActor
 @Suite("Feature #91 WI-6a — SearchCurrentBookTool")
 struct SearchCurrentBookToolTests {
 
@@ -78,7 +79,32 @@ struct SearchCurrentBookToolTests {
     ) -> SearchCurrentBookTool {
         SearchCurrentBookTool(
             search: stub, bookFingerprint: Self.bookFP,
+            authorizationGate: WI6Fixtures.gate([
+                .readCurrentBook: .allow, .readAhead: .allow
+            ], readAhead: .wholeBookAllowed),
+            readerContext: readerContext(),
             maxResults: maxResults, maxContentBytes: maxContentBytes)
+    }
+
+    private func readerContext() -> AILiveReaderToolContext {
+        let chunk = WI6Fixtures.chunk(
+            fingerprint: Self.bookFP, id: "epub:chapter.xhtml", index: 0,
+            text: "fixture", href: "chapter.xhtml", local: 0..<7
+        )
+        let registry = AIDocumentProviderRegistry()
+        let token = UUID()
+        registry.attach(WI6DocumentProvider(
+            fingerprint: Self.bookFP, chunks: [chunk],
+            snapshot: WI6Fixtures.snapshot(
+                fingerprint: Self.bookFP, current: chunk, localBoundary: nil
+            )
+        ), for: AIDocumentSessionID(
+            fingerprintKey: Self.bookFP.canonicalKey, readerToken: token
+        ))
+        return AILiveReaderToolContext(
+            bookTitle: "Fixture", fingerprint: Self.bookFP,
+            readerToken: token, providerResolver: registry
+        )
     }
 
     // MARK: - Definition

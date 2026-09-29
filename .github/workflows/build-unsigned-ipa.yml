@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
       run_feature_177_regression_tests:
-        description: Run targeted Feature 177 reader and permission regressions
+        description: Run focused WI-6, WI-5, and complete Feature 177 regressions
         required: false
         default: false
         type: boolean
@@ -285,6 +285,19 @@ jobs:
             -only-testing:vreaderTests/AIToolAuthorizationPolicyTests \
             -only-testing:vreaderTests/AIActionConfirmationBrokerTests \
             -only-testing:vreaderTests/AIReadAheadAuthorizationTests \
+            -only-testing:vreaderTests/AIAuthorizedExistingToolsTests \
+            -only-testing:vreaderTests/AICurrentSearchBoundaryTests \
+            -only-testing:vreaderTests/AIOtherBookAuthorizationTests \
+            -only-testing:vreaderTests/AICurrentBookRetrievalBoundaryTests \
+            -only-testing:vreaderTests/AICurrentBookContentPagingTests \
+            -only-testing:vreaderTests/AICurrentBookContentToolTests \
+            -only-testing:vreaderTests/AIReaderContextToolsTests \
+            -only-testing:vreaderTests/AIReaderStructuredFormatToolsTests \
+            -only-testing:vreaderTests/AIAnnotationReadToolsTests \
+            -only-testing:vreaderTests/AINavigationToolsTests \
+            -only-testing:vreaderTests/AIPendingBookNavigationStoreTests \
+            -only-testing:vreaderTests/AIExactSessionToolIsolationTests \
+            -only-testing:vreaderTests/AIAgentToolRegistryIntegrationTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -292,6 +305,39 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             2>&1 | tee build/feature-177-regression-compile.log
+
+      - name: Run focused Feature 177 WI-6 local retrieval and reader tool tests
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        shell: bash
+        env:
+          TEST_UDID: ${{ env.FEATURE_TEST_UDID }}
+          TEST_LOG_PATH: ${{ github.workspace }}/build/feature-177-wi6-tests.log
+          TEST_CONFIGURATION: Debug
+          TEST_ENABLE_TESTABILITY: YES
+          TEST_ONLY_ACTIVE_ARCH: YES
+          TEST_XCODEBUILD_ACTION: test-without-building
+          TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
+          TEST_SCHEME: vreader
+          TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177WI6Tests.xcresult
+          TEST_COLLECT_DIAGNOSTICS: never
+          TIMEOUT_SECS: 300
+        run: |
+          set -euo pipefail
+          scripts/run-tests.sh \
+            vreaderTests/AIAuthorizedExistingToolsTests \
+            vreaderTests/AICurrentSearchBoundaryTests \
+            vreaderTests/AIOtherBookAuthorizationTests \
+            vreaderTests/AICurrentBookRetrievalBoundaryTests \
+            vreaderTests/AICurrentBookContentPagingTests \
+            vreaderTests/AICurrentBookContentToolTests \
+            vreaderTests/AIReaderContextToolsTests \
+            vreaderTests/AIReaderStructuredFormatToolsTests \
+            vreaderTests/AIAnnotationReadToolsTests \
+            vreaderTests/AINavigationToolsTests \
+            vreaderTests/AIPendingBookNavigationStoreTests \
+            vreaderTests/AIExactSessionToolIsolationTests \
+            vreaderTests/AIAgentToolRegistryIntegrationTests
 
       - name: Run focused Feature 177 WI-5 permission tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
@@ -356,7 +402,20 @@ jobs:
             vreaderTests/AIAgentPreferencesStoreTests \
             vreaderTests/AIToolAuthorizationPolicyTests \
             vreaderTests/AIActionConfirmationBrokerTests \
-            vreaderTests/AIReadAheadAuthorizationTests
+            vreaderTests/AIReadAheadAuthorizationTests \
+            vreaderTests/AIAuthorizedExistingToolsTests \
+            vreaderTests/AICurrentSearchBoundaryTests \
+            vreaderTests/AIOtherBookAuthorizationTests \
+            vreaderTests/AICurrentBookRetrievalBoundaryTests \
+            vreaderTests/AICurrentBookContentPagingTests \
+            vreaderTests/AICurrentBookContentToolTests \
+            vreaderTests/AIReaderContextToolsTests \
+            vreaderTests/AIReaderStructuredFormatToolsTests \
+            vreaderTests/AIAnnotationReadToolsTests \
+            vreaderTests/AINavigationToolsTests \
+            vreaderTests/AIPendingBookNavigationStoreTests \
+            vreaderTests/AIExactSessionToolIsolationTests \
+            vreaderTests/AIAgentToolRegistryIntegrationTests
 
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}
@@ -435,8 +494,10 @@ jobs:
           name: feature-177-regression-tests
           path: |
             build/feature-177-regression-compile.log
+            build/feature-177-wi6-tests.log
             build/feature-177-wi5-tests.log
             build/feature-177-regression-tests.log
+            build/Feature177WI6Tests.xcresult
             build/Feature177WI5Tests.xcresult
             build/Feature177RegressionTests.xcresult
             vreader.xcodeproj/project.pbxproj

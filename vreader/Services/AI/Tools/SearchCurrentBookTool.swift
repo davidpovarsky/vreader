@@ -30,17 +30,23 @@ struct SearchCurrentBookTool: AITool {
 
     private let search: any SearchProviding
     private let bookFingerprint: DocumentFingerprint
+    private let authorizationGate: AIAgentToolExecutionGate
+    private let readerContext: any AIReaderToolContextProviding
     private let maxResults: Int
     private let maxContentBytes: Int
 
     init(
         search: any SearchProviding,
         bookFingerprint: DocumentFingerprint,
+        authorizationGate: AIAgentToolExecutionGate,
+        readerContext: any AIReaderToolContextProviding,
         maxResults: Int = 8,
         maxContentBytes: Int = 6_000
     ) {
         self.search = search
         self.bookFingerprint = bookFingerprint
+        self.authorizationGate = authorizationGate
+        self.readerContext = readerContext
         self.maxResults = max(1, maxResults)
         self.maxContentBytes = max(256, maxContentBytes)
     }
@@ -77,14 +83,47 @@ struct SearchCurrentBookTool: AITool {
         // short line first — an oversized model-supplied query can't blow the
         // tool_result budget (every return path is clamped below).
         let displayQuery = ToolResultText.oneLine(query, maxChars: 120)
+        let authorization = await authorizationGate.authorize(
+            AIAgentToolAuthorization.context(
+                toolName: Self.toolName,
+                actionDescription: "Search the current book",
+                category: .readCurrentBook,
+                bookFingerprintKey: bookFingerprint.canonicalKey,
+                metadata: ["query": displayQuery]
+            )
+        )
+        guard authorization == .allowed else {
+            return AIAgentToolAuthorization.errorResult(
+                authorization, maxBytes: maxContentBytes
+            )
+        }
+        guard !Task.isCancelled,
+              await readerContext.fingerprint == bookFingerprint,
+              let document = await readerContext.resolveDocument() else {
+            return errorResult("The exact active reader session is unavailable.")
+        }
         do {
             let page = try await search.search(
                 query: query, bookFingerprint: bookFingerprint, page: 0, pageSize: maxResults)
+            guard !Task.isCancelled else {
+                return errorResult("The search was cancelled before results could be returned.")
+            }
+            let safe = await AICurrentBookSearchBoundary(
+                retrievalBoundary: AICurrentBookRetrievalBoundary(
+                    authorizationGate: authorizationGate
+                )
+            ).authorizedResults(
+                page.results,
+                document: document,
+                maxResults: maxResults
+            )
             return ToolResult(
                 toolUseID: "",
-                content: Self.format(
-                    displayQuery: displayQuery, page: page,
-                    maxResults: maxResults, maxBytes: maxContentBytes),
+                content: Self.formatAuthorized(
+                    displayQuery: displayQuery,
+                    results: safe,
+                    originalPage: page,
+                    maxBytes: maxContentBytes),
                 isError: false)
         } catch {
             Self.log.error(
@@ -120,6 +159,30 @@ struct SearchCurrentBookTool: AITool {
             let snippet = ToolResultText.oneLine(result.snippet, maxChars: 400)
             let source = ToolResultText.oneLine(result.sourceContext, maxChars: 80)
             lines.append("\(i + 1). \(snippet) — \(source)")
+        }
+        return ToolResultText.clamp(lines.joined(separator: "\n"), toBytes: maxBytes)
+    }
+
+    private static func formatAuthorized(
+        displayQuery: String,
+        results: [AIAuthorizedSearchResult],
+        originalPage: SearchResultPage,
+        maxBytes: Int
+    ) -> String {
+        guard !results.isEmpty else {
+            return ToolResultText.clamp(
+                "No authorized matches for \"\(displayQuery)\" within the current reading boundary.",
+                toBytes: maxBytes
+            )
+        }
+        let count = originalPage.totalEstimate ?? results.count
+        var lines = ["Found \(results.count) authorized match(es) for \"\(displayQuery)\" (\(count) indexed candidate(s)):"]
+        for (index, authorized) in results.enumerated() {
+            let snippet = ToolResultText.oneLine(authorized.text, maxChars: 400)
+            let source = ToolResultText.oneLine(
+                authorized.result.sourceContext, maxChars: 80
+            )
+            lines.append("\(index + 1). \(snippet) — \(source)")
         }
         return ToolResultText.clamp(lines.joined(separator: "\n"), toBytes: maxBytes)
     }

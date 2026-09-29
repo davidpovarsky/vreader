@@ -292,6 +292,9 @@ struct EPUBReaderContainerView: View {
             handleSideTapPrevious()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
+            guard AIReaderNavigationTarget.accepts(
+                notification, readerToken: readerToken
+            ) else { return }
             handleNavigationRequest(notification)
         }
 

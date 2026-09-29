@@ -53,7 +53,13 @@ struct GetBookContentToolTests {
     private func tool(
         _ provider: StubContentProvider, maxChars: Int = 8_000, maxContentBytes: Int = 16_000
     ) -> GetBookContentTool {
-        GetBookContentTool(provider: provider, maxChars: maxChars, maxContentBytes: maxContentBytes)
+        GetBookContentTool(
+            provider: provider,
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]),
+            readerContext: nil,
+            maxChars: maxChars,
+            maxContentBytes: maxContentBytes
+        )
     }
 
     // MARK: - Structural canonical-format derivation (Gate-4 High)

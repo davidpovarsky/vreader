@@ -599,6 +599,10 @@ struct ReaderContainerView: View {
                 resolvedAICoordinator.refreshChatContext()
             }
         ))
+        .modifier(AIPendingBookNavigationObserver(
+            fingerprintKey: book.fingerprintKey,
+            readerToken: readerToken
+        ))
         .onReceive(NotificationCenter.default.publisher(for: .readerPositionDidChange)) { notification in
             guard let locator = notification.object as? Locator else { return }
             currentLocator = locator

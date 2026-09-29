@@ -32,6 +32,7 @@ struct SearchOtherBooksTool: AITool {
     /// The currently-open book's fingerprint key, excluded from the search
     /// (search_current_book owns it). nil when no book is open.
     private let currentBookFingerprintKey: String?
+    private let authorizationGate: AIAgentToolExecutionGate
     private let maxBooks: Int          // cap on books actually searched
     private let perBookResults: Int    // cap on snippets per book
     private let maxContentBytes: Int
@@ -39,12 +40,14 @@ struct SearchOtherBooksTool: AITool {
     init(
         backend: any LibrarySearchBackend,
         currentBookFingerprintKey: String?,
+        authorizationGate: AIAgentToolExecutionGate,
         maxBooks: Int = 10,
         perBookResults: Int = 3,
         maxContentBytes: Int = 8_000
     ) {
         self.backend = backend
         self.currentBookFingerprintKey = currentBookFingerprintKey
+        self.authorizationGate = authorizationGate
         self.maxBooks = max(1, maxBooks)
         self.perBookResults = max(1, perBookResults)
         self.maxContentBytes = max(256, maxContentBytes)
@@ -80,6 +83,22 @@ struct SearchOtherBooksTool: AITool {
                 "Missing required 'query' — provide a non-empty string of words to search for.")
         }
         let displayQuery = ToolResultText.oneLine(query, maxChars: 120)
+        let authorization = await authorizationGate.authorize(
+            AIAgentToolAuthorization.context(
+                toolName: Self.toolName,
+                actionDescription: "Search other books in the library",
+                category: .readOtherBooks,
+                metadata: ["query": displayQuery]
+            )
+        )
+        guard authorization == .allowed else {
+            return AIAgentToolAuthorization.errorResult(
+                authorization, maxBytes: maxContentBytes
+            )
+        }
+        guard !Task.isCancelled else {
+            return errorResult("The search was cancelled before it could run.")
+        }
 
         let books: [LibraryBookItem]
         do {
@@ -119,6 +138,9 @@ struct SearchOtherBooksTool: AITool {
         var hitsByBook: [(title: String, snippets: [String])] = []
         var searchFailures = 0
         for entry in toSearch {
+            guard !Task.isCancelled else {
+                return errorResult("The search was cancelled before results could be returned.")
+            }
             if let offsets = entry.restore {
                 await backend.restoreSegmentOffsets(fingerprint: entry.fingerprint, offsets: offsets)
             }

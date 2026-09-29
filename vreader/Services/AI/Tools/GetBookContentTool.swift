@@ -30,15 +30,21 @@ struct GetBookContentTool: AITool {
     private static let log = Logger(subsystem: "com.vreader.app", category: "GetBookContentTool")
 
     private let provider: any BookContentProvider
+    private let authorizationGate: AIAgentToolExecutionGate
+    private let readerContext: (any AIReaderToolContextProviding)?
     private let maxChars: Int          // hard ceiling on returned characters
     private let maxContentBytes: Int   // hard UTF-8 byte budget
 
     init(
         provider: any BookContentProvider,
+        authorizationGate: AIAgentToolExecutionGate,
+        readerContext: (any AIReaderToolContextProviding)?,
         maxChars: Int = 8_000,
         maxContentBytes: Int = 16_000
     ) {
         self.provider = provider
+        self.authorizationGate = authorizationGate
+        self.readerContext = readerContext
         self.maxChars = max(1, maxChars)
         self.maxContentBytes = max(256, maxContentBytes)
     }
@@ -116,6 +122,44 @@ struct GetBookContentTool: AITool {
             break
         }
 
+        let isCurrentBook: Bool
+        if let readerContext {
+            let readerFingerprint = await readerContext.fingerprint
+            isCurrentBook = readerFingerprint.canonicalKey == info.fingerprintKey
+        } else {
+            isCurrentBook = false
+        }
+        let category: AIToolPermissionCategory = isCurrentBook
+            ? .readCurrentBook
+            : .readOtherBooks
+        let authorization = await authorizationGate.authorize(
+            AIAgentToolAuthorization.context(
+                toolName: Self.toolName,
+                actionDescription: isCurrentBook
+                    ? "Read content from the current book"
+                    : "Read content from another library book",
+                category: category,
+                bookFingerprintKey: info.fingerprintKey,
+                metadata: ["title": displayTitle]
+            )
+        )
+        guard authorization == .allowed else {
+            return AIAgentToolAuthorization.errorResult(
+                authorization, maxBytes: maxContentBytes
+            )
+        }
+        guard !Task.isCancelled else {
+            return errorResult("The content request was cancelled before it could run.")
+        }
+
+        if isCurrentBook, let readerContext {
+            return await currentBookContent(
+                info: info,
+                input: input,
+                readerContext: readerContext
+            )
+        }
+
         let text: String
         do {
             text = try await provider.extractText(fingerprintKey: info.fingerprintKey)
@@ -151,6 +195,53 @@ struct GetBookContentTool: AITool {
             content: formatContent(
                 title: info.title, text: text, start: start, charBudget: charBudget, total: total),
             isError: false)
+    }
+
+    private func currentBookContent(
+        info: BookContentInfo,
+        input: JSONValue,
+        readerContext: any AIReaderToolContextProviding
+    ) async -> ToolResult {
+        guard let document = await readerContext.resolveDocument(),
+              document.snapshot.bookFingerprint.canonicalKey == info.fingerprintKey,
+              !Task.isCancelled else {
+            return errorResult("The exact active reader session is unavailable.")
+        }
+        let safeChunks = await AICurrentBookRetrievalBoundary(
+            authorizationGate: authorizationGate
+        ).authorizedTexts(
+            document.chunks,
+            boundary: document.snapshot.readSoFarBoundary,
+            toolName: Self.toolName,
+            actionDescription: "Read current-book structured content"
+        )
+        guard !Task.isCancelled else {
+            return errorResult("The content request was cancelled before results could be returned.")
+        }
+        let safeText = safeChunks.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard !safeText.isEmpty else {
+            return errorResult("No current-book text is authorized within the reading boundary.")
+        }
+        let total = safeText.count
+        let start = max(0, input["start_char"]?.intValue ?? 0)
+        guard start < total else {
+            return errorResult(
+                "The authorized current-book payload has \(total) characters; start_char \(start) is past its safe end."
+            )
+        }
+        let requested = input["max_chars"]?.intValue
+        let charBudget = min(maxChars, max(1, requested ?? maxChars))
+        return ToolResult(
+            toolUseID: "",
+            content: formatContent(
+                title: info.title,
+                text: safeText,
+                start: start,
+                charBudget: charBudget,
+                total: total
+            ),
+            isError: false
+        )
     }
 
     /// An `isError` result whose content is byte-clamped like the success path.

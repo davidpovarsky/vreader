@@ -219,7 +219,9 @@ extension ReadiumEPUBHost {
             navCommander.previousPage()
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-            guard let vLocator = notification.object as? Locator,
+            guard AIReaderNavigationTarget.accepts(
+                notification, readerToken: readerToken ?? aiDocumentFallbackToken
+            ), let vLocator = notification.object as? Locator,
                   let readiumLocator = ReadiumEPUBReaderViewModel.readiumLocator(
                     fromVReader: vLocator,
                     spineHrefs: publication.readingOrder.map(\.href)

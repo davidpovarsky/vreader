@@ -32,7 +32,9 @@ struct ReaderNotificationModifier: ViewModifier {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .readerNavigateToLocator)) { notification in
-                guard let locator = notification.object as? Locator else { return }
+                guard AIReaderNavigationTarget.accepts(
+                    notification, readerToken: deps.readerToken
+                ), let locator = notification.object as? Locator else { return }
                 // Sync handler — mutate state directly (no race).
                 // Bug #154 / GH #443: delegate to the extracted, unit-tested
                 // `ReaderNotificationHandlers.handleNavigateToLocator`, which

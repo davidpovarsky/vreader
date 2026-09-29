@@ -42,7 +42,8 @@ struct ListLibraryToolTests {
     ) -> ListLibraryTool {
         ListLibraryTool(
             backend: StubListBackend(books: books, throwsOnList: throwsOnList),
-            currentBookFingerprintKey: openKey)
+            currentBookFingerprintKey: openKey,
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]))
     }
 
     private func run(_ tool: ListLibraryTool, _ input: JSONValue = .object([:])) async -> ToolResult {

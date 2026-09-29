@@ -350,6 +350,7 @@ struct MDReaderContainerView: View {
         return ReaderNotificationDeps(
             bookFingerprintKey: viewModel.bookFingerprintKey,
             bookFingerprint: viewModel.bookFingerprint,
+            readerToken: readerToken,
             bookmarkPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpBookmarkStore(),
             highlightPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpHighlightStore(),
             annotationPersistence: container.map { PersistenceActor(modelContainer: $0) } ?? NoOpAnnotationStore(),

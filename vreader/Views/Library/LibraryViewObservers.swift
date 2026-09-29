@@ -61,6 +61,38 @@ struct LibraryViewObservers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .bookDidImport)) { _ in
                 Task { await viewModel.refresh(force: true) }
             }
+            // Feature #177 WI-6: AI open_book reuses the library's normal
+            // navigationPath route. The optional target is delivered by the new
+            // reader only after its first live position event.
+            .onReceive(NotificationCenter.default.publisher(for: .aiOpenBookRequested)) { notification in
+                guard let request = notification.object as? AIBookOpenNavigationRequest else {
+                    return
+                }
+                Task { @MainActor in
+                    await viewModel.loadBooks()
+                    guard !Task.isCancelled,
+                          let book = viewModel.books.first(where: {
+                              $0.fingerprintKey == request.fingerprintKey && $0.isReadable
+                          }) else { return }
+                    if let locator = request.locator {
+                        await AIPendingBookNavigationStore.shared.set(
+                            locator,
+                            for: request.fingerprintKey
+                        )
+                    }
+                    guard !Task.isCancelled else {
+                        if request.locator != nil {
+                            await AIPendingBookNavigationStore.shared.set(
+                                nil,
+                                for: request.fingerprintKey
+                            )
+                        }
+                        return
+                    }
+                    isPushingReader = true
+                    navigationPath.append(book)
+                }
+            }
             // Bug #254: the DebugBridge observers attach ONLY in DEBUG. Both
             // this call site AND the `LibraryDebugBridgeObservers` struct are
             // `#if DEBUG`-gated so the symbol is entirely absent from Release

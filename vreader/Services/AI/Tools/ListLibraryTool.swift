@@ -41,17 +41,20 @@ struct ListLibraryTool: AITool {
     private let backend: any LibrarySearchBackend
     /// The open book's fingerprint key (excluded when `include_current_book=false`).
     private let currentBookFingerprintKey: String?
+    private let authorizationGate: AIAgentToolExecutionGate
     private let maxBooks: Int          // hard cap — never dump the whole shelf
     private let maxContentBytes: Int
 
     init(
         backend: any LibrarySearchBackend,
         currentBookFingerprintKey: String?,
+        authorizationGate: AIAgentToolExecutionGate,
         maxBooks: Int = 100,
         maxContentBytes: Int = 8_000
     ) {
         self.backend = backend
         self.currentBookFingerprintKey = currentBookFingerprintKey
+        self.authorizationGate = authorizationGate
         self.maxBooks = max(1, maxBooks)
         self.maxContentBytes = max(256, maxContentBytes)
     }
@@ -95,6 +98,25 @@ struct ListLibraryTool: AITool {
         // Clamp a requested limit to 1…maxBooks — a non-positive limit must NOT
         // empty a non-empty library (Gate-2 Medium).
         let cap = min(max(1, input["limit"]?.intValue ?? maxBooks), maxBooks)
+        let authorization = await authorizationGate.authorize(
+            AIAgentToolAuthorization.context(
+                toolName: Self.toolName,
+                actionDescription: "List books in the library",
+                category: .readOtherBooks
+            )
+        )
+        guard authorization == .allowed else {
+            return AIAgentToolAuthorization.errorResult(
+                authorization, maxBytes: maxContentBytes
+            )
+        }
+        guard !Task.isCancelled else {
+            return ToolResult(
+                toolUseID: "",
+                content: "The library listing was cancelled before it could run.",
+                isError: true
+            )
+        }
 
         let books: [LibraryBookItem]
         do {

@@ -101,6 +101,7 @@ struct SearchOtherBooksToolTests {
     ) -> SearchOtherBooksTool {
         SearchOtherBooksTool(
             backend: backend, currentBookFingerprintKey: openKey,
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]),
             maxBooks: maxBooks, maxContentBytes: maxContentBytes)
     }
 

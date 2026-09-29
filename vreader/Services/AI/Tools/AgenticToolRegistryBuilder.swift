@@ -25,21 +25,82 @@ enum AgenticToolRegistryBuilder {
         currentBook: DocumentFingerprint?,
         currentBookSearch: (any SearchProviding)?,
         libraryBackend: any LibrarySearchBackend,
-        contentProvider: any BookContentProvider
+        contentProvider: any BookContentProvider,
+        authorizationGate: AIAgentToolExecutionGate,
+        readerContext: (any AIReaderToolContextProviding)? = nil,
+        annotationStore: (any AIAnnotationReading)? = nil,
+        navigationRouter: (any AIReaderNavigationRouting)? = nil
     ) -> AIToolRegistry {
         var tools: [any AITool] = []
 
-        if let currentBook, let currentBookSearch {
+        if let currentBook, let currentBookSearch, let readerContext {
             tools.append(SearchCurrentBookTool(
-                search: currentBookSearch, bookFingerprint: currentBook))
+                search: currentBookSearch,
+                bookFingerprint: currentBook,
+                authorizationGate: authorizationGate,
+                readerContext: readerContext
+            ))
         }
         tools.append(SearchOtherBooksTool(
-            backend: libraryBackend, currentBookFingerprintKey: currentBook?.canonicalKey))
-        tools.append(GetBookContentTool(provider: contentProvider))
+            backend: libraryBackend,
+            currentBookFingerprintKey: currentBook?.canonicalKey,
+            authorizationGate: authorizationGate
+        ))
+        tools.append(GetBookContentTool(
+            provider: contentProvider,
+            authorizationGate: authorizationGate,
+            readerContext: readerContext
+        ))
         // Feature #97: enumerate the library (shares the same `libraryBackend` as
         // search_other_books — no new dependency).
         tools.append(ListLibraryTool(
-            backend: libraryBackend, currentBookFingerprintKey: currentBook?.canonicalKey))
+            backend: libraryBackend,
+            currentBookFingerprintKey: currentBook?.canonicalKey,
+            authorizationGate: authorizationGate
+        ))
+
+        if let readerContext {
+            tools.append(GetCurrentLocationTool(
+                context: readerContext, authorizationGate: authorizationGate
+            ))
+            tools.append(GetCurrentContextTool(
+                context: readerContext, authorizationGate: authorizationGate
+            ))
+            tools.append(GetCurrentChapterTool(
+                context: readerContext, authorizationGate: authorizationGate
+            ))
+            tools.append(GetTableOfContentsTool(
+                context: readerContext, authorizationGate: authorizationGate
+            ))
+            if let annotationStore {
+                tools.append(SearchAnnotationsTool(
+                    store: annotationStore,
+                    bookResolver: contentProvider,
+                    readerContext: readerContext,
+                    authorizationGate: authorizationGate
+                ))
+                tools.append(GetAnnotationsTool(
+                    store: annotationStore,
+                    bookResolver: contentProvider,
+                    readerContext: readerContext,
+                    authorizationGate: authorizationGate
+                ))
+            }
+            if let navigationRouter {
+                tools.append(OpenLocationTool(
+                    context: readerContext,
+                    router: navigationRouter,
+                    authorizationGate: authorizationGate
+                ))
+            }
+        }
+        if let navigationRouter {
+            tools.append(OpenBookTool(
+                bookResolver: contentProvider,
+                router: navigationRouter,
+                authorizationGate: authorizationGate
+            ))
+        }
 
         return AIToolRegistry(tools)
     }
@@ -52,7 +113,12 @@ enum AgenticToolRegistryBuilder {
     /// chat. The composition is exercised by `build(...)`'s tests; the live
     /// construction is integration/device-verified.
     static func buildLive(
-        currentBook: DocumentFingerprint?, library: any LibraryPersisting
+        currentBook: DocumentFingerprint?,
+        library: any LibraryPersisting,
+        readerContext: (any AIReaderToolContextProviding)? = nil,
+        authorizationGate: AIAgentToolExecutionGate = .productionUnavailable(),
+        annotationStore: (any AIAnnotationReading)? = nil,
+        navigationRouter: (any AIReaderNavigationRouting)? = NotificationAIReaderNavigationRouter()
     ) async throws -> AIToolRegistry {
         let store = try await Task.detached { try PersistentSearchIndex.makeStoreStrict() }.value
         let search = SearchService(store: store)
@@ -83,6 +149,11 @@ enum AgenticToolRegistryBuilder {
             currentBook: currentBook,
             currentBookSearch: currentBookSearch,
             libraryBackend: LibrarySearchBackendAdapter(library: library, index: store, search: search),
-            contentProvider: BookContentProviderAdapter(library: library))
+            contentProvider: BookContentProviderAdapter(library: library),
+            authorizationGate: authorizationGate,
+            readerContext: readerContext,
+            annotationStore: annotationStore,
+            navigationRouter: navigationRouter
+        )
     }
 }

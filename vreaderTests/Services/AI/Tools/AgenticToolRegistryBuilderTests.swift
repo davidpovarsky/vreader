@@ -61,26 +61,53 @@ private final class SpyLibraryBackend: LibrarySearchBackend, @unchecked Sendable
 }
 
 @Suite("Feature #91 WI-8b — AgenticToolRegistryBuilder")
+@MainActor
 struct AgenticToolRegistryBuilderTests {
 
     private static let fp = DocumentFingerprint(
         contentSHA256: String(repeating: "a", count: 64), fileByteCount: 4096, format: .epub)
 
+    private func readerContext() -> AILiveReaderToolContext {
+        let chunk = WI6Fixtures.chunk(
+            fingerprint: Self.fp, id: "epub:chapter.xhtml", index: 0,
+            text: "fixture", href: "chapter.xhtml", local: 0..<7
+        )
+        let registry = AIDocumentProviderRegistry()
+        let token = UUID()
+        registry.attach(WI6DocumentProvider(
+            fingerprint: Self.fp, chunks: [chunk],
+            snapshot: WI6Fixtures.snapshot(
+                fingerprint: Self.fp, current: chunk, localBoundary: nil
+            )
+        ), for: AIDocumentSessionID(
+            fingerprintKey: Self.fp.canonicalKey, readerToken: token
+        ))
+        return AILiveReaderToolContext(
+            bookTitle: "Fixture", fingerprint: Self.fp,
+            readerToken: token, providerResolver: registry
+        )
+    }
+
     @Test("with an open book + a live search service, the registry offers all four tools")
     func includesCurrentBookTool() {
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: Self.fp, currentBookSearch: StubSearch(),
-            libraryBackend: StubLibraryBackend(), contentProvider: StubContent())
+            libraryBackend: StubLibraryBackend(), contentProvider: StubContent(),
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]),
+            readerContext: readerContext())
         // Feature #97 added list_library (name-sorted).
         #expect(registry.definitions().map(\.name)
-            == ["get_book_content", "list_library", "search_current_book", "search_other_books"])
+            == ["get_book_content", "get_current_chapter", "get_current_context",
+                "get_current_location", "get_table_of_contents", "list_library",
+                "search_current_book", "search_other_books"])
     }
 
     @Test("general chat (no open book) omits search_current_book")
     func noBookOmitsCurrentTool() {
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: nil, currentBookSearch: nil,
-            libraryBackend: StubLibraryBackend(), contentProvider: StubContent())
+            libraryBackend: StubLibraryBackend(), contentProvider: StubContent(),
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]))
         #expect(registry.definitions().map(\.name) == ["get_book_content", "list_library", "search_other_books"])
         #expect(!registry.isEmpty)
     }
@@ -89,9 +116,15 @@ struct AgenticToolRegistryBuilderTests {
     func bookButNoSearchOmitsCurrentTool() {
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: Self.fp, currentBookSearch: nil,
-            libraryBackend: StubLibraryBackend(), contentProvider: StubContent())
+            libraryBackend: StubLibraryBackend(), contentProvider: StubContent(),
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]),
+            readerContext: readerContext())
         #expect(!registry.definitions().map(\.name).contains("search_current_book"))
-        #expect(registry.definitions().map(\.name) == ["get_book_content", "list_library", "search_other_books"])
+        #expect(registry.definitions().map(\.name) == [
+            "get_book_content", "get_current_chapter", "get_current_context",
+            "get_current_location", "get_table_of_contents", "list_library",
+            "search_other_books"
+        ])
     }
 
     @Test("the assembled search_other_books EXCLUDES the open book at runtime (not just the names)")
@@ -104,7 +137,8 @@ struct AgenticToolRegistryBuilderTests {
         ])
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: DocumentFingerprint(canonicalKey: openKey),
-            currentBookSearch: StubSearch(), libraryBackend: spy, contentProvider: StubContent())
+            currentBookSearch: StubSearch(), libraryBackend: spy, contentProvider: StubContent(),
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]))
 
         _ = await registry.run(ToolCall(
             id: "c", name: "search_other_books", input: .object(["query": .string("x")])))
@@ -135,7 +169,8 @@ struct AgenticToolRegistryBuilderTests {
         ])
         let registry = AgenticToolRegistryBuilder.build(
             currentBook: nil, currentBookSearch: nil,
-            libraryBackend: backend, contentProvider: StubContent())
+            libraryBackend: backend, contentProvider: StubContent(),
+            authorizationGate: WI6Fixtures.gate([.readOtherBooks: .allow]))
 
         let result = await registry.run(ToolCall(
             id: "lib-1", name: "list_library", input: .object([:])))

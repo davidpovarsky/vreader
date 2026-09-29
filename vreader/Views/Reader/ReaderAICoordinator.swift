@@ -391,10 +391,32 @@ final class ReaderAICoordinator {
         // OFF-MAIN (the cold SQLite open is heavy), then inject it. A build failure
         // (e.g. the store can't open) → nil → the chat stays on the non-agentic path.
         // Gated on the flag so there's zero cost OFF.
-        if FeatureFlags.shared.agenticTools, let library = annotationStores as? any LibraryPersisting {
+        if FeatureFlags.shared.agenticTools,
+           let fingerprint,
+           let library = annotationStores as? any LibraryPersisting {
+            let toolContext = AILiveReaderToolContext(
+                bookTitle: fallbackTitle,
+                fingerprint: fingerprint,
+                readerToken: readerToken,
+                providerResolver: documentProviderResolver,
+                tocProvider: { [weak self] in self?.tocEntries ?? [] }
+            )
+            let annotationReader = annotationStores.map {
+                AIAnnotationReadStoreAdapter(
+                    annotationStore: $0,
+                    highlightStore: $0,
+                    bookmarkStore: $0
+                )
+            }
             Task { @MainActor [weak chatVM] in
                 let registry = try? await AgenticToolRegistryBuilder.buildLive(
-                    currentBook: fingerprint, library: library)
+                    currentBook: fingerprint,
+                    library: library,
+                    readerContext: toolContext,
+                    authorizationGate: .productionUnavailable(),
+                    annotationStore: annotationReader,
+                    navigationRouter: NotificationAIReaderNavigationRouter()
+                )
                 chatVM?.setAgenticRegistry(registry)
             }
         }

@@ -57,6 +57,11 @@ struct AIToolRegistry: Sendable {
     /// Whether the registry has any tools (the loop only enables tool-use when so).
     var isEmpty: Bool { toolsByName.isEmpty }
 
+    /// Whether a tool with the given name is registered.
+    func hasTool(named name: String) -> Bool {
+        toolsByName[name] != nil
+    }
+
     /// The tool definitions to send in the provider `tools` array (the frozen
     /// init-time snapshot, name-sorted for a deterministic request).
     func definitions() -> [ToolDefinition] {

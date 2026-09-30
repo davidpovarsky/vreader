@@ -65,4 +65,27 @@ struct AppleFoundationModelsToolAdapter: Sendable {
 
         return result
     }
+
+    init(
+        tool: any AITool,
+        executionGate: AIAgentToolExecutionGate = .productionUnavailable(),
+        eventSink: any AIToolEventSink = NoOpAIToolEventSink.shared
+    ) {
+        self.registry = AIToolRegistry([tool])
+        self.executionGate = executionGate
+        self.eventSink = eventSink
+    }
+
+    /// Executes the first registered tool using raw JSON string arguments.
+    func execute(argumentsJSON: String, callID: String = UUID().uuidString) async -> String {
+        guard let data = argumentsJSON.data(using: .utf8),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "Invalid JSON arguments"
+        }
+        guard let toolName = registry.definitions().first?.name else {
+            return "No tool registered"
+        }
+        let result = await invoke(toolName: toolName, arguments: jsonObject, callID: callID)
+        return result.content
+    }
 }

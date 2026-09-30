@@ -171,6 +171,10 @@ struct ToolResult: Sendable, Equatable, Codable {
         self.content = content
         self.isError = isError
     }
+
+    init(callID: String, content: String, isError: Bool = false) {
+        self.init(toolUseID: callID, content: content, isError: isError)
+    }
 }
 
 /// A read-only tool the agentic loop can run. Implementors (WI-6a/6b/6c) wrap an

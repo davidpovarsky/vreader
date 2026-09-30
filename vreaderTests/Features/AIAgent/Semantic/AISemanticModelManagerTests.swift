@@ -8,13 +8,14 @@ import Foundation
 @Suite("AISemanticModelManagerTests")
 struct AISemanticModelManagerTests {
 
-    @Test func managerInitializesInNotInstalledOrExistingStateWithoutDownloading() {
+    @Test func managerInitializesInNotInstalledOrExistingStateWithoutDownloading() async {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let manager = AISemanticModelManager(storageDirectory: tempDir)
 
         // Must NOT start downloading automatically
-        #expect(manager.state == .notInstalled || manager.state == .installed)
-        #expect(manager.isModelReady == false)
+        let state = await manager.state
+        #expect(state == .notInstalled || state == .installed)
+        #expect(await manager.isModelReady == false)
     }
 
     @Test func removeModelCleansDirectoryAndResetsState() async throws {
@@ -26,8 +27,8 @@ struct AISemanticModelManagerTests {
         let manager = AISemanticModelManager(storageDirectory: tempDir)
         try await manager.removeModel()
 
-        #expect(manager.state == .notInstalled)
-        #expect(manager.diskUsageBytes() == 0)
+        #expect(await manager.state == .notInstalled)
+        #expect(await manager.diskUsageBytes() == 0)
     }
 
     @Test func stateDescriptionsAndTitles() {

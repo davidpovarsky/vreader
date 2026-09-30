@@ -50,35 +50,22 @@ actor AISemanticModelManager {
     static let modelIdentifier = "intfloat/multilingual-e5-small"
     static let embeddingDimension = 384
 
-    private let lock = NSLock()
-    private var _state: AISemanticModelState = .notInstalled
+    private(set) var state: AISemanticModelState = .notInstalled
     private var downloadTask: Task<Void, Error>?
     private let fileManager = FileManager.default
     private let storageDirectoryOverride: URL?
 
-    nonisolated var state: AISemanticModelState {
-        lock.lock()
-        defer { lock.unlock() }
-        return _state
-    }
-
-    nonisolated var isModelReady: Bool {
+    var isModelReady: Bool {
         state.isReady
-    }
-
-    private func updateState(_ newState: AISemanticModelState) {
-        lock.lock()
-        _state = newState
-        lock.unlock()
     }
 
     init(storageDirectory: URL? = nil) {
         self.storageDirectoryOverride = storageDirectory
         let marker = (storageDirectory ?? Self.defaultModelDirectory()).appendingPathComponent(".completed")
         if FileManager.default.fileExists(atPath: marker.path) {
-            self._state = .installed
+            self.state = .installed
         } else {
-            self._state = .notInstalled
+            self.state = .notInstalled
         }
     }
 
@@ -89,7 +76,7 @@ actor AISemanticModelManager {
     }
 
     /// The directory where model weights are stored.
-    nonisolated var modelDirectory: URL {
+    var modelDirectory: URL {
         if let storageDirectoryOverride {
             return storageDirectoryOverride
         }
@@ -100,13 +87,13 @@ actor AISemanticModelManager {
     func refreshInstalledState() {
         if isModelWeightsPresent() {
             if case .notInstalled = state {
-                updateState(.installed)
+                state = .installed
             } else if case .failed = state {
-                updateState(.installed)
+                state = .installed
             }
         } else {
             if case .installed = state {
-                updateState(.notInstalled)
+                state = .notInstalled
             }
         }
     }
@@ -119,7 +106,7 @@ actor AISemanticModelManager {
     /// User-initiated download of the semantic embedding model.
     func downloadModel() async throws {
         guard case .notInstalled = state else { return }
-        updateState(.downloading(progress: 0.0))
+        state = .downloading(progress: 0.0)
 
         do {
             try fileManager.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
@@ -127,18 +114,18 @@ actor AISemanticModelManager {
             for step in 1...10 {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 100_000_000)
-                updateState(.downloading(progress: Double(step) * 0.1))
+                state = .downloading(progress: Double(step) * 0.1)
             }
             let marker = modelDirectory.appendingPathComponent(".completed")
             try "installed".write(to: marker, atomically: true, encoding: .utf8)
-            updateState(.installed)
+            state = .installed
             Self.log.info("multilingual-e5-small model installed successfully")
         } catch is CancellationError {
-            updateState(.notInstalled)
+            state = .notInstalled
             try? fileManager.removeItem(at: modelDirectory)
             throw CancellationError()
         } catch {
-            updateState(.failed(error.localizedDescription))
+            state = .failed(error.localizedDescription)
             Self.log.error("Model download failed: \(error.localizedDescription)")
             throw error
         }
@@ -148,7 +135,7 @@ actor AISemanticModelManager {
         downloadTask?.cancel()
         downloadTask = nil
         if case .downloading = state {
-            updateState(.notInstalled)
+            state = .notInstalled
             try? fileManager.removeItem(at: modelDirectory)
         }
     }
@@ -158,10 +145,10 @@ actor AISemanticModelManager {
         if fileManager.fileExists(atPath: modelDirectory.path) {
             try fileManager.removeItem(at: modelDirectory)
         }
-        updateState(.notInstalled)
+        state = .notInstalled
     }
 
-    nonisolated func diskUsageBytes() -> Int64 {
+    func diskUsageBytes() -> Int64 {
         guard fileManager.fileExists(atPath: modelDirectory.path) else { return 0 }
         guard let enumerator = fileManager.enumerator(at: modelDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         var total: Int64 = 0

@@ -2,6 +2,7 @@
 // Fully cached, spoiler-safe, cancellation-aware, and tested via mockable protocols.
 
 import Foundation
+import CryptoKit
 #if canImport(Vision)
 import Vision
 #endif
@@ -12,6 +13,27 @@ protocol PDFOCRServicing: Sendable {
         pageIndex: Int,
         facade: any AIPDFDocumentFacading
     ) async throws -> PDFOCRResult
+}
+
+private func makePDFLocator(bookKey: String, pageIndex: Int) -> Locator {
+    let fp = DocumentFingerprint(canonicalKey: bookKey) ?? {
+        let sha = SHA256.hash(data: Data(bookKey.utf8)).map { String(format: "%02x", $0) }.joined()
+        return DocumentFingerprint(contentSHA256: sha, fileByteCount: 1024, format: .pdf)
+    }()
+    return Locator.validated(bookFingerprint: fp, page: pageIndex) ?? Locator(
+        bookFingerprint: fp,
+        href: nil,
+        progression: nil,
+        totalProgression: nil,
+        cfi: nil,
+        page: pageIndex,
+        charOffsetUTF16: nil,
+        charRangeStartUTF16: nil,
+        charRangeEndUTF16: nil,
+        textQuote: nil,
+        textContextBefore: nil,
+        textContextAfter: nil
+    )
 }
 
 actor PDFOCRService: PDFOCRServicing {
@@ -40,14 +62,7 @@ actor PDFOCRService: PDFOCRServicing {
 
         // 2. Check native PDF text layer
         let nativeText = try await facade.text(forPage: pageIndex)
-        let locator = Locator.validated(
-            bookFingerprint: DocumentFingerprint(
-                sourceKind: .pdf,
-                format: .pdf,
-                canonicalKey: bookKey
-            ),
-            page: pageIndex
-        )!
+        let locator = makePDFLocator(bookKey: bookKey, pageIndex: pageIndex)
 
         if !policy.needsOCR(nativeText: nativeText) {
             let result = PDFOCRResult(
@@ -101,10 +116,7 @@ struct MockPDFOCRService: PDFOCRServicing {
     ) async throws -> PDFOCRResult {
         try Task.checkCancellation()
         let nativeText = try await facade.text(forPage: pageIndex)
-        let locator = Locator.validated(
-            bookFingerprint: DocumentFingerprint(sourceKind: .pdf, format: .pdf, canonicalKey: bookKey),
-            page: pageIndex
-        )!
+        let locator = makePDFLocator(bookKey: bookKey, pageIndex: pageIndex)
 
         if !policy.needsOCR(nativeText: nativeText) {
             return PDFOCRResult(

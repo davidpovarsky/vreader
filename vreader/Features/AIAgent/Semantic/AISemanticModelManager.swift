@@ -23,6 +23,24 @@ enum AISemanticModelState: Sendable, Equatable {
         default: return false
         }
     }
+
+    var displayTitle: String {
+        switch self {
+        case .notInstalled:
+            return "Not Installed"
+        case .downloading(let progress):
+            let percent = Int(progress * 100)
+            return "Downloading (\(percent)%)"
+        case .installed:
+            return "Installed"
+        case .loading:
+            return "Loading"
+        case .ready:
+            return "Ready"
+        case .failed:
+            return "Download Failed"
+        }
+    }
 }
 
 actor AISemanticModelManager {
@@ -32,41 +50,63 @@ actor AISemanticModelManager {
     static let modelIdentifier = "intfloat/multilingual-e5-small"
     static let embeddingDimension = 384
 
-    private(set) var state: AISemanticModelState = .notInstalled
+    private let lock = NSLock()
+    private var _state: AISemanticModelState = .notInstalled
     private var downloadTask: Task<Void, Error>?
     private let fileManager = FileManager.default
+    private let storageDirectoryOverride: URL?
 
-    init() {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = appSupport.appendingPathComponent("vreader/AISemanticModels/multilingual-e5-small", isDirectory: true)
-        let marker = dir.appendingPathComponent(".completed")
-        if fileManager.fileExists(atPath: marker.path) {
-            self.state = .installed
+    nonisolated var state: AISemanticModelState {
+        lock.lock()
+        defer { lock.unlock() }
+        return _state
+    }
+
+    nonisolated var isModelReady: Bool {
+        state.isReady
+    }
+
+    private func updateState(_ newState: AISemanticModelState) {
+        lock.lock()
+        _state = newState
+        lock.unlock()
+    }
+
+    init(storageDirectory: URL? = nil) {
+        self.storageDirectoryOverride = storageDirectory
+        let marker = (storageDirectory ?? Self.defaultModelDirectory()).appendingPathComponent(".completed")
+        if FileManager.default.fileExists(atPath: marker.path) {
+            self._state = .installed
         } else {
-            self.state = .notInstalled
+            self._state = .notInstalled
         }
     }
 
-    /// The directory where model weights are stored.
-    var modelDirectory: URL {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    private static func defaultModelDirectory() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = appSupport.appendingPathComponent("vreader/AISemanticModels/multilingual-e5-small", isDirectory: true)
-        return dir
+        return appSupport.appendingPathComponent("vreader/AISemanticModels/multilingual-e5-small", isDirectory: true)
+    }
+
+    /// The directory where model weights are stored.
+    nonisolated var modelDirectory: URL {
+        if let storageDirectoryOverride {
+            return storageDirectoryOverride
+        }
+        return Self.defaultModelDirectory()
     }
 
     /// Checks local storage and updates state to .installed or .notInstalled.
     func refreshInstalledState() {
         if isModelWeightsPresent() {
             if case .notInstalled = state {
-                state = .installed
+                updateState(.installed)
             } else if case .failed = state {
-                state = .installed
+                updateState(.installed)
             }
         } else {
             if case .installed = state {
-                state = .notInstalled
+                updateState(.notInstalled)
             }
         }
     }
@@ -79,7 +119,7 @@ actor AISemanticModelManager {
     /// User-initiated download of the semantic embedding model.
     func downloadModel() async throws {
         guard case .notInstalled = state else { return }
-        state = .downloading(progress: 0.0)
+        updateState(.downloading(progress: 0.0))
 
         do {
             try fileManager.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
@@ -87,18 +127,18 @@ actor AISemanticModelManager {
             for step in 1...10 {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 100_000_000)
-                state = .downloading(progress: Double(step) * 0.1)
+                updateState(.downloading(progress: Double(step) * 0.1))
             }
             let marker = modelDirectory.appendingPathComponent(".completed")
             try "installed".write(to: marker, atomically: true, encoding: .utf8)
-            state = .installed
+            updateState(.installed)
             Self.log.info("multilingual-e5-small model installed successfully")
         } catch is CancellationError {
-            state = .notInstalled
+            updateState(.notInstalled)
             try? fileManager.removeItem(at: modelDirectory)
             throw CancellationError()
         } catch {
-            state = .failed(error.localizedDescription)
+            updateState(.failed(error.localizedDescription))
             Self.log.error("Model download failed: \(error.localizedDescription)")
             throw error
         }
@@ -108,20 +148,20 @@ actor AISemanticModelManager {
         downloadTask?.cancel()
         downloadTask = nil
         if case .downloading = state {
-            state = .notInstalled
+            updateState(.notInstalled)
             try? fileManager.removeItem(at: modelDirectory)
         }
     }
 
-    func removeModel() throws {
+    func removeModel() async throws {
         cancelDownload()
         if fileManager.fileExists(atPath: modelDirectory.path) {
             try fileManager.removeItem(at: modelDirectory)
         }
-        state = .notInstalled
+        updateState(.notInstalled)
     }
 
-    func diskUsageBytes() -> Int64 {
+    nonisolated func diskUsageBytes() -> Int64 {
         guard fileManager.fileExists(atPath: modelDirectory.path) else { return 0 }
         guard let enumerator = fileManager.enumerator(at: modelDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         var total: Int64 = 0

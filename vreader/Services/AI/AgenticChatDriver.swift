@@ -109,7 +109,7 @@ struct AgenticChatDriver: Sendable {
                 var resultBlocks: [ToolContentBlock] = []
                 for call in turn.toolCalls {
                     try Task.checkCancellation()
-                    let argSummary = AIToolDisplayMetadata.safeArgumentSummary(for: call.name, input: call.arguments)
+                    let argSummary = AIToolDisplayMetadata.safeArgumentSummary(for: call.name, input: call.input)
                     await eventSink?.emit(.queued(callID: call.id, toolName: call.name, argumentSummary: argSummary))
                     await eventSink?.emit(.running(callID: call.id, toolName: call.name, argumentSummary: argSummary))
                     let result = await registry.run(call)

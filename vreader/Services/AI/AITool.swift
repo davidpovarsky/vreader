@@ -153,6 +153,9 @@ struct ToolCall: Sendable, Equatable, Codable {
     let id: String
     let name: String
     let input: JSONValue
+
+    /// Alias for input to support diverse caller idioms.
+    var arguments: JSONValue { input }
 }
 
 /// The outcome of running a `ToolCall` — fed back to the model as a tool_result.

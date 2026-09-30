@@ -96,7 +96,7 @@ actor PDFOCRService: PDFOCRServicing {
                 source: .pdfTextLayer,
                 isOCRDerived: false
             )
-            try? await cache.set(result)
+            await cache.set(result)
             return result
         }
 
@@ -111,7 +111,7 @@ actor PDFOCRService: PDFOCRServicing {
             source: ocrText.isEmpty ? .pdfTextLayer : .visionOCR,
             isOCRDerived: !ocrText.isEmpty
         )
-        try? await cache.set(result)
+        await cache.set(result)
         return result
     }
 

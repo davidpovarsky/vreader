@@ -59,34 +59,34 @@ actor PDFOCRCache {
         get(bookKey: bookFingerprintKey, pageIndex: pageIndex)
     }
 
-    func set(_ result: PDFOCRResult, for bookKey: String? = nil, pageIndex: Int? = nil) throws {
+    func set(_ result: PDFOCRResult, for bookKey: String? = nil, pageIndex: Int? = nil) {
         let targetKey = bookKey ?? result.bookFingerprintKey
         let targetIndex = pageIndex ?? result.pageIndex
         let key = cacheKey(bookKey: targetKey, pageIndex: targetIndex)
         inMemoryCache[key] = result
 
         let fileURL = cacheDirectory.appendingPathComponent("\(key).json")
-        let data = try JSONEncoder().encode(result)
-        try data.write(to: fileURL, options: .atomic)
+        guard let data = try? JSONEncoder().encode(result) else { return }
+        try? data.write(to: fileURL, options: .atomic)
     }
 
-    func clear(forBook bookKey: String) throws {
+    func clear(forBook bookKey: String) {
         inMemoryCache = inMemoryCache.filter { !$0.key.starts(with: "\(bookKey)_") }
         guard let files = try? fileManager.contentsOfDirectory(atPath: cacheDirectory.path) else { return }
         for file in files where file.starts(with: "\(bookKey)_") {
-            try fileManager.removeItem(at: cacheDirectory.appendingPathComponent(file))
+            try? fileManager.removeItem(at: cacheDirectory.appendingPathComponent(file))
         }
     }
 
-    func clear(for bookKey: String) throws {
-        try clear(forBook: bookKey)
+    func clear(for bookKey: String) {
+        clear(forBook: bookKey)
     }
 
-    func clearAll() throws {
+    func clearAll() {
         inMemoryCache.removeAll()
         if fileManager.fileExists(atPath: cacheDirectory.path) {
-            try fileManager.removeItem(at: cacheDirectory)
-            try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            try? fileManager.removeItem(at: cacheDirectory)
+            try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         }
     }
 }

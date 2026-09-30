@@ -6,6 +6,7 @@ import CryptoKit
 
 struct SemanticChunk: Identifiable, Sendable, Equatable, Codable {
     let id: String
+    var chunkID: String { id }
     let bookFingerprintKey: String
     let sourceUnitID: String
     let sourceUnitIndex: Int?
@@ -28,32 +29,44 @@ struct SemanticChunker: Sendable {
     /// Character overlap between adjacent chunks (~12%).
     let overlapChars: Int
 
+    init(targetTokens: Int = 800, overlapTokens: Int = 100) {
+        self.targetChunkChars = max(500, targetTokens * 4)
+        self.overlapChars = max(50, min(overlapTokens * 4, self.targetChunkChars / 2))
+    }
+
     init(targetChunkChars: Int = 3600, overlapChars: Int = 450) {
         self.targetChunkChars = max(500, targetChunkChars)
         self.overlapChars = max(50, min(overlapChars, targetChunkChars / 2))
+    }
+
+    /// Chunks a single document chunk.
+    func chunk(_ docChunk: AIDocumentChunk, bookFingerprintKey: String) -> [SemanticChunk] {
+        chunkSingle(docChunk: docChunk, bookFingerprintKey: bookFingerprintKey)
     }
 
     /// Splits an array of document chunks into semantic chunks.
     func chunkDocument(chunks: [AIDocumentChunk], bookFingerprintKey: String) -> [SemanticChunk] {
         var result: [SemanticChunk] = []
         for docChunk in chunks {
-            let subChunks = chunkSingle(docChunk: docChunk, bookFingerprintKey: bookFingerprintKey)
-            result.append(contentsOf: subChunks)
+            result.append(contentsOf: chunkSingle(docChunk: docChunk, bookFingerprintKey: bookFingerprintKey))
         }
         return result
     }
 
     private func chunkSingle(docChunk: AIDocumentChunk, bookFingerprintKey: String) -> [SemanticChunk] {
         let text = docChunk.text
-        if text.isEmpty { return [] }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
+
+        let baseStart = docChunk.localStartUTF16 ?? 0
+        let baseEnd = docChunk.localEndUTF16 ?? text.utf16.count
 
         // If the chunk is within target budget, return it directly with stable ID
         if text.utf16.count <= targetChunkChars {
             let id = makeChunkID(
                 fingerprintKey: bookFingerprintKey,
                 sourceUnitID: docChunk.sourceUnitID,
-                startUTF16: docChunk.localStartUTF16,
-                endUTF16: docChunk.localEndUTF16,
+                startUTF16: baseStart,
+                endUTF16: baseEnd,
                 text: text
             )
             return [SemanticChunk(
@@ -67,8 +80,8 @@ struct SemanticChunker: Sendable {
                 chapterTitle: docChunk.chapterTitle,
                 pageIndex: docChunk.pageIndex,
                 href: docChunk.href,
-                localStartUTF16: docChunk.localStartUTF16,
-                localEndUTF16: docChunk.localEndUTF16,
+                localStartUTF16: baseStart,
+                localEndUTF16: baseEnd,
                 isOCRDerived: docChunk.isOCRDerived
             )]
         }
@@ -101,7 +114,7 @@ struct SemanticChunker: Sendable {
             }
 
             let slice = String(characters[charStart..<charEnd])
-            let subStartUTF16 = docChunk.localStartUTF16 + String(characters[0..<charStart]).utf16.count
+            let subStartUTF16 = baseStart + String(characters[0..<charStart]).utf16.count
             let subEndUTF16 = subStartUTF16 + slice.utf16.count
 
             let chunkID = makeChunkID(
@@ -146,6 +159,65 @@ struct SemanticChunker: Sendable {
     ) -> String {
         let raw = "\(fingerprintKey):\(sourceUnitID):\(startUTF16):\(endUTF16):\(text):\(Self.chunkerVersion)"
         let digest = SHA256.hash(data: Data(raw.utf8))
-        return digest.compactMap { String(format: "%02x", $0) }.joined()
+        let hex = digest.compactMap { String(format: "%02x", $0) }.joined()
+        return "sc_" + hex
+    }
+}
+
+extension AIDocumentChunk {
+    enum Unit {
+        case chapter(title: String?)
+        case page(number: Int)
+        case section(title: String?)
+    }
+
+    init(
+        unit: Unit,
+        locator: Locator,
+        text: String,
+        isSafeCurrentSection: Bool = true,
+        isSafeBookSoFar: Bool = true,
+        isAheadOfReader: Bool = false,
+        isOCRDerived: Bool = false
+    ) {
+        let unitID: String
+        let unitIndex: Int?
+        let title: String?
+        let page: Int?
+        switch unit {
+        case .chapter(let t):
+            unitID = "ch:\(t ?? "")"
+            unitIndex = nil
+            title = t
+            page = nil
+        case .page(let p):
+            unitID = "page:\(p)"
+            unitIndex = p
+            title = "Page \(p)"
+            page = p
+        case .section(let s):
+            unitID = "sec:\(s ?? "")"
+            unitIndex = nil
+            title = s
+            page = nil
+        }
+
+        self.init(
+            id: UUID().uuidString,
+            bookFingerprintKey: locator.bookFingerprint.canonicalKey,
+            sourceUnitID: unitID,
+            sourceUnitIndex: unitIndex,
+            text: text,
+            locator: locator,
+            sourceLabel: title,
+            chapterTitle: title,
+            pageIndex: page,
+            href: locator.href,
+            localStartUTF16: 0,
+            localEndUTF16: text.utf16.count,
+            globalStartUTF16: nil,
+            globalEndUTF16: nil,
+            isOCRDerived: isOCRDerived
+        )
     }
 }

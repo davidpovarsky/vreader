@@ -12,10 +12,15 @@ protocol MCPConnecting: Sendable {
     func callTool(name: String, arguments: JSONValue) async throws -> JSONValue
 }
 
-actor MockMCPConnection: MCPConnecting {
+final class MockMCPConnection: MCPConnecting, @unchecked Sendable {
     let profile: MCPServerProfile
-    private(set) var status: MCPCompatibilityStatus = .disconnected
+    private let lock = NSLock()
+    private var _status: MCPCompatibilityStatus = .disconnected
     private let mockTools: [ToolDefinition]
+
+    var status: MCPCompatibilityStatus {
+        lock.withLock { _status }
+    }
 
     init(profile: MCPServerProfile, mockTools: [ToolDefinition] = []) {
         self.profile = profile
@@ -24,11 +29,15 @@ actor MockMCPConnection: MCPConnecting {
 
     func connect() async throws {
         try Task.checkCancellation()
-        status = .connected(serverInfo: profile.name, protocolVersion: "2024-11-05", toolCount: mockTools.count)
+        lock.withLock {
+            _status = .connected(serverInfo: profile.name, protocolVersion: "2024-11-05", toolCount: mockTools.count)
+        }
     }
 
     func disconnect() async {
-        status = .disconnected
+        lock.withLock {
+            _status = .disconnected
+        }
     }
 
     func listTools() async throws -> [ToolDefinition] {

@@ -145,7 +145,7 @@ extension AIChatViewModel {
                 let (config, supportsToolUse) = try await aiService.resolveToolProvider()
                 if supportsToolUse {
                     try await runAgenticTurn(
-                        assistantId: assistantId, opId: opId, config: config, registry: registry)
+                        assistantId: assistantId, opId: opId, config: config, registry: registry, citationSnapshot: citationSnapshot)
                 } else {
                     try await consumeStream(
                         aiService.streamRequest(request, using: config), into: assistantId)
@@ -243,7 +243,11 @@ extension AIChatViewModel {
     /// "Drew on" citation stamp on a tool-driven reply (the pre-send snapshot
     /// doesn't reflect what tools read — Gate-2 Medium 3).
     private func runAgenticTurn(
-        assistantId: UUID, opId: UInt64, config: ResolvedAIProviderConfig, registry: AIToolRegistry
+        assistantId: UUID,
+        opId: UInt64,
+        config: ResolvedAIProviderConfig,
+        registry: AIToolRegistry,
+        citationSnapshot: [ChatCitation]
     ) async throws {
         // The empty assistant placeholder appended above is dropped by the mapper,
         // so the history ends on the user's prompt; the current book's UNTRUSTED
@@ -252,12 +256,14 @@ extension AIChatViewModel {
         if let prelude = AIChatHistoryMapper.contextPrelude(bookContext: bookContext) {
             history.insert(prelude, at: 0)
         }
+        let eventSink = BufferingAIToolEventSink()
         let result = try await AgenticChatDriver().run(
             systemPrompt: AIChatHistoryMapper.systemPrompt(),
             history: history,
             registry: registry,
             provider: AIServiceToolUseAdapter(service: aiService, config: config),
-            maxTokens: config.maxTokens)
+            maxTokens: config.maxTokens,
+            eventSink: eventSink)
 
         // Feature #87 WI-1 (round-2 High): Swift cancellation is cooperative — a
         // task cancelled AFTER the driver already returned would still write a full
@@ -265,10 +271,17 @@ extension AIChatViewModel {
         // no partial).
         guard !Task.isCancelled, opId == opCounter else { return }
 
+        let events = await eventSink.allEvents()
+        let traces = AIToolTrace.traces(from: events)
+
         if let assistant = message(withId: assistantId) {
             var updated = assistant
             updated.content = result.finalText
-            if result.usedTools { updated.citations = [] }
+            updated.toolTraces = traces
+            if result.usedTools {
+                // Feature #177 requirement 9.4: retain genuine tool sources or snapshot citations
+                updated.citations = result.citations.isEmpty ? citationSnapshot : result.citations
+            }
             replaceMessage(updated)
         }
     }

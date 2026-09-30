@@ -41,6 +41,8 @@ actor AIActionConfirmationBroker {
     private var pending: [UUID: Pending] = [:]
     private var observers: [UUID: AsyncStream<[AIActionConfirmationRequest]>.Continuation] = [:]
 
+    static let shared = AIActionConfirmationBroker()
+
     init(preferencesStore: any AIAgentPreferencesStoring = AIAgentPreferencesStore.shared) {
         self.preferencesStore = preferencesStore
     }

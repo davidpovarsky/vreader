@@ -33,6 +33,7 @@ struct PersistedChatMessage: Codable {
     var content: String
     var timestamp: Date
     var citations: [PersistedChatCitation]
+    var toolTraces: [AIToolTrace]?
 }
 
 /// Codable mirror of `ChatCitation` (fields per ChatCitation.swift:30-42).
@@ -53,7 +54,7 @@ struct PersistedChatCitation: Codable {
 enum ChatSessionPayloadMapper {
 
     /// The envelope version written by the current build.
-    static let payloadVersion = 1
+    static let payloadVersion = 2
 
     // MARK: - Encode
 
@@ -119,7 +120,8 @@ enum ChatSessionPayloadMapper {
             role: message.role.rawValue,
             content: message.content,
             timestamp: message.timestamp,
-            citations: message.citations.map(persist)
+            citations: message.citations.map(persist),
+            toolTraces: message.toolTraces.isEmpty ? nil : message.toolTraces
         )
     }
 
@@ -129,7 +131,8 @@ enum ChatSessionPayloadMapper {
             role: ChatRole(rawValue: persisted.role) ?? .system,
             content: persisted.content,
             timestamp: persisted.timestamp,
-            citations: persisted.citations.map(domain)
+            citations: persisted.citations.map(domain),
+            toolTraces: persisted.toolTraces ?? []
         )
     }
 

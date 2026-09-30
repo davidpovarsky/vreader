@@ -38,6 +38,22 @@ struct AgenticResult: Sendable, Equatable {
     let finalText: String
     /// Whether the loop executed at least one tool (drives citation suppression).
     let usedTools: Bool
+    /// Tool traces collected during the run (Feature #177).
+    var traces: [AIToolTrace] = []
+    /// Sources genuinely retrieved and supplied to model this turn (Feature #177).
+    var citations: [ChatCitation] = []
+
+    init(
+        finalText: String,
+        usedTools: Bool,
+        traces: [AIToolTrace] = [],
+        citations: [ChatCitation] = []
+    ) {
+        self.finalText = finalText
+        self.usedTools = usedTools
+        self.traces = traces
+        self.citations = citations
+    }
 }
 
 /// The bounded send → tool → result → re-send loop.
@@ -60,7 +76,8 @@ struct AgenticChatDriver: Sendable {
         history: [ToolTurnMessage],
         registry: AIToolRegistry,
         provider: any ToolUseSending,
-        maxTokens: Int
+        maxTokens: Int,
+        eventSink: (any AIToolEventSink)? = nil
     ) async throws -> AgenticResult {
         var messages = history
         var usedTools = false
@@ -91,15 +108,17 @@ struct AgenticChatDriver: Sendable {
                 // tool_result-leading user turn (provider history invariant).
                 var resultBlocks: [ToolContentBlock] = []
                 for call in turn.toolCalls {
-                    // Bug #323 (Gate-4 Medium): also observe cancellation BETWEEN
-                    // in-round tool calls, so a Stop during a multi-tool round aborts
-                    // promptly instead of running the rest of the round. (A single
-                    // long-running tool that ignores cancellation internally still
-                    // can't be interrupted mid-call — the in-app tools are local +
-                    // fast; deeper per-tool cancellation would require making
-                    // `AITool.run` cancellation-aware, tracked as a follow-up.)
                     try Task.checkCancellation()
+                    let argSummary = AIToolDisplayMetadata.safeArgumentSummary(for: call.name, input: call.arguments)
+                    await eventSink?.emit(.queued(callID: call.id, toolName: call.name, argumentSummary: argSummary))
+                    await eventSink?.emit(.running(callID: call.id, toolName: call.name, argumentSummary: argSummary))
                     let result = await registry.run(call)
+                    let resSummary = AIToolDisplayMetadata.safeResultSummary(result.content, isError: result.isError)
+                    if result.isError {
+                        await eventSink?.emit(.failed(callID: call.id, toolName: call.name, error: resSummary))
+                    } else {
+                        await eventSink?.emit(.succeeded(callID: call.id, toolName: call.name, resultSummary: resSummary))
+                    }
                     resultBlocks.append(.toolResult(result))
                 }
                 Self.log.info(

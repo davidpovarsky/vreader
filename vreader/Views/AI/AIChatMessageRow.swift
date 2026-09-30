@@ -109,6 +109,11 @@ struct AIChatMessageRow: View {
                     .textSelection(.enabled)
                     .padding(.vertical, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // Feature #177: Tool activity cluster
+                if !message.toolTraces.isEmpty {
+                    ChatToolActivityCluster(traces: message.toolTraces, theme: theme)
+                        .padding(.vertical, 4)
+                }
                 // Feature #86 WI-6: the "Drew on" provenance row under the reply.
                 if !message.citations.isEmpty {
                     ChatCitationRow(citations: message.citations, theme: theme)

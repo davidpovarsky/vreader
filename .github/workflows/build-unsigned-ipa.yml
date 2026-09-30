@@ -303,6 +303,33 @@ jobs:
             -only-testing:vreaderTests/GetBookContentToolTests \
             -only-testing:vreaderTests/ListLibraryToolTests \
             -only-testing:vreaderTests/AgenticToolRegistryBuilderTests \
+            -only-testing:vreaderTests/SemanticChunkerTests \
+            -only-testing:vreaderTests/SemanticIndexMetadataTests \
+            -only-testing:vreaderTests/SemanticIndexStoreTests \
+            -only-testing:vreaderTests/SemanticSearchServiceTests \
+            -only-testing:vreaderTests/HybridSearchServiceTests \
+            -only-testing:vreaderTests/AISemanticModelManagerTests \
+            -only-testing:vreaderTests/SemanticSearchBoundaryTests \
+            -only-testing:vreaderTests/PDFOCRServiceTests \
+            -only-testing:vreaderTests/PDFOCRCacheTests \
+            -only-testing:vreaderTests/AIExtractPageTextToolTests \
+            -only-testing:vreaderTests/AIToolMutationIdempotencyTests \
+            -only-testing:vreaderTests/AIAnnotationMutationToolsTests \
+            -only-testing:vreaderTests/MCPToolNameMapperTests \
+            -only-testing:vreaderTests/MCPResultSanitizerTests \
+            -only-testing:vreaderTests/MCPToolAdapterTests \
+            -only-testing:vreaderTests/MCPServerProfileStoreTests \
+            -only-testing:vreaderTests/AIToolEventTests \
+            -only-testing:vreaderTests/AIToolTraceTests \
+            -only-testing:vreaderTests/AISourceProvenanceTests \
+            -only-testing:vreaderTests/ChatSessionToolTraceMigrationTests \
+            -only-testing:vreaderTests/AIAgentCitationPropagationTests \
+            -only-testing:vreaderTests/AppleFoundationModelsAvailabilityTests \
+            -only-testing:vreaderTests/AppleFoundationModelsPolicyTests \
+            -only-testing:vreaderTests/AppleFoundationModelsToolAdapterTests \
+            -only-testing:vreaderTests/AppleFoundationModelsProfileTests \
+            -only-testing:vreaderTests/AIAgentSettingsViewModelTests \
+            -only-testing:vreaderTests/ChatActionConfirmationCardTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -445,7 +472,34 @@ jobs:
             vreaderTests/AINavigationToolsTests \
             vreaderTests/AIPendingBookNavigationStoreTests \
             vreaderTests/AIExactSessionToolIsolationTests \
-            vreaderTests/AIAgentToolRegistryIntegrationTests
+            vreaderTests/AIAgentToolRegistryIntegrationTests \
+            vreaderTests/SemanticChunkerTests \
+            vreaderTests/SemanticIndexMetadataTests \
+            vreaderTests/SemanticIndexStoreTests \
+            vreaderTests/SemanticSearchServiceTests \
+            vreaderTests/HybridSearchServiceTests \
+            vreaderTests/AISemanticModelManagerTests \
+            vreaderTests/SemanticSearchBoundaryTests \
+            vreaderTests/PDFOCRServiceTests \
+            vreaderTests/PDFOCRCacheTests \
+            vreaderTests/AIExtractPageTextToolTests \
+            vreaderTests/AIToolMutationIdempotencyTests \
+            vreaderTests/AIAnnotationMutationToolsTests \
+            vreaderTests/MCPToolNameMapperTests \
+            vreaderTests/MCPResultSanitizerTests \
+            vreaderTests/MCPToolAdapterTests \
+            vreaderTests/MCPServerProfileStoreTests \
+            vreaderTests/AIToolEventTests \
+            vreaderTests/AIToolTraceTests \
+            vreaderTests/AISourceProvenanceTests \
+            vreaderTests/ChatSessionToolTraceMigrationTests \
+            vreaderTests/AIAgentCitationPropagationTests \
+            vreaderTests/AppleFoundationModelsAvailabilityTests \
+            vreaderTests/AppleFoundationModelsPolicyTests \
+            vreaderTests/AppleFoundationModelsToolAdapterTests \
+            vreaderTests/AppleFoundationModelsProfileTests \
+            vreaderTests/AIAgentSettingsViewModelTests \
+            vreaderTests/ChatActionConfirmationCardTests
 
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}

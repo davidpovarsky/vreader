@@ -28,18 +28,22 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
     /// Feature #86 WI-6: the provenance an assistant reply drew on — the "Drew on"
     /// chips. Stamped from the send-time snapshot of the context the request used.
     var citations: [ChatCitation]
+    /// Feature #177: display-safe tool execution traces for tool activity rendering.
+    var toolTraces: [AIToolTrace]
 
     init(
         id: UUID = UUID(),
         role: ChatRole,
         content: String,
         timestamp: Date = Date(),
-        citations: [ChatCitation] = []
+        citations: [ChatCitation] = [],
+        toolTraces: [AIToolTrace] = []
     ) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
         self.citations = citations
+        self.toolTraces = toolTraces
     }
 }

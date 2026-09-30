@@ -282,6 +282,35 @@ final class AIChatViewModel {
 
     // MARK: - Actions
 
+    // Feature #177: Tool action confirmation UI
+    var pendingConfirmationRequest: AIActionConfirmationRequest?
+    @ObservationIgnored private var confirmationSubscriptionTask: Task<Void, Never>?
+
+    func startObservingConfirmations(broker: AIActionConfirmationBroker = .shared) {
+        confirmationSubscriptionTask?.cancel()
+        confirmationSubscriptionTask = Task { @MainActor [weak self] in
+            for await requests in await broker.pendingRequestUpdates() {
+                guard let self else { break }
+                self.pendingConfirmationRequest = requests.first
+            }
+        }
+    }
+
+    func resolveConfirmation(
+        _ requestID: UUID,
+        response: AIActionConfirmationResponse,
+        broker: AIActionConfirmationBroker = .shared
+    ) {
+        Task {
+            await broker.resolve(requestID, with: response)
+            await MainActor.run {
+                if self.pendingConfirmationRequest?.id == requestID {
+                    self.pendingConfirmationRequest = nil
+                }
+            }
+        }
+    }
+
     /// Clears the entire conversation history and resets state. Feature #87 WI-1:
     /// cancels any in-flight stream FIRST (combined with id-based writes in the
     /// streaming extension, a mid-flight clear cannot index-corrupt the thread).
@@ -291,6 +320,9 @@ final class AIChatViewModel {
     /// entry point that seals + resets `activeSessionId`. `clearHistory` leaves
     /// `activeSessionId` untouched so a cancel doesn't orphan the session identity.
     func clearHistory() {
+        if let pending = pendingConfirmationRequest {
+            resolveConfirmation(pending.id, response: .deny)
+        }
         cancelStreaming()
         messages = []
         isLoading = false

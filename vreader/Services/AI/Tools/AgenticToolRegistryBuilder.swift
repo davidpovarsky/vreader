@@ -29,7 +29,12 @@ enum AgenticToolRegistryBuilder {
         authorizationGate: AIAgentToolExecutionGate,
         readerContext: (any AIReaderToolContextProviding)? = nil,
         annotationStore: (any AIAnnotationReading)? = nil,
-        navigationRouter: (any AIReaderNavigationRouting)? = nil
+        navigationRouter: (any AIReaderNavigationRouting)? = nil,
+        annotationCoordinator: AIAnnotationMutationCoordinator? = nil,
+        semanticSearchService: SemanticSearchService? = nil,
+        ocrService: (any PDFOCRServicing)? = nil,
+        pdfFacade: (any AIPDFDocumentFacading)? = nil,
+        mcpAdapters: [MCPToolAdapter] = []
     ) -> AIToolRegistry {
         var tools: [any AITool] = []
 
@@ -102,6 +107,18 @@ enum AgenticToolRegistryBuilder {
             ))
         }
 
+        AIAgentToolRegistryComposer.compose(
+            into: &tools,
+            currentBook: currentBook,
+            authorizationGate: authorizationGate,
+            readerContext: readerContext,
+            annotationCoordinator: annotationCoordinator,
+            semanticSearchService: semanticSearchService,
+            ocrService: ocrService,
+            pdfFacade: pdfFacade,
+            mcpAdapters: mcpAdapters
+        )
+
         return AIToolRegistry(tools)
     }
 
@@ -118,7 +135,12 @@ enum AgenticToolRegistryBuilder {
         readerContext: (any AIReaderToolContextProviding)? = nil,
         authorizationGate: AIAgentToolExecutionGate = .productionUnavailable(),
         annotationStore: (any AIAnnotationReading)? = nil,
-        navigationRouter: (any AIReaderNavigationRouting)? = NotificationAIReaderNavigationRouter()
+        navigationRouter: (any AIReaderNavigationRouting)? = NotificationAIReaderNavigationRouter(),
+        annotationCoordinator: AIAnnotationMutationCoordinator? = nil,
+        semanticSearchService: SemanticSearchService? = nil,
+        ocrService: (any PDFOCRServicing)? = nil,
+        pdfFacade: (any AIPDFDocumentFacading)? = nil,
+        mcpAdapters: [MCPToolAdapter] = []
     ) async throws -> AIToolRegistry {
         let store = try await Task.detached { try PersistentSearchIndex.makeStoreStrict() }.value
         let search = SearchService(store: store)
@@ -153,7 +175,12 @@ enum AgenticToolRegistryBuilder {
             authorizationGate: authorizationGate,
             readerContext: readerContext,
             annotationStore: annotationStore,
-            navigationRouter: navigationRouter
+            navigationRouter: navigationRouter,
+            annotationCoordinator: annotationCoordinator,
+            semanticSearchService: semanticSearchService,
+            ocrService: ocrService,
+            pdfFacade: pdfFacade,
+            mcpAdapters: mcpAdapters
         )
     }
 }

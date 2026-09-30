@@ -78,6 +78,19 @@ struct AISettingsSection: View {
                 }
                 .accessibilityIdentifier("aiProvidersNavLink")
 
+                NavigationLink {
+                    AIAgentSettingsView()
+                } label: {
+                    SettingsIconRow(
+                        theme: theme,
+                        icon: Image(systemName: "slider.horizontal.3"),
+                        iconBackground: Color.accentColor,
+                        title: String(localized: "AI Agent & Capabilities", defaultValue: "AI Agent & Capabilities"),
+                        detail: String(localized: "Tools, permissions, retrieval and MCP", defaultValue: "Tools, permissions, retrieval and MCP")
+                    )
+                }
+                .accessibilityIdentifier("aiAgentSettingsNavLink")
+
                 SettingsToggleRow(
                     theme: theme,
                     icon: Image(systemName: SettingsRowPalette.aiDataSharing.symbolName),

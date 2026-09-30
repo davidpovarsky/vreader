@@ -169,7 +169,10 @@ struct AIChatView: View {
         // seed is set before this view exists, and the Chat tab is only selected
         // on the panel's onAppear) AND on later changes — an .onChange-only
         // consumer would miss the first seed and open Chat with an empty input.
-        .onAppear { applySeedIfPossible() }
+        .onAppear {
+            applySeedIfPossible()
+            viewModel.startObservingConfirmations()
+        }
         .task(id: viewModel.seededInput) { applySeedIfPossible() }
         // Feature #88 WI-5: the Conversations switcher, presented from the
         // session bar's title pill (book chat only — the bar isn't shown for
@@ -231,6 +234,19 @@ struct AIChatView: View {
                     ForEach(viewModel.messages) { message in
                         AIChatMessageRow(message: message, theme: theme)
                             .id(message.id)
+                    }
+
+                    if let confirmation = viewModel.pendingConfirmationRequest {
+                        ChatActionConfirmationCard(
+                            request: confirmation,
+                            theme: theme,
+                            onResolve: { response in
+                                viewModel.resolveConfirmation(confirmation.id, response: response)
+                            }
+                        )
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 4)
+                        .id("action-confirmation-\(confirmation.id)")
                     }
 
                     if viewModel.isLoading {

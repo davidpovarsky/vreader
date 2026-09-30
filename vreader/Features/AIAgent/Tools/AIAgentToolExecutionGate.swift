@@ -56,6 +56,19 @@ struct AIAgentToolExecutionGate: Sendable {
         )
     }
 
+    static func productionConnected(
+        broker: AIActionConfirmationBroker = .shared,
+        preferencesStore: any AIAgentPreferencesStoring = AIAgentPreferencesStore.shared,
+        policy: AIToolAuthorizationPolicy = AIToolAuthorizationPolicy()
+    ) -> AIAgentToolExecutionGate {
+        AIAgentToolExecutionGate(
+            preferencesStore: preferencesStore,
+            broker: broker,
+            policy: policy,
+            confirmationAvailability: .brokerConnected
+        )
+    }
+
     func authorize(
         _ context: AIToolAuthorizationContext
     ) async -> AIAgentToolAuthorizationOutcome {

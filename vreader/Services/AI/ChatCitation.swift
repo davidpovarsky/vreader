@@ -25,6 +25,7 @@ struct ChatCitation: Sendable, Equatable, Identifiable {
         case highlight      // a text highlight
         case bookmark       // a bookmark
         case wholeBookSpan  // a span pulled by on-demand whole-book retrieval
+        case searchResult   // Feature #177: lexical/semantic/OCR search hit
     }
 
     let id: UUID

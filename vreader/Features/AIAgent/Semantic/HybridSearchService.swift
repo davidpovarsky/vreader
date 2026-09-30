@@ -90,9 +90,11 @@ struct HybridSearchService: Sendable {
             }
 
             // Pick locator & metadata from available entry
+            guard let locator = entry.semantic?.item.locator ?? entry.lexical?.item.locator else {
+                continue
+            }
             let bookKey = entry.semantic?.item.bookFingerprintKey ?? entry.lexical?.item.bookFingerprintKey ?? ""
             let title = entry.semantic?.item.bookTitle ?? entry.lexical?.item.bookTitle
-            let locator = entry.semantic?.item.locator ?? entry.lexical?.item.locator ?? Locator(type: .page, value: "0")
             let sourceLabel = entry.semantic?.item.sourceLabel ?? entry.lexical?.item.sourceLabel
             let chapter = entry.semantic?.item.chapterTitle ?? entry.lexical?.item.chapterTitle
             let page = entry.semantic?.item.pageIndex ?? entry.lexical?.item.pageIndex

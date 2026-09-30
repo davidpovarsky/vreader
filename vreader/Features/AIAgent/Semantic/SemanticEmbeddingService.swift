@@ -6,7 +6,15 @@ import Foundation
 protocol SemanticEmbeddingProviding: Sendable {
     var dimension: Int { get }
     func embedQuery(_ text: String) async throws -> [Float]
+    func embedPassage(_ text: String) async throws -> [Float]
     func embedPassages(_ texts: [String]) async throws -> [[Float]]
+}
+
+extension SemanticEmbeddingProviding {
+    func embedPassage(_ text: String) async throws -> [Float] {
+        let res = try await embedPassages([text])
+        return res.first ?? [Float](repeating: 0.0, count: dimension)
+    }
 }
 
 /// Deterministic embedding provider for CI and tests.
@@ -22,6 +30,12 @@ struct MockSemanticEmbeddingService: SemanticEmbeddingProviding {
     func embedQuery(_ text: String) async throws -> [Float] {
         try Task.checkCancellation()
         let formatted = AISemanticModelManager.formatQuery(text)
+        return generateVector(for: formatted)
+    }
+
+    func embedPassage(_ text: String) async throws -> [Float] {
+        try Task.checkCancellation()
+        let formatted = AISemanticModelManager.formatPassage(text)
         return generateVector(for: formatted)
     }
 

@@ -50,12 +50,75 @@ actor SemanticIndexMetadataStore {
         return meta
     }
 
+    func saveChunkMetadata(_ chunks: [SemanticChunkMetadata], for bookKey: String) throws {
+        let meta = SemanticIndexMetadata(bookFingerprintKey: bookKey, chunkCount: chunks.count)
+        try save(metadata: meta, chunks: chunks)
+    }
+
+    func metadata(for chunkID: String) -> SemanticChunkMetadata? {
+        if let found = vectorKeyToChunk.values.first(where: { $0.chunkID == chunkID }) {
+            return found
+        }
+        if let bookDirs = try? fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil) {
+            for dir in bookDirs {
+                let chunksURL = dir.appendingPathComponent("chunks.json")
+                if let data = try? Data(contentsOf: chunksURL),
+                   let diskChunks = try? JSONDecoder().decode([SemanticChunkMetadata].self, from: data) {
+                    for chunk in diskChunks {
+                        vectorKeyToChunk[chunk.vectorKey] = chunk
+                    }
+                    if let found = diskChunks.first(where: { $0.chunkID == chunkID }) {
+                        return found
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    func allChunks(for bookKey: String) -> [SemanticChunkMetadata] {
+        let cached = vectorKeyToChunk.values.filter { $0.bookFingerprintKey == bookKey }
+        if !cached.isEmpty {
+            return Array(cached)
+        }
+        let chunksURL = storageDirectory.appendingPathComponent(bookKey).appendingPathComponent("chunks.json")
+        guard let data = try? Data(contentsOf: chunksURL),
+              let diskChunks = try? JSONDecoder().decode([SemanticChunkMetadata].self, from: data) else {
+            return []
+        }
+        for chunk in diskChunks {
+            vectorKeyToChunk[chunk.vectorKey] = chunk
+        }
+        return diskChunks
+    }
+
+    func deleteMetadata(for bookKey: String) throws {
+        try remove(forBook: bookKey)
+    }
+
     func fetchChunk(byVectorKey vectorKey: UInt64) -> SemanticChunkMetadata? {
-        vectorKeyToChunk[vectorKey]
+        if let found = vectorKeyToChunk[vectorKey] {
+            return found
+        }
+        if let bookDirs = try? fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil) {
+            for dir in bookDirs {
+                let chunksURL = dir.appendingPathComponent("chunks.json")
+                if let data = try? Data(contentsOf: chunksURL),
+                   let diskChunks = try? JSONDecoder().decode([SemanticChunkMetadata].self, from: data) {
+                    for chunk in diskChunks {
+                        vectorKeyToChunk[chunk.vectorKey] = chunk
+                    }
+                    if let found = vectorKeyToChunk[vectorKey] {
+                        return found
+                    }
+                }
+            }
+        }
+        return nil
     }
 
     func fetchChunks(byVectorKeys vectorKeys: [UInt64]) -> [SemanticChunkMetadata] {
-        vectorKeys.compactMap { vectorKeyToChunk[$0] }
+        vectorKeys.compactMap { fetchChunk(byVectorKey: $0) }
     }
 
     func remove(forBook fingerprintKey: String) throws {

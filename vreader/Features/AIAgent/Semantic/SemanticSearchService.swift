@@ -52,6 +52,11 @@ actor SemanticSearchService {
         self.indexStore = indexStore
     }
 
+    /// Searches the entire library across all indexed books.
+    func searchLibrary(query: String, maxHits: Int = 10) async throws -> [SemanticSearchHit] {
+        try await searchRaw(query: query, maxHits: maxHits)
+    }
+
     /// Performs raw semantic search across vectors without spoiler boundary filtering.
     func searchRaw(query: String, maxHits: Int = 10) async throws -> [SemanticSearchHit] {
         try Task.checkCancellation()
@@ -60,12 +65,12 @@ actor SemanticSearchService {
 
         var hits: [SemanticSearchHit] = []
         for match in matches {
-            guard let chunk = await metadataStore.fetchChunk(byVectorKey: match.key) else { continue }
+            guard let chunk = await (metadataStore.fetchChunk(byVectorKey: match.key) ?? metadataStore.metadata(for: match.chunkID)) else { continue }
             let similarity = max(0.0, 1.0 - Double(match.distance))
             hits.append(SemanticSearchHit(
                 chunkID: chunk.chunkID,
                 bookFingerprintKey: chunk.bookFingerprintKey,
-                bookTitle: nil,
+                bookTitle: chunk.bookTitle,
                 locator: chunk.locator,
                 sourceLabel: chunk.sourceLabel,
                 chapterTitle: chunk.chapterTitle,

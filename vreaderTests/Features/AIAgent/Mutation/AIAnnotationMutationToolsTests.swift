@@ -43,29 +43,98 @@ struct AIAnnotationMutationToolsTests {
         var createdBookmarks: [(String, Locator, String?)] = []
         var removedBookmarkIDs: [String] = []
 
-        func createNote(bookFingerprint: String, title: String, content: String, locator: Locator) async throws -> String {
-            createdNotes.append((bookFingerprint, content, locator))
-            return "note_\(createdNotes.count)"
+        // MARK: - AnnotationPersisting
+        func addAnnotation(locator: Locator, content: String, toBookWithKey key: String) async throws -> AnnotationRecord {
+            createdNotes.append((key, content, locator))
+            return AnnotationRecord(
+                annotationId: UUID(),
+                locator: locator,
+                profileKey: key,
+                content: content,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
         }
 
-        func updateNote(id: String, content: String) async throws {}
-        func deleteNote(id: String) async throws { deletedNoteIDs.append(id) }
-
-        func addHighlight(bookFingerprint: String, locator: Locator, colorHex: String, note: String?) async throws -> String {
-            createdHighlights.append((bookFingerprint, locator, colorHex))
-            return "hl_\(createdHighlights.count)"
+        func removeAnnotation(annotationId: UUID) async throws {
+            deletedNoteIDs.append(annotationId.uuidString)
         }
 
-        func updateHighlight(id: String, colorHex: String?, note: String?) async throws {}
-        func removeHighlight(id: String) async throws { removedHighlightIDs.append(id) }
+        func updateAnnotation(annotationId: UUID, content: String) async throws {}
 
-        func addBookmark(bookFingerprint: String, locator: Locator, title: String?) async throws -> String {
-            createdBookmarks.append((bookFingerprint, locator, title))
-            return "bm_\(createdBookmarks.count)"
+        func fetchAnnotations(forBookWithKey key: String) async throws -> [AnnotationRecord] {
+            []
         }
 
-        func updateBookmark(id: String, title: String?) async throws {}
-        func removeBookmark(id: String) async throws { removedBookmarkIDs.append(id) }
+        // MARK: - HighlightPersisting
+        func addHighlight(locator: Locator, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
+            createdHighlights.append((key, locator, color))
+            return HighlightRecord(
+                highlightId: UUID(),
+                locator: locator,
+                anchor: nil,
+                profileKey: key,
+                selectedText: selectedText,
+                color: color,
+                note: note,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+        }
+
+        func addHighlight(locator: Locator, anchor: AnnotationAnchor?, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
+            createdHighlights.append((key, locator, color))
+            return HighlightRecord(
+                highlightId: UUID(),
+                locator: locator,
+                anchor: anchor,
+                profileKey: key,
+                selectedText: selectedText,
+                color: color,
+                note: note,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+        }
+
+        func removeHighlight(highlightId: UUID) async throws {
+            removedHighlightIDs.append(highlightId.uuidString)
+        }
+
+        func updateHighlightNote(highlightId: UUID, note: String?) async throws {}
+
+        func updateHighlightColor(highlightId: UUID, color: String) async throws {}
+
+        func fetchHighlights(forBookWithKey key: String) async throws -> [HighlightRecord] {
+            []
+        }
+
+        // MARK: - BookmarkPersisting
+        func addBookmark(locator: Locator, title: String?, toBookWithKey key: String) async throws -> BookmarkRecord {
+            createdBookmarks.append((key, locator, title))
+            return BookmarkRecord(
+                bookmarkId: UUID(),
+                locator: locator,
+                profileKey: key,
+                title: title,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+        }
+
+        func removeBookmark(bookmarkId: UUID) async throws {
+            removedBookmarkIDs.append(bookmarkId.uuidString)
+        }
+
+        func fetchBookmarks(forBookWithKey key: String) async throws -> [BookmarkRecord] {
+            []
+        }
+
+        func isBookmarked(locator: Locator, forBookWithKey key: String) async throws -> Bool {
+            false
+        }
+
+        func updateBookmarkTitle(bookmarkId: UUID, title: String?) async throws {}
     }
 
     @Test @MainActor func createNoteToolCreatesNoteWithValidInput() async {

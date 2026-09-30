@@ -68,4 +68,11 @@ extension DocumentFingerprint {
         self.fileByteCount = byteCount
         self.format = format
     }
+
+    /// Convenience initializer for synthetic fixtures and tests.
+    init(scheme: String, value: String) {
+        let padded = (value + String(repeating: "0", count: 64)).prefix(64).lowercased()
+        let hexChars = padded.map { $0.isHexDigit ? $0 : "0" }
+        self.init(contentSHA256: String(hexChars), fileByteCount: 1024, format: .epub)
+    }
 }

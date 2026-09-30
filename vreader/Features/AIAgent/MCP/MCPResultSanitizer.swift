@@ -73,4 +73,16 @@ struct MCPResultSanitizer: Sendable {
         }
         return "{}"
     }
+
+    /// Truncates text exceeding maxCharacters, appending ellipsis.
+    static func sanitizeText(_ text: String, maxCharacters: Int = 8_000) -> String {
+        guard text.count > maxCharacters else { return text }
+        return String(text.prefix(maxCharacters)) + "..."
+    }
+
+    /// Recursively bounds a JSONValue to the specified maximum nesting depth.
+    static func sanitizeJSON(_ value: JSONValue, maxDepth: Int = 8) -> JSONValue {
+        let sanitizer = MCPResultSanitizer(maxNestingDepth: maxDepth)
+        return sanitizer.sanitize(value)
+    }
 }

@@ -67,7 +67,7 @@ struct MCPServerListView: View {
         .sheet(isPresented: $isAddingServer) {
             MCPServerEditView { newProfile in
                 Task {
-                    await MCPServerProfileStore.shared.saveProfile(newProfile)
+                    try? await MCPServerProfileStore.shared.saveProfile(newProfile)
                     await viewModel.load()
                 }
             }
@@ -75,7 +75,7 @@ struct MCPServerListView: View {
         .sheet(item: $profileToEdit) { profile in
             MCPServerEditView(profile: profile) { updated in
                 Task {
-                    await MCPServerProfileStore.shared.saveProfile(updated)
+                    try? await MCPServerProfileStore.shared.saveProfile(updated)
                     await viewModel.load()
                 }
             }

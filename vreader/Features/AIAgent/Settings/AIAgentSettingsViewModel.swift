@@ -99,7 +99,7 @@ final class AIAgentSettingsViewModel {
     func toggleMCPProfile(_ profile: MCPServerProfile) async {
         var updated = profile
         updated.isEnabled.toggle()
-        await mcpProfileStore.saveProfile(updated)
+        try? await mcpProfileStore.saveProfile(updated)
         mcpProfiles = await mcpProfileStore.allProfiles()
     }
 

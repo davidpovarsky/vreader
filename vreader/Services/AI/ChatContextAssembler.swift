@@ -77,7 +77,7 @@ enum ChatContextAssembler {
         case .note:      return ChatAnnotationContext.notesHeader
         case .highlight: return ChatAnnotationContext.highlightsHeader
         case .bookmark:  return ChatAnnotationContext.bookmarksHeader
-        case .scope, .wholeBookSpan: return nil   // not annotation-block-derived
+        case .scope, .wholeBookSpan, .searchResult: return nil   // not annotation-block-derived
         }
     }
 

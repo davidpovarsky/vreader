@@ -79,9 +79,17 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
     let sourceLocator: Locator?
     let externalServerIdentifier: String?
 
+    var externalServerName: String? {
+        externalServerIdentifier ?? metadata["serverName"] ?? metadata["externalServerName"]
+    }
+
+    var requestedReadAhead: Bool {
+        permissionCategory == .readAhead || metadata["requestedReadAhead"] == "true"
+    }
+
     init(
         id: UUID = UUID(),
-        toolName: String,
+        toolName: String = "",
         actionDescription: String,
         permissionCategory: AIToolPermissionCategory,
         metadata: [String: String] = [:],
@@ -91,7 +99,8 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
         toolCallID: String? = nil,
         bookFingerprintKey: String? = nil,
         sourceLocator: Locator? = nil,
-        externalServerIdentifier: String? = nil
+        externalServerIdentifier: String? = nil,
+        externalServerName: String? = nil
     ) {
         let destructive = isDestructive || permissionCategory == .removeData
         self.id = id
@@ -107,7 +116,7 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
         self.toolCallID = toolCallID
         self.bookFingerprintKey = bookFingerprintKey
         self.sourceLocator = sourceLocator
-        self.externalServerIdentifier = externalServerIdentifier
+        self.externalServerIdentifier = externalServerIdentifier ?? externalServerName
     }
 
     private enum CodingKeys: String, CodingKey {

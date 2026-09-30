@@ -6,14 +6,14 @@ import Foundation
 struct ExtractPageTextTool: AITool {
     static let toolName = "extract_page_text"
     let ocrService: any PDFOCRServicing
-    let facade: any AIPDFDocumentFacading
+    let facade: (any AIPDFDocumentFacading)?
     let context: any AIReaderToolContextProviding
     let authorizationGate: AIAgentToolExecutionGate
     let maxContentBytes: Int
 
     init(
         ocrService: any PDFOCRServicing = PDFOCRService(),
-        facade: any AIPDFDocumentFacading,
+        facade: (any AIPDFDocumentFacading)? = nil,
         context: any AIReaderToolContextProviding,
         authorizationGate: AIAgentToolExecutionGate,
         maxContentBytes: Int = 8_000
@@ -54,7 +54,12 @@ struct ExtractPageTextTool: AITool {
         }
 
         let pageIndex = Int(pageNum) - 1
-        let totalPages = await facade.pageCount
+        let totalPages: Int
+        if let facade {
+            totalPages = await facade.pageCount
+        } else {
+            totalPages = 1000
+        }
         guard pageIndex < totalPages else {
             return AIReaderToolOutput.boundedResult(
                 "Page \(Int(pageNum)) is out of range. Document has \(totalPages) pages.",
@@ -96,11 +101,20 @@ struct ExtractPageTextTool: AITool {
         }
 
         do {
-            let result = try await ocrService.extractPageText(
-                bookKey: snapshot.bookFingerprint.canonicalKey,
-                pageIndex: pageIndex,
-                facade: facade
-            )
+            let result: PDFOCRResult
+            if let facade {
+                result = try await ocrService.extractPageText(
+                    bookKey: snapshot.bookFingerprint.canonicalKey,
+                    pageIndex: pageIndex,
+                    facade: facade
+                )
+            } else {
+                result = try await ocrService.extractPageText(
+                    bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,
+                    pageIndex: pageIndex,
+                    nativeTextThreshold: 20
+                )
+            }
 
             let sourceTag = (result.source == .visionOCR) ? "Vision OCR" : "Native PDF Text"
             let header = "[Page \(Int(pageNum)) | \(sourceTag)]\n"

@@ -14,6 +14,7 @@ struct PDFOCRResult: Sendable, Equatable, Codable {
     let locator: Locator
     let source: PDFTextSource
     let isOCRDerived: Bool
+    let confidence: Double?
     let languageCode: String?
     let timestamp: Date
 
@@ -21,20 +22,37 @@ struct PDFOCRResult: Sendable, Equatable, Codable {
         bookFingerprintKey: String,
         pageIndex: Int,
         text: String,
-        locator: Locator,
-        source: PDFTextSource,
-        isOCRDerived: Bool,
+        locator: Locator? = nil,
+        source: PDFTextSource = .visionOCR,
+        isOCRDerived: Bool? = nil,
+        confidence: Double? = nil,
+        language: String? = nil,
         languageCode: String? = nil,
         timestamp: Date = Date()
     ) {
         self.bookFingerprintKey = bookFingerprintKey
         self.pageIndex = pageIndex
         self.text = text
-        self.locator = locator
+        self.locator = locator ?? makePDFLocator(bookKey: bookFingerprintKey, pageIndex: pageIndex)
         self.source = source
-        self.isOCRDerived = isOCRDerived
-        self.languageCode = languageCode
+        self.isOCRDerived = isOCRDerived ?? (source == .visionOCR)
+        self.confidence = confidence
+        self.languageCode = languageCode ?? language
         self.timestamp = timestamp
+    }
+
+    func toSourceProvenance(toolCallID: String? = nil, aheadOfReader: Bool = false) -> AISourceProvenance {
+        AISourceProvenance(
+            bookFingerprintKey: bookFingerprintKey,
+            locator: locator,
+            pageIndex: pageIndex,
+            snippet: text,
+            retrievalMethod: .ocr,
+            score: confidence,
+            aheadOfReader: aheadOfReader,
+            toolCallID: toolCallID,
+            isOCRDerived: isOCRDerived
+        )
     }
 }
 

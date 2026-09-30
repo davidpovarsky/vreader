@@ -22,6 +22,11 @@ struct PDFOCRPolicy: Sendable {
         return trimmed.count < nativeTextThreshold
     }
 
+    /// Evaluates if a page's native text is sufficient or if OCR should be attempted (test alias).
+    func requiresOCR(nativeText: String) -> Bool {
+        needsOCR(nativeText: nativeText)
+    }
+
     /// Returns preferred recognition languages, checking for Hebrew ("he-IL" or "he") support if available.
     func preferredLanguages(supportedLanguages: [String]) -> [String] {
         var languages: [String] = []

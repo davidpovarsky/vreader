@@ -24,6 +24,20 @@ actor PDFOCRCache {
         try? fileManager.createDirectory(at: self.cacheDirectory, withIntermediateDirectories: true)
     }
 
+    init(
+        storageDirectory: URL? = nil,
+        currentPipelineVersion: Int = 1
+    ) {
+        self.init(pipelineVersion: "v\(currentPipelineVersion)", cacheDirectory: storageDirectory)
+    }
+
+    init(
+        storageDirectory: URL? = nil,
+        pipelineVersion: String = PDFOCRPolicy.currentPipelineVersion
+    ) {
+        self.init(pipelineVersion: pipelineVersion, cacheDirectory: storageDirectory)
+    }
+
     private func cacheKey(bookKey: String, pageIndex: Int) -> String {
         "\(bookKey)_\(pageIndex)_\(pipelineVersion)"
     }
@@ -41,8 +55,14 @@ actor PDFOCRCache {
         return result
     }
 
-    func set(_ result: PDFOCRResult) throws {
-        let key = cacheKey(bookKey: result.bookFingerprintKey, pageIndex: result.pageIndex)
+    func get(bookFingerprintKey: String, pageIndex: Int) -> PDFOCRResult? {
+        get(bookKey: bookFingerprintKey, pageIndex: pageIndex)
+    }
+
+    func set(_ result: PDFOCRResult, for bookKey: String? = nil, pageIndex: Int? = nil) throws {
+        let targetKey = bookKey ?? result.bookFingerprintKey
+        let targetIndex = pageIndex ?? result.pageIndex
+        let key = cacheKey(bookKey: targetKey, pageIndex: targetIndex)
         inMemoryCache[key] = result
 
         let fileURL = cacheDirectory.appendingPathComponent("\(key).json")
@@ -56,6 +76,10 @@ actor PDFOCRCache {
         for file in files where file.starts(with: "\(bookKey)_") {
             try fileManager.removeItem(at: cacheDirectory.appendingPathComponent(file))
         }
+    }
+
+    func clear(for bookKey: String) throws {
+        try clear(forBook: bookKey)
     }
 
     func clearAll() throws {

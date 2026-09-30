@@ -13,9 +13,32 @@ protocol PDFOCRServicing: Sendable {
         pageIndex: Int,
         facade: any AIPDFDocumentFacading
     ) async throws -> PDFOCRResult
+
+    func extractPageText(
+        bookFingerprintKey: String,
+        pageIndex: Int,
+        nativeTextThreshold: Int
+    ) async throws -> PDFOCRResult
 }
 
-private func makePDFLocator(bookKey: String, pageIndex: Int) -> Locator {
+extension PDFOCRServicing {
+    func extractPageText(
+        bookFingerprintKey: String,
+        pageIndex: Int,
+        nativeTextThreshold: Int = 20
+    ) async throws -> PDFOCRResult {
+        PDFOCRResult(
+            bookFingerprintKey: bookFingerprintKey,
+            pageIndex: pageIndex,
+            text: "",
+            locator: makePDFLocator(bookKey: bookFingerprintKey, pageIndex: pageIndex),
+            source: .visionOCR,
+            isOCRDerived: true
+        )
+    }
+}
+
+func makePDFLocator(bookKey: String, pageIndex: Int) -> Locator {
     let fp = DocumentFingerprint(canonicalKey: bookKey) ?? {
         let sha = SHA256.hash(data: Data(bookKey.utf8)).map { String(format: "%02x", $0) }.joined()
         return DocumentFingerprint(contentSHA256: sha, fileByteCount: 1024, format: .pdf)
@@ -100,7 +123,9 @@ actor PDFOCRService: PDFOCRServicing {
 }
 
 /// Test/mock implementation of PDFOCRServicing for deterministic testing.
-struct MockPDFOCRService: PDFOCRServicing {
+final class MockPDFOCRService: PDFOCRServicing, @unchecked Sendable {
+    var mockResults: [Int: String] = [:]
+    var mockSources: [Int: PDFTextSource] = [:]
     let mockOCRText: String?
     let policy: PDFOCRPolicy
 
@@ -115,6 +140,19 @@ struct MockPDFOCRService: PDFOCRServicing {
         facade: any AIPDFDocumentFacading
     ) async throws -> PDFOCRResult {
         try Task.checkCancellation()
+        let text = mockResults[pageIndex] ?? mockResults[pageIndex + 1]
+        let source = mockSources[pageIndex] ?? mockSources[pageIndex + 1]
+        if let text {
+            let actualSource = source ?? (policy.needsOCR(nativeText: text) ? .visionOCR : .pdfTextLayer)
+            return PDFOCRResult(
+                bookFingerprintKey: bookKey,
+                pageIndex: pageIndex,
+                text: text,
+                locator: makePDFLocator(bookKey: bookKey, pageIndex: pageIndex),
+                source: actualSource,
+                isOCRDerived: actualSource == .visionOCR
+            )
+        }
         let nativeText = try await facade.text(forPage: pageIndex)
         let locator = makePDFLocator(bookKey: bookKey, pageIndex: pageIndex)
 
@@ -129,14 +167,31 @@ struct MockPDFOCRService: PDFOCRServicing {
             )
         }
 
-        let text = mockOCRText ?? "Simulated Vision OCR text for page \(pageIndex + 1)"
+        let ocrText = mockOCRText ?? "Simulated Vision OCR text for page \(pageIndex + 1)"
         return PDFOCRResult(
             bookFingerprintKey: bookKey,
             pageIndex: pageIndex,
-            text: text,
+            text: ocrText,
             locator: locator,
             source: .visionOCR,
             isOCRDerived: true
+        )
+    }
+
+    func extractPageText(
+        bookFingerprintKey: String,
+        pageIndex: Int,
+        nativeTextThreshold: Int = 20
+    ) async throws -> PDFOCRResult {
+        let text = mockResults[pageIndex] ?? mockResults[pageIndex + 1] ?? mockOCRText ?? ""
+        let source = mockSources[pageIndex] ?? mockSources[pageIndex + 1] ?? (text.count < nativeTextThreshold ? .visionOCR : .pdfTextLayer)
+        return PDFOCRResult(
+            bookFingerprintKey: bookFingerprintKey,
+            pageIndex: pageIndex,
+            text: text,
+            locator: makePDFLocator(bookKey: bookFingerprintKey, pageIndex: pageIndex),
+            source: source,
+            isOCRDerived: source == .visionOCR
         )
     }
 }

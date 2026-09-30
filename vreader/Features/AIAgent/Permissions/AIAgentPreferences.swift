@@ -56,6 +56,11 @@ struct AIAgentPreferences: Codable, Equatable, Sendable {
         readAheadMode = mode
     }
 
+    var permissions: [AIToolPermissionCategory: AIToolPermissionDecision] {
+        get { permissionDecisions }
+        set { permissionDecisions = newValue }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case permissions
         case readAheadMode

@@ -144,6 +144,16 @@ struct ToolDefinition: Sendable, Equatable, Codable {
     /// JSON-Schema object describing the tool's input (e.g.
     /// `{"type":"object","properties":{...},"required":[...]}`).
     let inputSchema: JSONValue
+
+    init(
+        name: String,
+        description: String,
+        inputSchema: JSONValue = .object(["type": .string("object")])
+    ) {
+        self.name = name
+        self.description = description
+        self.inputSchema = inputSchema
+    }
 }
 
 /// A model-requested tool invocation parsed from one provider turn.

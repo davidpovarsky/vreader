@@ -61,3 +61,27 @@ actor AIAgentPreferencesStore: AIAgentPreferencesStoring {
         preferences.set(raw, forKey: storageKey)
     }
 }
+
+/// In-memory implementation of AIAgentPreferencesStoring for isolated tests.
+final class InMemoryAIAgentPreferencesStore: AIAgentPreferencesStoring, @unchecked Sendable {
+    var preferences: AIAgentPreferences
+
+    init(preferences: AIAgentPreferences = .default) {
+        self.preferences = preferences
+    }
+
+    func load() async -> AIAgentPreferences {
+        preferences
+    }
+
+    func setDecision(
+        _ decision: AIToolPermissionDecision,
+        for category: AIToolPermissionCategory
+    ) async {
+        preferences.setDecision(decision, for: category)
+    }
+
+    func setReadAheadMode(_ mode: AIReadAheadMode) async {
+        preferences.setReadAheadMode(mode)
+    }
+}

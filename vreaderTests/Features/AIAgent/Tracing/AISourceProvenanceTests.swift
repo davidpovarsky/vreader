@@ -9,7 +9,21 @@ import Foundation
 struct AISourceProvenanceTests {
 
     @Test func sourceProvenanceMapsToChatCitationAccurately() {
-        let locator = Locator(href: "ch3.xhtml", type: "application/xhtml+xml", title: "Chapter 3")
+        let fp = DocumentFingerprint(contentSHA256: String(repeating: "a", count: 64), fileByteCount: 1024, format: .epub)
+        let locator = Locator(
+            bookFingerprint: fp,
+            href: "ch3.xhtml",
+            progression: nil,
+            totalProgression: nil,
+            cfi: nil,
+            page: nil,
+            charOffsetUTF16: nil,
+            charRangeStartUTF16: nil,
+            charRangeEndUTF16: nil,
+            textQuote: nil,
+            textContextBefore: nil,
+            textContextAfter: nil
+        )
         let prov = AISourceProvenance(
             bookFingerprintKey: "book-test",
             bookTitle: "Test Novel",

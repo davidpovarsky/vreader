@@ -25,15 +25,15 @@ actor PDFOCRCache {
     }
 
     init(
-        storageDirectory: URL? = nil,
+        storageDirectory: URL?,
         currentPipelineVersion: Int = 1
     ) {
         self.init(pipelineVersion: "v\(currentPipelineVersion)", cacheDirectory: storageDirectory)
     }
 
     init(
-        storageDirectory: URL? = nil,
-        pipelineVersion: String = PDFOCRPolicy.currentPipelineVersion
+        storageDirectory: URL?,
+        pipelineVersion: String
     ) {
         self.init(pipelineVersion: pipelineVersion, cacheDirectory: storageDirectory)
     }

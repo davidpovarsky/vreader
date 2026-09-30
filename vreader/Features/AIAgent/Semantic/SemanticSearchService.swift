@@ -127,10 +127,11 @@ actor SemanticSearchService {
     }
 
     private func isHitAheadOfBoundary(hit: SemanticSearchHit, boundary: AIReadSoFarBoundary) -> Bool {
-        if let hitPage = hit.pageIndex, let bPage = boundary.sourceUnitIndex {
+        if let hitPage = hit.pageIndex, let bPage = boundary.pageIndex ?? boundary.sourceUnitIndex {
             return hitPage > bPage
         }
-        if let hitProg = hit.locator.totalProgression, let bProg = boundary.locator.totalProgression {
+        if let hitProg = hit.locator.totalProgression ?? hit.locator.progression,
+           let bProg = boundary.progression ?? boundary.locator.totalProgression ?? boundary.locator.progression {
             return hitProg > bProg
         }
         // Fail-safe: if ordering unknown and not same source unit, treat as ahead (fail closed)

@@ -51,19 +51,48 @@ struct AIReadSoFarBoundary: Codable, Hashable, Sendable {
     let sourceUnitIndex: Int?
     let localOffsetUTF16: Int?
     let globalOffsetUTF16: Int?
+    let progression: Double?
+    let chapterIndex: Int?
+    let pageIndex: Int?
 
     init(
         locator: Locator,
         sourceUnitID: String,
         sourceUnitIndex: Int?,
         localOffsetUTF16: Int?,
-        globalOffsetUTF16: Int? = nil
+        globalOffsetUTF16: Int? = nil,
+        progression: Double? = nil,
+        chapterIndex: Int? = nil,
+        pageIndex: Int? = nil
     ) {
         self.locator = locator
         self.sourceUnitID = sourceUnitID
         self.sourceUnitIndex = sourceUnitIndex
         self.localOffsetUTF16 = localOffsetUTF16
         self.globalOffsetUTF16 = globalOffsetUTF16
+        self.progression = progression ?? locator.totalProgression ?? locator.progression
+        self.chapterIndex = chapterIndex ?? sourceUnitIndex
+        self.pageIndex = pageIndex ?? locator.page
+    }
+
+    init(
+        locator: Locator,
+        progression: Double? = nil,
+        chapterIndex: Int? = nil,
+        pageIndex: Int? = nil,
+        sourceUnitID: String? = nil,
+        sourceUnitIndex: Int? = nil,
+        localOffsetUTF16: Int? = nil,
+        globalOffsetUTF16: Int? = nil
+    ) {
+        self.locator = locator
+        self.sourceUnitID = sourceUnitID ?? locator.href ?? "unit"
+        self.sourceUnitIndex = sourceUnitIndex ?? chapterIndex ?? pageIndex
+        self.localOffsetUTF16 = localOffsetUTF16
+        self.globalOffsetUTF16 = globalOffsetUTF16
+        self.progression = progression ?? locator.totalProgression ?? locator.progression
+        self.chapterIndex = chapterIndex ?? sourceUnitIndex
+        self.pageIndex = pageIndex ?? locator.page
     }
 }
 

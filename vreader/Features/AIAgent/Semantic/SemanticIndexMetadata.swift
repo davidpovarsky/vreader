@@ -66,6 +66,34 @@ struct SemanticChunkMetadata: Codable, Sendable, Equatable, Identifiable {
 
     init(
         chunkID: String,
+        vectorKey: UInt64,
+        bookFingerprintKey: String,
+        bookTitle: String? = nil,
+        sourceUnitID: String,
+        sourceLabel: String?,
+        chapterTitle: String?,
+        pageIndex: Int?,
+        href: String?,
+        snippet: String,
+        locator: Locator,
+        isOCRDerived: Bool
+    ) {
+        self.chunkID = chunkID
+        self.vectorKey = vectorKey
+        self.bookFingerprintKey = bookFingerprintKey
+        self.bookTitle = bookTitle
+        self.sourceUnitID = sourceUnitID
+        self.sourceLabel = sourceLabel
+        self.chapterTitle = chapterTitle
+        self.pageIndex = pageIndex
+        self.href = href
+        self.snippet = snippet
+        self.locator = locator
+        self.isOCRDerived = isOCRDerived
+    }
+
+    init(
+        chunkID: String,
         vectorKey: UInt64? = nil,
         bookFingerprintKey: String,
         bookTitle: String? = nil,

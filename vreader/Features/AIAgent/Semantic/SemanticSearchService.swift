@@ -65,7 +65,11 @@ actor SemanticSearchService {
 
         var hits: [SemanticSearchHit] = []
         for match in matches {
-            guard let chunk = await (metadataStore.fetchChunk(byVectorKey: match.key) ?? metadataStore.metadata(for: match.chunkID)) else { continue }
+            var chunk = await metadataStore.fetchChunk(byVectorKey: match.key)
+            if chunk == nil {
+                chunk = await metadataStore.metadata(for: match.chunkID)
+            }
+            guard let chunk else { continue }
             let similarity = max(0.0, 1.0 - Double(match.distance))
             hits.append(SemanticSearchHit(
                 chunkID: chunk.chunkID,

@@ -115,13 +115,14 @@ enum AICurrentReaderToolSupport {
         action: String,
         context: any AIReaderToolContextProviding,
         gate: AIAgentToolExecutionGate,
+        category: AIToolPermissionCategory = .readCurrentBook,
         maxBytes: Int
     ) async -> ToolResult? {
         let fingerprint = await context.fingerprint
         let outcome = await gate.authorize(AIAgentToolAuthorization.context(
             toolName: toolName,
             actionDescription: action,
-            category: .readCurrentBook,
+            category: category,
             bookFingerprintKey: fingerprint.canonicalKey
         ))
         guard outcome == .allowed else {

@@ -72,7 +72,16 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
             self.locator = Locator(
                 bookFingerprint: fp,
                 href: href,
-                page: pageIndex
+                progression: nil,
+                totalProgression: nil,
+                cfi: nil,
+                page: pageIndex,
+                charOffsetUTF16: nil,
+                charRangeStartUTF16: nil,
+                charRangeEndUTF16: nil,
+                textQuote: nil,
+                textContextBefore: nil,
+                textContextAfter: nil
             )
         }
         self.sourceLabel = sourceLabel
@@ -126,6 +135,37 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
 }
 
 extension Locator {
+    /// Convenience initializer with defaults for AI retrieval and testing.
+    init(
+        bookFingerprint: DocumentFingerprint,
+        href: String? = nil,
+        progression: Double? = nil,
+        totalProgression: Double? = nil,
+        cfi: String? = nil,
+        page: Int? = nil,
+        charOffsetUTF16: Int? = nil,
+        charRangeStartUTF16: Int? = nil,
+        charRangeEndUTF16: Int? = nil,
+        textQuote: String? = nil,
+        textContextBefore: String? = nil,
+        textContextAfter: String? = nil
+    ) {
+        self.init(
+            bookFingerprint: bookFingerprint,
+            href: href,
+            progression: progression,
+            totalProgression: totalProgression,
+            cfi: cfi,
+            page: page,
+            charOffsetUTF16: charOffsetUTF16,
+            charRangeStartUTF16: charRangeStartUTF16,
+            charRangeEndUTF16: charRangeEndUTF16,
+            textQuote: textQuote,
+            textContextBefore: textContextBefore,
+            textContextAfter: textContextAfter
+        )
+    }
+
     /// Convenience constructor for AI retrieval models and tests when full fingerprint is not known upfront.
     init(
         href: String? = nil,

@@ -29,12 +29,17 @@ struct SemanticChunker: Sendable {
     /// Character overlap between adjacent chunks (~12%).
     let overlapChars: Int
 
-    init(targetTokens: Int = 800, overlapTokens: Int = 100) {
+    init() {
+        self.targetChunkChars = 3600
+        self.overlapChars = 450
+    }
+
+    init(targetTokens: Int, overlapTokens: Int = 100) {
         self.targetChunkChars = max(500, targetTokens * 4)
         self.overlapChars = max(50, min(overlapTokens * 4, self.targetChunkChars / 2))
     }
 
-    init(targetChunkChars: Int = 3600, overlapChars: Int = 450) {
+    init(targetChunkChars: Int, overlapChars: Int = 450) {
         self.targetChunkChars = max(500, targetChunkChars)
         self.overlapChars = max(50, min(overlapChars, targetChunkChars / 2))
     }

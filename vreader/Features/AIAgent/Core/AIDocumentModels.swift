@@ -111,3 +111,45 @@ struct AIDocumentSnapshot: Sendable, Equatable {
     let readSoFarBoundary: AIReadSoFarBoundary
     let exactMappingAvailable: Bool
 }
+
+extension AIDocumentSnapshot {
+    init(
+        bookFingerprint: DocumentFingerprint,
+        format: BookFormat,
+        chunks: [AIDocumentChunk] = []
+    ) {
+        let loc = chunks.first?.locator ?? Locator(
+            bookFingerprint: bookFingerprint,
+            href: nil,
+            progression: nil,
+            totalProgression: nil,
+            cfi: nil,
+            page: nil,
+            charOffsetUTF16: nil,
+            charRangeStartUTF16: nil,
+            charRangeEndUTF16: nil,
+            textQuote: nil,
+            textContextBefore: nil,
+            textContextAfter: nil
+        )
+        let boundary = AIReadSoFarBoundary(
+            locator: loc,
+            sourceUnitID: chunks.first?.sourceUnitID ?? "root",
+            sourceUnitIndex: chunks.first?.sourceUnitIndex,
+            localOffsetUTF16: chunks.first?.localEndUTF16
+        )
+        self.init(
+            bookFingerprint: bookFingerprint,
+            format: format,
+            currentLocator: chunks.first?.locator,
+            currentSourceUnitID: chunks.first?.sourceUnitID,
+            currentSectionChunks: chunks,
+            visibleChunks: chunks,
+            currentChapterLabel: chunks.first?.chapterTitle,
+            currentChapterBounds: nil,
+            tocSummary: [],
+            readSoFarBoundary: boundary,
+            exactMappingAvailable: true
+        )
+    }
+}

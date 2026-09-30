@@ -2,6 +2,7 @@
 // Preserves book, location, snippet, retrieval method, and spoiler status without fabricating data.
 
 import Foundation
+import CryptoKit
 
 typealias AIRetrievalMethod = AISourceRetrievalMethod
 
@@ -64,12 +65,14 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
         if let locator {
             self.locator = locator
         } else {
-            let locs = pageIndex.map { Locator.Locations(position: $0) }
+            let fp = DocumentFingerprint(canonicalKey: bookFingerprintKey) ?? {
+                let sha = SHA256.hash(data: Data(bookFingerprintKey.utf8)).map { String(format: "%02x", $0) }.joined()
+                return DocumentFingerprint(contentSHA256: sha, fileByteCount: 1024, format: isOCRDerived ? .pdf : .epub)
+            }()
             self.locator = Locator(
-                href: href ?? "",
-                type: isOCRDerived ? "application/pdf" : "application/xhtml+xml",
-                title: chapterTitle,
-                locations: locs
+                bookFingerprint: fp,
+                href: href,
+                page: pageIndex
             )
         }
         self.sourceLabel = sourceLabel
@@ -118,6 +121,35 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
             spanUTF16: nil,
             sequence: rank,
             aheadOfReader: aheadOfReader
+        )
+    }
+}
+
+extension Locator {
+    /// Convenience constructor for AI retrieval models and tests when full fingerprint is not known upfront.
+    init(
+        href: String? = nil,
+        type: String? = nil,
+        title: String? = nil,
+        page: Int? = nil
+    ) {
+        let isPDF = type?.contains("pdf") == true
+        let format: BookFormat = isPDF ? .pdf : .epub
+        let sha = String(repeating: "0", count: 64)
+        let fp = DocumentFingerprint(contentSHA256: sha, fileByteCount: 0, format: format)
+        self.init(
+            bookFingerprint: fp,
+            href: href,
+            progression: nil,
+            totalProgression: nil,
+            cfi: nil,
+            page: page,
+            charOffsetUTF16: nil,
+            charRangeStartUTF16: nil,
+            charRangeEndUTF16: nil,
+            textQuote: nil,
+            textContextBefore: nil,
+            textContextAfter: nil
         )
     }
 }

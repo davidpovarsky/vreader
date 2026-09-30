@@ -72,7 +72,7 @@ struct SemanticSearchCurrentBookTool: AITool {
         // Check if read ahead is allowed
         let readAheadOutcome = await authorizationGate.authorize(AIAgentToolAuthorization.context(
             toolName: Self.toolName,
-            action: "Read ahead via semantic search",
+            actionDescription: "Read ahead via semantic search",
             category: .readAhead
         ))
         let readAheadAllowed = (readAheadOutcome == .allowed)
@@ -158,7 +158,7 @@ struct SemanticSearchLibraryTool: AITool {
 
         let outcome = await authorizationGate.authorize(AIAgentToolAuthorization.context(
             toolName: Self.toolName,
-            action: "Semantic search across library books",
+            actionDescription: "Semantic search across library books",
             category: .readOtherBooks
         ))
         guard outcome == .allowed else {

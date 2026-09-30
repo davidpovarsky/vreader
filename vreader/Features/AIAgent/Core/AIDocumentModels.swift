@@ -38,58 +38,6 @@ struct AIDocumentChunk: Identifiable, Codable, Hashable, Sendable {
     let isOCRDerived: Bool
 }
 
-struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
-    /// Keeps persisted chat payloads and source chips bounded by grapheme count.
-    static let maximumSnippetCharacters = 512
-
-    let id: String
-    let bookFingerprintKey: String
-    let bookTitle: String
-    let locator: Locator
-    let sourceLabel: String?
-    let chapterTitle: String?
-    let pageIndex: Int?
-    let snippet: String
-    let retrievalMethod: AISourceRetrievalMethod
-    let score: Double?
-    let rank: Int?
-    let aheadOfReader: Bool
-    let toolCallID: String?
-    let mcpServerName: String?
-
-    init(
-        id: String,
-        bookFingerprintKey: String,
-        bookTitle: String,
-        locator: Locator,
-        sourceLabel: String?,
-        chapterTitle: String?,
-        pageIndex: Int?,
-        snippet: String,
-        retrievalMethod: AISourceRetrievalMethod,
-        score: Double?,
-        rank: Int?,
-        aheadOfReader: Bool,
-        toolCallID: String?,
-        mcpServerName: String?
-    ) {
-        self.id = id
-        self.bookFingerprintKey = bookFingerprintKey
-        self.bookTitle = bookTitle
-        self.locator = locator
-        self.sourceLabel = sourceLabel
-        self.chapterTitle = chapterTitle
-        self.pageIndex = pageIndex
-        self.snippet = String(snippet.prefix(Self.maximumSnippetCharacters))
-        self.retrievalMethod = retrievalMethod
-        self.score = score
-        self.rank = rank
-        self.aheadOfReader = aheadOfReader
-        self.toolCallID = toolCallID
-        self.mcpServerName = mcpServerName
-    }
-}
-
 struct AIDocumentTOCSummaryItem: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let title: String

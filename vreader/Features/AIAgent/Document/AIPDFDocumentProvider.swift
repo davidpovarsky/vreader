@@ -4,7 +4,7 @@
 import Foundation
 
 @MainActor
-protocol AIPDFDocumentFacading: AnyObject {
+protocol AIPDFDocumentFacading: AnyObject, Sendable {
     var pageCount: Int { get }
     var currentPageIndex: Int? { get }
     func text(forPage index: Int) async throws -> String

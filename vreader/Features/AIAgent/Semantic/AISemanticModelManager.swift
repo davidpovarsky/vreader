@@ -37,7 +37,15 @@ actor AISemanticModelManager {
     private let fileManager = FileManager.default
 
     init() {
-        refreshInstalledState()
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = appSupport.appendingPathComponent("vreader/AISemanticModels/multilingual-e5-small", isDirectory: true)
+        let marker = dir.appendingPathComponent(".completed")
+        if fileManager.fileExists(atPath: marker.path) {
+            self.state = .installed
+        } else {
+            self.state = .notInstalled
+        }
     }
 
     /// The directory where model weights are stored.

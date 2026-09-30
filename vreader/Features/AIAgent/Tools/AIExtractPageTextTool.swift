@@ -86,7 +86,7 @@ struct ExtractPageTextTool: AITool {
         if pageIndex > boundaryPage {
             let readAheadOutcome = await authorizationGate.authorize(AIAgentToolAuthorization.context(
                 toolName: Self.toolName,
-                action: "Read ahead to future page \(Int(pageNum))",
+                actionDescription: "Read ahead to future page \(Int(pageNum))",
                 category: .readAhead,
                 bookFingerprintKey: snapshot.bookFingerprint.canonicalKey
             ))

@@ -10,9 +10,7 @@ struct ChatSourceResultCard: View {
 
     var body: some View {
         Button {
-            if let loc = provenance.locator {
-                onNavigate(loc)
-            }
+            onNavigate(provenance.locator)
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -49,7 +47,7 @@ struct ChatSourceResultCard: View {
         if let explicit = provenance.sourceLabel, !explicit.isEmpty { return explicit }
         if let chapter = provenance.chapterTitle, !chapter.isEmpty { return chapter }
         if let page = provenance.pageIndex { return "Page \(page + 1)" }
-        return provenance.bookTitle ?? "Source"
+        return provenance.bookTitle.isEmpty ? "Source" : provenance.bookTitle
     }
 
     @ViewBuilder

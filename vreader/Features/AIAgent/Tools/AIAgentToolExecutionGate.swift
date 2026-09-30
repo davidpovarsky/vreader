@@ -146,6 +146,24 @@ enum AIAgentToolAuthorization {
         )
     }
 
+    static func context(
+        toolName: String,
+        action: String,
+        category: AIToolPermissionCategory,
+        bookFingerprintKey: String? = nil,
+        sourceLocator: Locator? = nil,
+        metadata: [String: String] = [:]
+    ) -> AIToolAuthorizationContext {
+        context(
+            toolName: toolName,
+            actionDescription: action,
+            category: category,
+            bookFingerprintKey: bookFingerprintKey,
+            sourceLocator: sourceLocator,
+            metadata: metadata
+        )
+    }
+
     static func errorResult(
         _ outcome: AIAgentToolAuthorizationOutcome,
         maxBytes: Int

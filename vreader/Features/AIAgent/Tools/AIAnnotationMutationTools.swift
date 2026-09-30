@@ -579,10 +579,3 @@ struct RemoveBookmarkTool: AITool {
         }
     }
 }
-
-private extension JSONValue {
-    var stringValue: String? {
-        if case .string(let s) = self { return s }
-        return nil
-    }
-}

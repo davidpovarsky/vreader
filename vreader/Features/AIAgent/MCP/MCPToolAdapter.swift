@@ -37,7 +37,7 @@ struct MCPToolAdapter: AITool {
         // Gated by externalNetwork permission category
         let outcome = await authorizationGate.authorize(AIAgentToolAuthorization.context(
             toolName: definition.name,
-            action: "Call external tool \"\(originalToolName)\" on server \"\(serverName)\"",
+            actionDescription: "Call external tool \"\(originalToolName)\" on server \"\(serverName)\"",
             category: .externalNetwork,
             metadata: ["serverName": serverName, "originalToolName": originalToolName]
         ))

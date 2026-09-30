@@ -3,15 +3,9 @@
 
 import Foundation
 
-enum AIRetrievalMethod: String, Sendable, Codable, Equatable {
-    case currentContext
-    case lexicalSearch
-    case semanticSearch
-    case annotation
-    case ocr
-    case wholeBookDigest
-    case mcpExternal
+typealias AIRetrievalMethod = AISourceRetrievalMethod
 
+extension AISourceRetrievalMethod {
     var defaultBadgeLabel: String {
         switch self {
         case .currentContext: return "Current"
@@ -25,25 +19,29 @@ enum AIRetrievalMethod: String, Sendable, Codable, Equatable {
     }
 }
 
-struct AISourceProvenance: Identifiable, Sendable, Equatable, Codable {
-    let id: UUID
+struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
+    /// Keeps persisted chat payloads and source chips bounded by grapheme count.
+    static let maximumSnippetCharacters = 512
+
+    let id: String
     let bookFingerprintKey: String
-    let bookTitle: String?
-    let locator: Locator?
+    let bookTitle: String
+    let locator: Locator
     let sourceLabel: String?
     let chapterTitle: String?
     let pageIndex: Int?
     let href: String?
     let snippet: String
-    let retrievalMethod: AIRetrievalMethod
+    let retrievalMethod: AISourceRetrievalMethod
     let score: Double?
+    let rank: Int?
     let aheadOfReader: Bool
     let toolCallID: String?
     let mcpServerName: String?
     let isOCRDerived: Bool
 
     init(
-        id: UUID = UUID(),
+        id: String = UUID().uuidString,
         bookFingerprintKey: String,
         bookTitle: String? = nil,
         locator: Locator? = nil,
@@ -52,8 +50,9 @@ struct AISourceProvenance: Identifiable, Sendable, Equatable, Codable {
         pageIndex: Int? = nil,
         href: String? = nil,
         snippet: String,
-        retrievalMethod: AIRetrievalMethod,
+        retrievalMethod: AISourceRetrievalMethod,
         score: Double? = nil,
+        rank: Int? = nil,
         aheadOfReader: Bool = false,
         toolCallID: String? = nil,
         mcpServerName: String? = nil,
@@ -61,15 +60,26 @@ struct AISourceProvenance: Identifiable, Sendable, Equatable, Codable {
     ) {
         self.id = id
         self.bookFingerprintKey = bookFingerprintKey
-        self.bookTitle = bookTitle
-        self.locator = locator
+        self.bookTitle = bookTitle ?? ""
+        if let locator {
+            self.locator = locator
+        } else {
+            let locs = pageIndex.map { Locator.Locations(position: $0) }
+            self.locator = Locator(
+                href: href ?? "",
+                type: isOCRDerived ? "application/pdf" : "application/xhtml+xml",
+                title: chapterTitle,
+                locations: locs
+            )
+        }
         self.sourceLabel = sourceLabel
         self.chapterTitle = chapterTitle
         self.pageIndex = pageIndex
         self.href = href
-        self.snippet = snippet
+        self.snippet = String(snippet.prefix(Self.maximumSnippetCharacters))
         self.retrievalMethod = retrievalMethod
         self.score = score
+        self.rank = rank
         self.aheadOfReader = aheadOfReader
         self.toolCallID = toolCallID
         self.mcpServerName = mcpServerName
@@ -99,13 +109,14 @@ struct AISourceProvenance: Identifiable, Sendable, Equatable, Codable {
             kind = .scope
         }
 
+        let citationID = UUID(uuidString: id) ?? UUID()
         return ChatCitation(
-            id: id,
+            id: citationID,
             sourceKind: kind,
             label: label,
             locator: locator,
             spanUTF16: nil,
-            sequence: nil,
+            sequence: rank,
             aheadOfReader: aheadOfReader
         )
     }

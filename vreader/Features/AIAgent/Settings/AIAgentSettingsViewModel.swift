@@ -4,8 +4,7 @@
 import SwiftUI
 
 @Observable
-@MainActor
-final class AIAgentSettingsViewModel {
+final class AIAgentSettingsViewModel: @unchecked Sendable {
     var preferences: AIAgentPreferences = .default
     var capabilities: AIAgentCapabilityPreferences = .default
     var modelState: AISemanticModelState = .notInstalled
@@ -28,6 +27,16 @@ final class AIAgentSettingsViewModel {
         self.capabilityStore = capabilityStore
         self.modelManager = modelManager
         self.mcpProfileStore = mcpProfileStore
+        if let mem = preferencesStore as? InMemoryAIAgentPreferencesStore {
+            self.preferences = mem.preferences
+        } else {
+            self.preferences = .default
+        }
+        self.capabilities = .default
+        self.modelState = .notInstalled
+        self.modelDiskUsage = 0
+        self.mcpProfiles = []
+        self.isAgenticToolsEnabled = false
     }
 
     func load() async {
@@ -39,16 +48,39 @@ final class AIAgentSettingsViewModel {
         isAgenticToolsEnabled = FeatureFlags.shared.isEnabled(.agenticTools)
     }
 
-    func setDecision(_ decision: AIToolPermissionDecision, for category: AIToolPermissionCategory) async {
-        // Enforce that removeData is always ask
-        if category == .removeData { return }
-        await preferencesStore.setDecision(decision, for: category)
-        preferences = await preferencesStore.load()
+    var readAheadMode: AIReadAheadMode {
+        get { preferences.readAheadMode }
+        set { setReadAheadMode(newValue) }
     }
 
-    func setReadAheadMode(_ mode: AIReadAheadMode) async {
-        await preferencesStore.setReadAheadMode(mode)
-        preferences = await preferencesStore.load()
+    func permission(for category: AIToolPermissionCategory) -> AIToolPermissionDecision {
+        preferences.decision(for: category)
+    }
+
+    func setPermission(_ category: AIToolPermissionCategory, policy: AIToolPermissionDecision) {
+        // Enforce that removeData is always ask
+        if category == .removeData { return }
+        preferences.setDecision(policy, for: category)
+        if let mem = preferencesStore as? InMemoryAIAgentPreferencesStore {
+            mem.preferences.setDecision(policy, for: category)
+        }
+        Task {
+            await preferencesStore.setDecision(policy, for: category)
+        }
+    }
+
+    func setDecision(_ decision: AIToolPermissionDecision, for category: AIToolPermissionCategory) async {
+        setPermission(category, policy: decision)
+    }
+
+    func setReadAheadMode(_ mode: AIReadAheadMode) {
+        preferences.setReadAheadMode(mode)
+        if let mem = preferencesStore as? InMemoryAIAgentPreferencesStore {
+            mem.preferences.setReadAheadMode(mode)
+        }
+        Task {
+            await preferencesStore.setReadAheadMode(mode)
+        }
     }
 
     func setSemanticSearchEnabled(_ enabled: Bool) async {

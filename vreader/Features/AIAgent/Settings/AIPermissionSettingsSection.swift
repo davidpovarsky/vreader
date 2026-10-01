@@ -11,7 +11,7 @@ struct AIPermissionSettingsSection: View {
         Section {
             Picker("Read Ahead & Spoilers", selection: Binding(
                 get: { viewModel.preferences.readAheadMode },
-                set: { newMode in Task { await viewModel.setReadAheadMode(newMode) } }
+                set: { newMode in viewModel.setReadAheadMode(newMode) }
             )) {
                 Text("Never read ahead").tag(AIReadAheadMode.neverReadAhead)
                 Text("Ask before reading ahead").tag(AIReadAheadMode.askBeforeReadingAhead)
@@ -43,8 +43,8 @@ struct AIPermissionSettingsSection: View {
 
     private func permissionRow(title: String, category: AIToolPermissionCategory) -> some View {
         Picker(title, selection: Binding(
-            get: { viewModel.preferences.decision(for: category) },
-            set: { newDecision in Task { await viewModel.setDecision(newDecision, for: category) } }
+            get: { viewModel.permission(for: category) },
+            set: { newDecision in viewModel.setPermission(category, policy: newDecision) }
         )) {
             Text("Allow").tag(AIToolPermissionDecision.allow)
             Text("Ask").tag(AIToolPermissionDecision.ask)

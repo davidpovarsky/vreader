@@ -22,8 +22,33 @@ import Foundation
 
 /// The versioned Codable envelope persisted in `ChatSession.messagesData`.
 struct ChatSessionPayload: Codable {
+    static let currentVersion = 2
+
     var version: Int
+    var id: UUID?
+    var bookFingerprint: String?
+    var title: String?
+    var createdAt: Date?
+    var updatedAt: Date?
     var messages: [PersistedChatMessage]
+
+    init(
+        version: Int = currentVersion,
+        id: UUID? = nil,
+        bookFingerprint: String? = nil,
+        title: String? = nil,
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil,
+        messages: [PersistedChatMessage]
+    ) {
+        self.version = version
+        self.id = id
+        self.bookFingerprint = bookFingerprint
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.messages = messages
+    }
 }
 
 /// Codable mirror of `ChatMessage`. `role` carries the `ChatRole` raw value.
@@ -33,7 +58,37 @@ struct PersistedChatMessage: Codable {
     var content: String
     var timestamp: Date
     var citations: [PersistedChatCitation]
-    var toolTraces: [AIToolTrace]?
+    var toolTraces: [AIToolTrace]
+
+    enum CodingKeys: String, CodingKey {
+        case id, role, content, timestamp, citations, toolTraces
+    }
+
+    init(
+        id: UUID,
+        role: String,
+        content: String,
+        timestamp: Date,
+        citations: [PersistedChatCitation],
+        toolTraces: [AIToolTrace] = []
+    ) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.citations = citations
+        self.toolTraces = toolTraces
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        role = try container.decode(String.self, forKey: .role)
+        content = try container.decode(String.self, forKey: .content)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        citations = try container.decodeIfPresent([PersistedChatCitation].self, forKey: .citations) ?? []
+        toolTraces = try container.decodeIfPresent([AIToolTrace].self, forKey: .toolTraces) ?? []
+    }
 }
 
 /// Codable mirror of `ChatCitation` (fields per ChatCitation.swift:30-42).
@@ -121,7 +176,7 @@ enum ChatSessionPayloadMapper {
             content: message.content,
             timestamp: message.timestamp,
             citations: message.citations.map(persist),
-            toolTraces: message.toolTraces.isEmpty ? nil : message.toolTraces
+            toolTraces: message.toolTraces
         )
     }
 
@@ -132,7 +187,7 @@ enum ChatSessionPayloadMapper {
             content: persisted.content,
             timestamp: persisted.timestamp,
             citations: persisted.citations.map(domain),
-            toolTraces: persisted.toolTraces ?? []
+            toolTraces: persisted.toolTraces
         )
     }
 

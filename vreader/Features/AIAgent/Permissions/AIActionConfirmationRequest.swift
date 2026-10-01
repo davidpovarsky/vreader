@@ -179,6 +179,18 @@ enum AIActionConfirmationResponse: Equatable, Sendable {
 
 enum AIActionConfirmationOutcome: Equatable, Sendable {
     case allowed
+    case allowedOnce
     case denied
     case cancelled
+
+    public static func == (lhs: AIActionConfirmationOutcome, rhs: AIActionConfirmationOutcome) -> Bool {
+        switch (lhs, rhs) {
+        case (.allowed, .allowed), (.allowedOnce, .allowedOnce), (.denied, .denied), (.cancelled, .cancelled):
+            return true
+        case (.allowed, .allowedOnce), (.allowedOnce, .allowed):
+            return true
+        default:
+            return false
+        }
+    }
 }

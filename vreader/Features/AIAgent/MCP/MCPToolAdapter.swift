@@ -68,7 +68,7 @@ struct MCPToolAdapter: AIContextualTool {
     }
 
     func run(_ input: JSONValue) async -> ToolResult {
-        await run(input, context: .fallback(toolCallID: UUID().uuidString))
+        await run(input, context: AIToolExecutionContext(toolCallID: UUID().uuidString))
     }
 
     func run(_ input: JSONValue, context: AIToolExecutionContext) async -> ToolResult {
@@ -78,8 +78,8 @@ struct MCPToolAdapter: AIContextualTool {
             toolName: definition.name,
             actionDescription: "Call external tool \"\(originalToolName)\" on server \"\(serverName)\"",
             category: .externalNetwork,
-            readerSessionID: effectiveSessionID,
-            metadata: ["serverName": serverName, "originalToolName": originalToolName]
+            metadata: ["serverName": serverName, "originalToolName": originalToolName],
+            readerSessionID: effectiveSessionID
         ))
         guard outcome == .allowed else {
             return AIAgentToolAuthorization.errorResult(outcome, maxBytes: maxContentBytes)

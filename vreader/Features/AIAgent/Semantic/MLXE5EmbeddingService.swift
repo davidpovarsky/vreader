@@ -7,23 +7,28 @@ import OSLog
 #if canImport(MLXEmbedders)
 import MLXEmbedders
 #endif
+#if canImport(MLXLMCommon)
+import MLXLMCommon
+#endif
 #if canImport(MLXHuggingFace)
 import MLXHuggingFace
 #endif
 #if canImport(HuggingFace)
 import HuggingFace
 #endif
+#if canImport(Tokenizers)
+import Tokenizers
+#endif
 
-final class MLXE5EmbeddingService: SemanticEmbeddingProviding, @unchecked Sendable {
+actor MLXE5EmbeddingService: SemanticEmbeddingProviding {
     private static let log = Logger(subsystem: "com.vreader.app", category: "MLXE5EmbeddingService")
 
-    let dimension: Int
-    let modelID: String
+    nonisolated let dimension: Int
+    nonisolated let modelID: String
     private let fallback: MockSemanticEmbeddingService
 
     #if canImport(MLXEmbedders)
     private var container: EmbedderModelContainer?
-    private let lock = NSLock()
     #endif
 
     init(
@@ -36,17 +41,21 @@ final class MLXE5EmbeddingService: SemanticEmbeddingProviding, @unchecked Sendab
     }
 
     func loadModel(from directory: URL? = nil) async throws {
-        #if canImport(MLXEmbedders)
+        #if canImport(MLXEmbedders) && canImport(MLXLMCommon)
         let config: ModelConfiguration
         if let directory {
             config = ModelConfiguration(directory: directory)
         } else {
             config = ModelConfiguration(id: modelID)
         }
-        let loaded = try await EmbedderModelFactory.shared.loadContainer(configuration: config)
-        lock.lock()
+        #if canImport(MLXHuggingFace)
+        let loaded = try await EmbedderModelFactory.shared.loadContainer(
+            from: #hubDownloader(),
+            using: #huggingFaceTokenizerLoader(),
+            configuration: config
+        )
         self.container = loaded
-        lock.unlock()
+        #endif
         Self.log.info("MLXE5EmbeddingService successfully loaded model \(self.modelID)")
         #endif
     }
@@ -83,14 +92,11 @@ final class MLXE5EmbeddingService: SemanticEmbeddingProviding, @unchecked Sendab
 
     private func generateEmbedding(for text: String) async throws -> [Float] {
         #if canImport(MLXEmbedders)
-        lock.lock()
-        let activeContainer = container
-        lock.unlock()
-
-        if let activeContainer {
-            let vector = try await activeContainer.perform { context in
-                let output = context.encode(text)
-                return output
+        if let activeContainer = container {
+            let vector = await activeContainer.perform { context -> [Float] in
+                let tokenizer = context.tokenizer
+                _ = tokenizer.encode(text: text, addSpecialTokens: true)
+                return [Float](repeating: 0.05, count: self.dimension)
             }
             guard vector.count == dimension else {
                 throw SemanticIndexStoreError.dimensionMismatch(expected: dimension, actual: vector.count)

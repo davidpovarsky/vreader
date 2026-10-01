@@ -57,17 +57,16 @@ struct ExtractPageTextTool: AIContextualTool {
             )
         }
 
-        let pageIndex = Int(pageNum) - 1
-        let totalPages: Int
-        if let facade {
-            totalPages = await facade.pageCount
-        } else {
+        guard let pdfFacade = self.facade else {
             return AIReaderToolOutput.boundedResult(
                 "PDF page source is unavailable for OCR extraction.",
                 maxBytes: maxContentBytes,
                 isError: true
             )
         }
+
+        let pageIndex = Int(pageNum) - 1
+        let totalPages = await pdfFacade.pageCount
         guard pageIndex < totalPages else {
             return AIReaderToolOutput.boundedResult(
                 "Page \(Int(pageNum)) is out of range. Document has \(totalPages) pages.",
@@ -113,12 +112,13 @@ struct ExtractPageTextTool: AIContextualTool {
             let result = try await ocrService.extractPageText(
                 bookKey: snapshot.bookFingerprint.canonicalKey,
                 pageIndex: pageIndex,
-                facade: facade
+                facade: pdfFacade
             )
 
+            let bookTitle = await context.bookTitle
             let provenance = AISourceProvenance(
                 bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,
-                bookTitle: snapshot.bookTitle,
+                bookTitle: bookTitle,
                 locator: result.locator,
                 sourceLabel: "Page \(Int(pageNum))",
                 pageIndex: pageIndex,
@@ -130,7 +130,7 @@ struct ExtractPageTextTool: AIContextualTool {
             )
             await context.recordSources([provenance])
 
-            let sourceTag = (result.source == .visionOCR) ? "Vision OCR" : "Native PDF Text"
+            let sourceTag = (result.source == PDFTextSource.visionOCR) ? "Vision OCR" : "Native PDF Text"
             let header = "[Page \(Int(pageNum)) | \(sourceTag)]\n"
             let text = result.text.isEmpty ? "(No text detected on page \(Int(pageNum)))" : result.text
             return AIReaderToolOutput.boundedResult(

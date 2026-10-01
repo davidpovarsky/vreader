@@ -4,6 +4,12 @@
 import Foundation
 import OSLog
 
+#if canImport(Hub)
+import Hub
+#elseif canImport(HuggingFace)
+import HuggingFace
+#endif
+
 enum AISemanticModelState: Sendable, Equatable {
     case notInstalled
     case downloading(progress: Double)
@@ -112,7 +118,7 @@ actor AISemanticModelManager {
 
         do {
             try fileManager.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-            #if canImport(HuggingFace)
+            #if canImport(Hub) || canImport(HuggingFace)
             let hub = HubApi()
             state = .downloading(progress: 0.1)
             try Task.checkCancellation()

@@ -2,6 +2,7 @@
 // the main actor while only strings and structured locator values leave it.
 
 import Foundation
+import CoreGraphics
 
 @MainActor
 protocol AIPDFDocumentFacading: AnyObject, Sendable {

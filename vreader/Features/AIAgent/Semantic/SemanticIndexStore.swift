@@ -82,16 +82,41 @@ actor SemanticIndexStore {
 
     init(dimension: Int = 384, indexDirectory: URL? = nil) {
         self.dimension = dimension
+        let dir: URL
         if let explicit = indexDirectory {
-            self.indexDirectory = explicit
+            dir = explicit
         } else {
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.indexDirectory = appSupport.appendingPathComponent("vreader/SemanticIndex/vectors", isDirectory: true)
+            dir = appSupport.appendingPathComponent("vreader/SemanticIndex/vectors", isDirectory: true)
         }
-        try? fileManager.createDirectory(at: self.indexDirectory, withIntermediateDirectories: true)
-        initIndex()
-        try? loadMappings()
+        self.indexDirectory = dir
+        try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        #if canImport(USearch)
+        let vPath = dir.appendingPathComponent("index.usearch")
+        let idx = try? USearchIndex.make(
+            metric: .cos,
+            dimensions: UInt32(dimension),
+            connectivity: 16,
+            quantization: .f32
+        )
+        if fileManager.fileExists(atPath: vPath.path), let idx {
+            do {
+                try idx.load(path: vPath.path)
+            } catch {
+                try? fileManager.removeItem(at: vPath)
+            }
+        }
+        self.index = idx
+        #endif
+
+        let mPath = dir.appendingPathComponent("mappings.json")
+        if let data = try? Data(contentsOf: mPath),
+           let snapshot = try? JSONDecoder().decode(MappingSnapshot.self, from: data) {
+            self.keyTable = snapshot.keyTable
+            self.keyToBookKey = snapshot.keyToBookKey
+        }
     }
 
     static func safeDirectoryName(for bookFingerprintKey: String) -> String {
@@ -114,13 +139,13 @@ actor SemanticIndexStore {
 
     private func initIndex() {
         #if canImport(USearch)
-        let idx = USearchIndex.make(
+        let idx = try? USearchIndex.make(
             metric: .cos,
             dimensions: UInt32(dimension),
             connectivity: 16,
             quantization: .f32
         )
-        if fileManager.fileExists(atPath: vectorsPath.path) {
+        if fileManager.fileExists(atPath: vectorsPath.path), let idx {
             do {
                 try idx.load(path: vectorsPath.path)
             } catch {
@@ -141,7 +166,7 @@ actor SemanticIndexStore {
         fallbackVectors[key] = vector
 
         #if canImport(USearch)
-        index?.add(key: key, vector: vector)
+        try? index?.add(key: key, vector: vector)
         #endif
 
         try? saveMappings()
@@ -155,7 +180,7 @@ actor SemanticIndexStore {
         }
         fallbackVectors[key] = vector
         #if canImport(USearch)
-        index?.add(key: key, vector: vector)
+        try? index?.add(key: key, vector: vector)
         #endif
     }
 
@@ -177,7 +202,7 @@ actor SemanticIndexStore {
             fallbackVectors[key] = item.vector
 
             #if canImport(USearch)
-            index?.add(key: key, vector: item.vector)
+            try? index?.add(key: key, vector: item.vector)
             #endif
         }
         try? saveMappings()
@@ -195,7 +220,7 @@ actor SemanticIndexStore {
             keyTable.remove(key: k)
             keyToBookKey.removeValue(forKey: k)
             #if canImport(USearch)
-            index?.remove(key: k)
+            try? index?.remove(key: k)
             #endif
         }
         try? saveMappings()
@@ -215,8 +240,8 @@ actor SemanticIndexStore {
 
     func count() -> Int {
         #if canImport(USearch)
-        if let idx = index {
-            return Int(idx.count)
+        if let idx = index, let c = try? idx.count {
+            return Int(c)
         }
         #endif
         return fallbackVectors.count
@@ -281,23 +306,27 @@ actor SemanticIndexStore {
         guard count > 0 else { return [] }
 
         #if canImport(USearch)
-        if let idx = index, idx.count > 0 {
+        let idxCount = (try? index?.count) ?? 0
+        if let idx = index, idxCount > 0 {
             // Retrieve 3x candidates to allow for book filtering
             let fetchCount = bookFingerprintKey == nil ? count : max(count * 3, 32)
-            let (keys, distances) = idx.search(vector: queryVector, count: fetchCount)
-            var results: [SemanticIndexStoreResult] = []
-            for i in 0..<keys.count {
-                let k = keys[i]
-                if let bookFingerprintKey, keyToBookKey[k] != bookFingerprintKey {
-                    continue
+            if let searchResult = try? idx.search(vector: queryVector, count: fetchCount) {
+                let keys = searchResult.0
+                let distances = searchResult.1
+                var results: [SemanticIndexStoreResult] = []
+                for i in 0..<keys.count {
+                    let k = keys[i]
+                    if let bookFingerprintKey, keyToBookKey[k] != bookFingerprintKey {
+                        continue
+                    }
+                    let dist = distances[i]
+                    let sim = max(0.0, 1.0 - dist)
+                    let cid = keyTable.chunkID(for: k) ?? "\(k)"
+                    results.append(SemanticIndexStoreResult(key: k, chunkID: cid, distance: dist, similarity: sim))
+                    if results.count >= count { break }
                 }
-                let dist = distances[i]
-                let sim = max(0.0, 1.0 - dist)
-                let cid = keyTable.chunkID(for: k) ?? "\(k)"
-                results.append(SemanticIndexStoreResult(key: k, chunkID: cid, distance: dist, similarity: sim))
-                if results.count >= count { break }
+                return results
             }
-            return results
         }
         #endif
 

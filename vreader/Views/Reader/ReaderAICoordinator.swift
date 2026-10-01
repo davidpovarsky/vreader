@@ -345,9 +345,9 @@ final class ReaderAICoordinator {
         if let aiConfigObserver {
             NotificationCenter.default.removeObserver(aiConfigObserver)
         }
-        let sessionToCancel = documentSessionID
+        let sessionToCancel = AIDocumentSessionID(fingerprintKey: fingerprintKey, readerToken: readerToken)
         Task {
-            await AIActionConfirmationBroker.shared.cancelSession(sessionID: sessionToCancel)
+            await AIActionConfirmationBroker.shared.cancelSession(sessionToCancel)
         }
     }
 

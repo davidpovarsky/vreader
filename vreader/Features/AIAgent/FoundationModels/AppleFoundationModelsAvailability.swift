@@ -102,10 +102,8 @@ struct AppleFoundationModelsAvailability: Sendable {
                     return .disabledInSystemSettings
                 case .modelNotReady:
                     return .modelNotDownloaded
-                case .restricted:
+                default:
                     return .restricted
-                @unknown default:
-                    return .unknown
                 }
             @unknown default:
                 return .unknown

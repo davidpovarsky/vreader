@@ -65,9 +65,8 @@ struct AgenticChatDriver: Sendable {
 
     private static let log = Logger(subsystem: "com.vreader.app", category: "AgenticChatDriver")
 
-    private final class ProvenanceTapSink: AIToolEventSink, @unchecked Sendable {
+    private actor ProvenanceTapSink: AIToolEventSink {
         let downstream: (any AIToolEventSink)?
-        let lock = NSLock()
         var sources: [AISourceProvenance] = []
 
         init(downstream: (any AIToolEventSink)?) {
@@ -76,11 +75,13 @@ struct AgenticChatDriver: Sendable {
 
         func emit(_ event: AIToolEvent) async {
             if !event.sources.isEmpty {
-                lock.lock()
                 sources.append(contentsOf: event.sources)
-                lock.unlock()
             }
             await downstream?.emit(event)
+        }
+
+        func collectedSources() -> [AISourceProvenance] {
+            sources
         }
     }
 
@@ -123,7 +124,8 @@ struct AgenticChatDriver: Sendable {
 
             switch turn {
             case .text(let text):
-                let uniqueSources = Self.deduplicateSources(tappingSink.sources)
+                let collected = await tappingSink.collectedSources()
+                let uniqueSources = Self.deduplicateSources(collected)
                 let citations = uniqueSources.map { $0.toChatCitation() }
                 return AgenticResult(
                     finalText: text,
@@ -169,7 +171,8 @@ struct AgenticChatDriver: Sendable {
         // any, else a graceful message. Never loop unbounded.
         Self.log.warning("agentic loop hit the \(self.maxIterations, privacy: .public)-iteration cap")
         let lastText = Self.lastAssistantText(in: messages)
-        let uniqueSources = Self.deduplicateSources(tappingSink.sources)
+        let collected = await tappingSink.collectedSources()
+        let uniqueSources = Self.deduplicateSources(collected)
         let citations = uniqueSources.map { $0.toChatCitation() }
         return AgenticResult(
             finalText: lastText ?? "I wasn't able to finish answering within the tool-call limit.",

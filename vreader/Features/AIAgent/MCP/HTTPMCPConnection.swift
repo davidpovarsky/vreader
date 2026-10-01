@@ -105,16 +105,40 @@ final class HTTPMCPConnection: MCPConnecting, @unchecked Sendable {
 #endif
     }
 
+    #if canImport(MCP)
+    private func toMCPValue(_ json: JSONValue) -> Value {
+        switch json {
+        case .null:
+            return .null
+        case .bool(let b):
+            return .bool(b)
+        case .number(let n):
+            if n.truncatingRemainder(dividingBy: 1) == 0 && n >= Double(Int.min) && n <= Double(Int.max) {
+                return .int(Int(n))
+            } else {
+                return .double(n)
+            }
+        case .string(let s):
+            return .string(s)
+        case .array(let arr):
+            return .array(arr.map(toMCPValue))
+        case .object(let dict):
+            return .object(dict.mapValues(toMCPValue))
+        }
+    }
+    #endif
+
     func callTool(name: String, arguments: JSONValue) async throws -> JSONValue {
         try Task.checkCancellation()
 #if canImport(MCP)
         guard let client = self.client else {
             throw NSError(domain: "vreader.mcp", code: 404, userInfo: [NSLocalizedDescriptionKey: "MCP client not connected."])
         }
-        guard let foundationArgs = arguments.toFoundation() as? [String: Any] else {
-            throw NSError(domain: "vreader.mcp", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid tool arguments."])
+        var mcpArgs: [String: Value] = [:]
+        if case .object(let dict) = arguments {
+            mcpArgs = dict.mapValues(toMCPValue)
         }
-        let (content, isError) = try await client.callTool(name: name, arguments: foundationArgs)
+        let (content, isError) = try await client.callTool(name: name, arguments: mcpArgs)
         if isError {
             let errorText = content.compactMap { block -> String? in
                 if case .text(let t) = block { return t }

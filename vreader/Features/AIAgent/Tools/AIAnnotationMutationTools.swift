@@ -66,7 +66,7 @@ struct CreateNoteTool: AITool {
                 locator: locator,
                 content: content
             )
-            return AIReaderToolOutput.boundedResult("Note created with ID: \(record.id.uuidString)", maxBytes: maxContentBytes)
+            return AIReaderToolOutput.boundedResult("Created note with ID: \(record.id.uuidString)", maxBytes: maxContentBytes)
         } catch {
             return AIReaderToolOutput.boundedResult("Failed to create note: \(error.localizedDescription)", maxBytes: maxContentBytes, isError: true)
         }
@@ -455,7 +455,7 @@ struct AddBookmarkTool: AITool {
                 locator: locator,
                 title: title
             )
-            return AIReaderToolOutput.boundedResult("Bookmark created with ID: \(record.id.uuidString)", maxBytes: maxContentBytes)
+            return AIReaderToolOutput.boundedResult("Added bookmark with ID: \(record.id.uuidString)", maxBytes: maxContentBytes)
         } catch {
             return AIReaderToolOutput.boundedResult("Failed to add bookmark: \(error.localizedDescription)", maxBytes: maxContentBytes, isError: true)
         }

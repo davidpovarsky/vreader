@@ -82,7 +82,13 @@ struct PersistedChatMessage: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
+        if let uuid = try? container.decode(UUID.self, forKey: .id) {
+            id = uuid
+        } else if let rawString = try? container.decode(String.self, forKey: .id) {
+            id = UUID(uuidString: rawString) ?? UUID()
+        } else {
+            id = UUID()
+        }
         role = try container.decode(String.self, forKey: .role)
         content = try container.decode(String.self, forKey: .content)
         timestamp = try container.decode(Date.self, forKey: .timestamp)

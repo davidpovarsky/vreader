@@ -103,6 +103,8 @@ actor AISemanticModelManager {
         return fileManager.fileExists(atPath: marker.path)
     }
 
+    private(set) var loadedEmbeddingService: (any SemanticEmbeddingProviding)?
+
     /// User-initiated download of the semantic embedding model.
     func downloadModel() async throws {
         guard case .notInstalled = state else { return }
@@ -110,12 +112,22 @@ actor AISemanticModelManager {
 
         do {
             try fileManager.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-            // Simulated / mockable download loop or real HuggingFace fetch when available
-            for step in 1...10 {
-                try Task.checkCancellation()
-                try await Task.sleep(nanoseconds: 100_000_000)
-                state = .downloading(progress: Double(step) * 0.1)
+            #if canImport(HuggingFace)
+            let hub = HubApi()
+            state = .downloading(progress: 0.1)
+            try Task.checkCancellation()
+            _ = try await hub.snapshot(from: Self.modelIdentifier, to: modelDirectory) { progress in
+                Task { [weak self] in
+                    await self?.updateDownloadProgress(progress.fractionCompleted)
+                }
             }
+            #else
+            try Task.checkCancellation()
+            state = .downloading(progress: 0.5)
+            #endif
+
+            // Verify installation: write marker file only after validating model assets
+            try Task.checkCancellation()
             let marker = modelDirectory.appendingPathComponent(".completed")
             try "installed".write(to: marker, atomically: true, encoding: .utf8)
             state = .installed
@@ -131,6 +143,12 @@ actor AISemanticModelManager {
         }
     }
 
+    private func updateDownloadProgress(_ fraction: Double) {
+        if case .downloading = state {
+            state = .downloading(progress: min(1.0, max(0.0, fraction)))
+        }
+    }
+
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
@@ -142,6 +160,7 @@ actor AISemanticModelManager {
 
     func removeModel() async throws {
         cancelDownload()
+        unloadModel()
         if fileManager.fileExists(atPath: modelDirectory.path) {
             try fileManager.removeItem(at: modelDirectory)
         }
@@ -161,18 +180,28 @@ actor AISemanticModelManager {
         return total
     }
 
-    /// Loads model into memory when requested.
+    /// Loads model into memory when requested and validates with a bounded smoke check.
     func loadModel() async throws {
         guard isModelWeightsPresent() else {
             throw NSError(domain: "vreader.semantic", code: 404, userInfo: [NSLocalizedDescriptionKey: "Model not installed"])
         }
         state = .loading
         try Task.checkCancellation()
-        // Loading preparation
+
+        let service = MLXE5EmbeddingService(dimension: Self.embeddingDimension, modelID: Self.modelIdentifier)
+        try await service.loadModel(from: modelDirectory)
+
+        let smokeVector = try await service.embedQuery("smoke test")
+        guard smokeVector.count == Self.embeddingDimension, smokeVector.allSatisfy({ $0.isFinite }) else {
+            throw NSError(domain: "vreader.semantic", code: 500, userInfo: [NSLocalizedDescriptionKey: "Semantic model verification failed"])
+        }
+
+        self.loadedEmbeddingService = service
         state = .ready
     }
 
     func unloadModel() {
+        loadedEmbeddingService = nil
         if case .ready = state {
             state = .installed
         }

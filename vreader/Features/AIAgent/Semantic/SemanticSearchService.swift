@@ -43,11 +43,11 @@ actor SemanticSearchService {
     private let indexStore: SemanticIndexStore
 
     init(
-        embeddingService: any SemanticEmbeddingProviding = MockSemanticEmbeddingService(),
+        embeddingService: (any SemanticEmbeddingProviding)? = nil,
         metadataStore: SemanticIndexMetadataStore = SemanticIndexMetadataStore(),
         indexStore: SemanticIndexStore = SemanticIndexStore()
     ) {
-        self.embeddingService = embeddingService
+        self.embeddingService = embeddingService ?? MLXE5EmbeddingService()
         self.metadataStore = metadataStore
         self.indexStore = indexStore
     }

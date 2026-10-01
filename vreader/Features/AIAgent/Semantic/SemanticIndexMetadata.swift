@@ -4,12 +4,15 @@
 import Foundation
 
 struct SemanticIndexMetadata: Codable, Sendable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let bookFingerprintKey: String
     let modelIdentifier: String
+    let modelRevision: String?
     let embeddingDimension: Int
     let chunkerVersion: String
+    let extractionVersion: Int
+    let vectorIndexVersion: Int
     let schemaVersion: Int
     let buildTimestamp: Date
     let chunkCount: Int
@@ -17,17 +20,22 @@ struct SemanticIndexMetadata: Codable, Sendable, Equatable {
     init(
         bookFingerprintKey: String,
         modelIdentifier: String = AISemanticModelManager.modelIdentifier,
+        modelRevision: String? = nil,
         embeddingDimension: Int = AISemanticModelManager.embeddingDimension,
         chunkerVersion: Any = SemanticChunker.chunkerVersion,
         extractionVersion: Int = 1,
+        vectorIndexVersion: Int = 1,
         schemaVersion: Int = SemanticIndexMetadata.currentSchemaVersion,
         buildTimestamp: Date = Date(),
         chunkCount: Int = 0
     ) {
         self.bookFingerprintKey = bookFingerprintKey
         self.modelIdentifier = modelIdentifier
+        self.modelRevision = modelRevision
         self.embeddingDimension = embeddingDimension
         self.chunkerVersion = "\(chunkerVersion)"
+        self.extractionVersion = extractionVersion
+        self.vectorIndexVersion = vectorIndexVersion
         self.schemaVersion = schemaVersion
         self.buildTimestamp = buildTimestamp
         self.chunkCount = chunkCount
@@ -111,9 +119,7 @@ struct SemanticChunkMetadata: Codable, Sendable, Equatable, Identifiable {
         if let vectorKey {
             self.vectorKey = vectorKey
         } else {
-            var hasher = Hasher()
-            hasher.combine(chunkID)
-            self.vectorKey = UInt64(bitPattern: Int64(hasher.finalize()))
+            self.vectorKey = SemanticVectorKey.deriveKey(for: chunkID)
         }
         self.bookFingerprintKey = bookFingerprintKey
         self.bookTitle = bookTitle

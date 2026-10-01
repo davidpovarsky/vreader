@@ -22,15 +22,14 @@ actor SemanticIndexCoordinator {
 
     private var activeTasks: [String: Task<Void, Error>] = [:]
     private(set) var currentState: SemanticIndexingState = .idle
-    private var vectorKeyCounter: UInt64 = 1
 
     init(
-        embeddingService: any SemanticEmbeddingProviding = MockSemanticEmbeddingService(),
+        embeddingService: (any SemanticEmbeddingProviding)? = nil,
         metadataStore: SemanticIndexMetadataStore = SemanticIndexMetadataStore(),
         indexStore: SemanticIndexStore = SemanticIndexStore(),
         chunker: SemanticChunker = SemanticChunker()
     ) {
-        self.embeddingService = embeddingService
+        self.embeddingService = embeddingService ?? MLXE5EmbeddingService()
         self.metadataStore = metadataStore
         self.indexStore = indexStore
         self.chunker = chunker
@@ -81,16 +80,21 @@ actor SemanticIndexCoordinator {
 
         // 2. Embeddings
         var chunkMetadataList: [SemanticChunkMetadata] = []
-        var vectorsToInsert: [(key: UInt64, vector: [Float])] = []
+        var insertItems: [SemanticIndexInsertItem] = []
         let total = semanticChunks.count
 
         for (idx, sc) in semanticChunks.enumerated() {
             try Task.checkCancellation()
             let vector = try await embeddingService.embedPassages([sc.text]).first ?? []
-            vectorKeyCounter &+= 1
-            let vKey = vectorKeyCounter
+            let vKey = SemanticVectorKey.deriveKey(for: sc.id)
 
-            vectorsToInsert.append((key: vKey, vector: vector))
+            insertItems.append(SemanticIndexInsertItem(
+                key: vKey,
+                chunkID: sc.id,
+                bookFingerprintKey: fingerprintKey,
+                vector: vector
+            ))
+
             chunkMetadataList.append(SemanticChunkMetadata(
                 chunkID: sc.id,
                 vectorKey: vKey,
@@ -109,8 +113,8 @@ actor SemanticIndexCoordinator {
             currentState = .indexing(bookFingerprintKey: fingerprintKey, progress: progress)
         }
 
-        // 3. Save to Index and Metadata Store
-        try await indexStore.insertBatch(items: vectorsToInsert)
+        // 3. Save to Index and Metadata Store coherently
+        try await indexStore.insertBatch(coherentItems: insertItems)
         let metadata = SemanticIndexMetadata(
             bookFingerprintKey: fingerprintKey,
             embeddingDimension: embeddingService.dimension,
@@ -133,6 +137,7 @@ actor SemanticIndexCoordinator {
     func removeBookIndex(fingerprintKey: String) async throws {
         cancelIndexing(for: fingerprintKey)
         try await metadataStore.remove(forBook: fingerprintKey)
+        try await indexStore.delete(bookFingerprintKey: fingerprintKey)
     }
 
     func rebuildAll() async throws {

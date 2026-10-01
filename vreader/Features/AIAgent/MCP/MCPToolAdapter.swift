@@ -1,9 +1,9 @@
-// Purpose: Dynamic tool adapter exposing remote MCP tools through VReader's AITool protocol.
-// Enforces externalNetwork authorization, executes via MCPClientManager, and sanitizes output.
+// Purpose: Dynamic tool adapter exposing remote MCP tools through VReader's AIContextualTool protocol.
+// Enforces externalNetwork authorization, executes via MCPClientManager, sanitizes output, and emits source provenance.
 
 import Foundation
 
-struct MCPToolAdapter: AITool {
+struct MCPToolAdapter: AIContextualTool {
     typealias Executor = @Sendable (String, JSONValue) async throws -> String
 
     let profileID: UUID
@@ -14,6 +14,7 @@ struct MCPToolAdapter: AITool {
     let authorizationGate: AIAgentToolExecutionGate
     let sanitizer: MCPResultSanitizer
     let maxContentBytes: Int
+    let readerSessionID: AIDocumentSessionID?
     let executor: Executor?
 
     init(
@@ -25,6 +26,7 @@ struct MCPToolAdapter: AITool {
         authorizationGate: AIAgentToolExecutionGate,
         sanitizer: MCPResultSanitizer = MCPResultSanitizer(),
         maxContentBytes: Int = 8_000,
+        readerSessionID: AIDocumentSessionID? = nil,
         executor: Executor? = nil
     ) {
         self.profileID = profileID
@@ -35,6 +37,7 @@ struct MCPToolAdapter: AITool {
         self.authorizationGate = authorizationGate
         self.sanitizer = sanitizer
         self.maxContentBytes = max(256, maxContentBytes)
+        self.readerSessionID = readerSessionID
         self.executor = executor
     }
 
@@ -47,6 +50,7 @@ struct MCPToolAdapter: AITool {
         authorizationGate: AIAgentToolExecutionGate,
         sanitizer: MCPResultSanitizer = MCPResultSanitizer(),
         maxContentBytes: Int = 8_000,
+        readerSessionID: AIDocumentSessionID? = nil,
         executor: Executor? = nil
     ) {
         self.init(
@@ -58,16 +62,23 @@ struct MCPToolAdapter: AITool {
             authorizationGate: authorizationGate,
             sanitizer: sanitizer,
             maxContentBytes: maxContentBytes,
+            readerSessionID: readerSessionID,
             executor: executor
         )
     }
 
     func run(_ input: JSONValue) async -> ToolResult {
-        // Gated by externalNetwork permission category
+        await run(input, context: .fallback(toolCallID: UUID().uuidString))
+    }
+
+    func run(_ input: JSONValue, context: AIToolExecutionContext) async -> ToolResult {
+        let effectiveSessionID = context.readerSessionID ?? readerSessionID
+        // Gated by externalNetwork permission category with session identity
         let outcome = await authorizationGate.authorize(AIAgentToolAuthorization.context(
             toolName: definition.name,
             actionDescription: "Call external tool \"\(originalToolName)\" on server \"\(serverName)\"",
             category: .externalNetwork,
+            readerSessionID: effectiveSessionID,
             metadata: ["serverName": serverName, "originalToolName": originalToolName]
         ))
         guard outcome == .allowed else {
@@ -77,8 +88,10 @@ struct MCPToolAdapter: AITool {
         do {
             try Task.checkCancellation()
             let formatted: String
+            let outputSnippet: String
             if let executor = executor {
                 let executed = try await executor(originalToolName, input)
+                outputSnippet = executed
                 formatted = "[External Server: \(serverName)]\n" + executed
             } else {
                 let rawResult = try await clientManager.invokeTool(
@@ -87,9 +100,21 @@ struct MCPToolAdapter: AITool {
                     arguments: input
                 )
                 let sanitizedText = sanitizer.formatAsToolResult(rawResult)
+                outputSnippet = sanitizedText
                 formatted = "[External Server: \(serverName)]\n" + sanitizedText
             }
             try Task.checkCancellation()
+
+            let provenance = AISourceProvenance(
+                bookFingerprintKey: "mcp:\(profileID.uuidString)",
+                sourceLabel: "\(serverName): \(originalToolName)",
+                snippet: outputSnippet,
+                retrievalMethod: .mcpExternal,
+                toolCallID: context.toolCallID,
+                mcpServerName: serverName
+            )
+            await context.recordSources([provenance])
+
             return AIReaderToolOutput.boundedResult(formatted, maxBytes: maxContentBytes)
         } catch is CancellationError {
             return AIReaderToolOutput.boundedResult(

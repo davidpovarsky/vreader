@@ -7,17 +7,24 @@ actor MCPClientManager {
     static let shared = MCPClientManager()
     private static let log = Logger(subsystem: "com.vreader.app", category: "MCPClientManager")
 
+    typealias ConnectionFactory = @Sendable (MCPServerProfile) -> any MCPConnecting
+
     private let profileStore: MCPServerProfileStore
     private let secretStore: MCPSecretStore
+    private let connectionFactory: ConnectionFactory
     private var activeConnections: [UUID: any MCPConnecting] = [:]
     private var connectionStatuses: [UUID: MCPCompatibilityStatus] = [:]
 
     init(
         profileStore: MCPServerProfileStore = MCPServerProfileStore.shared,
-        secretStore: MCPSecretStore = MCPSecretStore()
+        secretStore: MCPSecretStore = MCPSecretStore(),
+        connectionFactory: @escaping ConnectionFactory = { profile in
+            HTTPMCPConnection(profile: profile)
+        }
     ) {
         self.profileStore = profileStore
         self.secretStore = secretStore
+        self.connectionFactory = connectionFactory
     }
 
     func status(for profileID: UUID) -> MCPCompatibilityStatus {
@@ -42,7 +49,7 @@ actor MCPClientManager {
         if let existing = activeConnections[profile.id] {
             connection = existing
         } else {
-            connection = MockMCPConnection(profile: profile)
+            connection = connectionFactory(profile)
             activeConnections[profile.id] = connection
         }
 

@@ -195,6 +195,12 @@ protocol AITool: Sendable {
     func run(_ input: JSONValue) async -> ToolResult
 }
 
+/// An extended tool protocol that receives the runtime execution context
+/// (turnID, toolCallID, event sink, readerSessionID, etc.).
+protocol AIContextualTool: AITool {
+    func run(_ input: JSONValue, context: AIToolExecutionContext) async -> ToolResult
+}
+
 // MARK: - Multi-turn carrier + parsed turn
 
 /// One message in a tool-use conversation. Content is a list of blocks because a

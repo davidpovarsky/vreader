@@ -30,6 +30,21 @@ struct AIToolEvent: Sendable, Equatable, Codable, Identifiable {
     let confirmationRequestID: UUID?
     let errorMessage: String?
     let metadata: [String: String]
+    let sources: [AISourceProvenance]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case toolCallID
+        case toolName
+        case phase
+        case timestamp
+        case argumentSummary
+        case resultSummary
+        case confirmationRequestID
+        case errorMessage
+        case metadata
+        case sources
+    }
 
     init(
         id: UUID = UUID(),
@@ -41,7 +56,8 @@ struct AIToolEvent: Sendable, Equatable, Codable, Identifiable {
         resultSummary: String? = nil,
         confirmationRequestID: UUID? = nil,
         errorMessage: String? = nil,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        sources: [AISourceProvenance] = []
     ) {
         self.id = id
         self.toolCallID = toolCallID
@@ -53,6 +69,22 @@ struct AIToolEvent: Sendable, Equatable, Codable, Identifiable {
         self.confirmationRequestID = confirmationRequestID
         self.errorMessage = errorMessage
         self.metadata = metadata
+        self.sources = sources
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.toolCallID = try container.decode(String.self, forKey: .toolCallID)
+        self.toolName = try container.decode(String.self, forKey: .toolName)
+        self.phase = try container.decode(AIToolLifecycleState.self, forKey: .phase)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        self.argumentSummary = try container.decodeIfPresent(String.self, forKey: .argumentSummary)
+        self.resultSummary = try container.decodeIfPresent(String.self, forKey: .resultSummary)
+        self.confirmationRequestID = try container.decodeIfPresent(UUID.self, forKey: .confirmationRequestID)
+        self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+        self.sources = try container.decodeIfPresent([AISourceProvenance].self, forKey: .sources) ?? []
     }
 
     static func queued(callID: String, toolName: String, argumentSummary: String? = nil) -> AIToolEvent {
@@ -67,8 +99,21 @@ struct AIToolEvent: Sendable, Equatable, Codable, Identifiable {
         AIToolEvent(toolCallID: callID, toolName: toolName, phase: .awaitingConfirmation, argumentSummary: description, confirmationRequestID: requestID)
     }
 
-    static func succeeded(callID: String, toolName: String, resultSummary: String? = nil, metadata: [String: String] = [:]) -> AIToolEvent {
-        AIToolEvent(toolCallID: callID, toolName: toolName, phase: .succeeded, resultSummary: resultSummary, metadata: metadata)
+    static func succeeded(
+        callID: String,
+        toolName: String,
+        resultSummary: String? = nil,
+        metadata: [String: String] = [:],
+        sources: [AISourceProvenance] = []
+    ) -> AIToolEvent {
+        AIToolEvent(
+            toolCallID: callID,
+            toolName: toolName,
+            phase: .succeeded,
+            resultSummary: resultSummary,
+            metadata: metadata,
+            sources: sources
+        )
     }
 
     static func failed(callID: String, toolName: String, error: String? = nil, metadata: [String: String] = [:]) -> AIToolEvent {

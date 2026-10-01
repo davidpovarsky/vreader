@@ -59,9 +59,10 @@ struct PersistedChatMessage: Codable {
     var timestamp: Date
     var citations: [PersistedChatCitation]
     var toolTraces: [AIToolTrace]
+    var sourceProvenance: [AISourceProvenance]
 
     enum CodingKeys: String, CodingKey {
-        case id, role, content, timestamp, citations, toolTraces
+        case id, role, content, timestamp, citations, toolTraces, sourceProvenance
     }
 
     init(
@@ -70,7 +71,8 @@ struct PersistedChatMessage: Codable {
         content: String,
         timestamp: Date,
         citations: [PersistedChatCitation],
-        toolTraces: [AIToolTrace] = []
+        toolTraces: [AIToolTrace] = [],
+        sourceProvenance: [AISourceProvenance] = []
     ) {
         self.id = id
         self.role = role
@@ -78,6 +80,7 @@ struct PersistedChatMessage: Codable {
         self.timestamp = timestamp
         self.citations = citations
         self.toolTraces = toolTraces
+        self.sourceProvenance = sourceProvenance
     }
 
     init(from decoder: Decoder) throws {
@@ -94,6 +97,7 @@ struct PersistedChatMessage: Codable {
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         citations = try container.decodeIfPresent([PersistedChatCitation].self, forKey: .citations) ?? []
         toolTraces = try container.decodeIfPresent([AIToolTrace].self, forKey: .toolTraces) ?? []
+        sourceProvenance = try container.decodeIfPresent([AISourceProvenance].self, forKey: .sourceProvenance) ?? []
     }
 }
 
@@ -182,7 +186,8 @@ enum ChatSessionPayloadMapper {
             content: message.content,
             timestamp: message.timestamp,
             citations: message.citations.map(persist),
-            toolTraces: message.toolTraces
+            toolTraces: message.toolTraces,
+            sourceProvenance: message.sourceProvenance
         )
     }
 
@@ -193,7 +198,8 @@ enum ChatSessionPayloadMapper {
             content: persisted.content,
             timestamp: persisted.timestamp,
             citations: persisted.citations.map(domain),
-            toolTraces: persisted.toolTraces
+            toolTraces: persisted.toolTraces,
+            sourceProvenance: persisted.sourceProvenance
         )
     }
 

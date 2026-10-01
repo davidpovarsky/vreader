@@ -48,13 +48,29 @@ struct AIToolExecutionContext: Sendable {
         ))
     }
 
-    func emitSucceeded(toolName: String, resultSummary: String? = nil, metadata: [String: String] = [:]) async {
+    func emitSucceeded(
+        toolName: String,
+        resultSummary: String? = nil,
+        metadata: [String: String] = [:],
+        sources: [AISourceProvenance] = []
+    ) async {
         await eventSink.emit(AIToolEvent(
             toolCallID: toolCallID,
             toolName: toolName,
             phase: .succeeded,
             resultSummary: resultSummary,
-            metadata: metadata
+            metadata: metadata,
+            sources: sources
+        ))
+    }
+
+    func recordSources(_ sources: [AISourceProvenance]) async {
+        guard !sources.isEmpty else { return }
+        await eventSink.emit(AIToolEvent(
+            toolCallID: toolCallID,
+            toolName: "",
+            phase: .running,
+            sources: sources
         ))
     }
 

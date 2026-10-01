@@ -137,11 +137,30 @@ extension AIChatViewModel {
         messages.append(assistantMessage)
 
         do {
-            // Feature #91: when `agenticTools` is on (live) AND a non-empty registry is
-            // injected, resolve the provider ONCE. If it supports tool-use, run the
-            // agentic loop; otherwise stream through the SAME pinned config (no second
-            // resolution — Gate-4 Medium). Otherwise the default streaming path.
-            if featureFlags.agenticTools, let registry = agenticRegistry, !registry.isEmpty {
+            let capabilities = await AIAgentCapabilityPreferencesStore.shared.load()
+            if capabilities.backendChoice == .appleFoundationModels, let registry = agenticRegistry {
+                let gate = AIAgentToolExecutionGate.productionConnected(
+                    broker: .shared,
+                    preferencesStore: AIAgentPreferencesStore.shared
+                )
+                let appleExecutor = AppleFoundationModelsTurnExecutor(executionGate: gate)
+                let result = try await appleExecutor.executeTurn(
+                    prompt: trimmed,
+                    systemPrompt: AIChatHistoryMapper.systemPrompt(),
+                    contextText: contextText,
+                    registry: registry,
+                    documentSessionID: documentSessionID,
+                    turnID: UUID().uuidString
+                )
+                guard !Task.isCancelled, opId == opCounter else { return }
+                if let assistant = message(withId: assistantId) {
+                    var updated = assistant
+                    updated.content = result.finalText
+                    updated.citations = citationSnapshot
+                    updated.sourceProvenance = result.sourceProvenances
+                    replaceMessage(updated)
+                }
+            } else if featureFlags.agenticTools, let registry = agenticRegistry, !registry.isEmpty {
                 let (config, supportsToolUse) = try await aiService.resolveToolProvider()
                 if supportsToolUse {
                     try await runAgenticTurn(
@@ -263,7 +282,8 @@ extension AIChatViewModel {
             registry: registry,
             provider: AIServiceToolUseAdapter(service: aiService, config: config),
             maxTokens: config.maxTokens,
-            eventSink: eventSink)
+            eventSink: eventSink,
+            readerSessionID: documentSessionID)
 
         // Feature #87 WI-1 (round-2 High): Swift cancellation is cooperative — a
         // task cancelled AFTER the driver already returned would still write a full
@@ -281,6 +301,7 @@ extension AIChatViewModel {
             if result.usedTools {
                 // Feature #177 requirement 9.4: retain genuine tool sources or snapshot citations
                 updated.citations = result.citations.isEmpty ? citationSnapshot : result.citations
+                updated.sourceProvenance = result.sourceProvenances
             }
             replaceMessage(updated)
         }

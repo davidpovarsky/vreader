@@ -30,6 +30,8 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
     var citations: [ChatCitation]
     /// Feature #177: display-safe tool execution traces for tool activity rendering.
     var toolTraces: [AIToolTrace]
+    /// Feature #177: structured source provenances for tool-drawn replies.
+    var sourceProvenance: [AISourceProvenance]
 
     init(
         id: UUID = UUID(),
@@ -37,7 +39,8 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
         content: String,
         timestamp: Date = Date(),
         citations: [ChatCitation] = [],
-        toolTraces: [AIToolTrace] = []
+        toolTraces: [AIToolTrace] = [],
+        sourceProvenance: [AISourceProvenance] = []
     ) {
         self.id = id
         self.role = role
@@ -45,5 +48,6 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
         self.timestamp = timestamp
         self.citations = citations
         self.toolTraces = toolTraces
+        self.sourceProvenance = sourceProvenance
     }
 }

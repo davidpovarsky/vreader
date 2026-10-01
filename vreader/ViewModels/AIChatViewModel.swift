@@ -285,11 +285,19 @@ final class AIChatViewModel {
     // Feature #177: Tool action confirmation UI
     var pendingConfirmationRequest: AIActionConfirmationRequest?
     @ObservationIgnored private var confirmationSubscriptionTask: Task<Void, Never>?
+    var documentSessionID: AIDocumentSessionID?
 
-    func startObservingConfirmations(broker: AIActionConfirmationBroker = .shared) {
+    func startObservingConfirmations(
+        broker: AIActionConfirmationBroker = .shared,
+        sessionID: AIDocumentSessionID? = nil
+    ) {
+        if let sessionID {
+            self.documentSessionID = sessionID
+        }
+        let targetSession = self.documentSessionID
         confirmationSubscriptionTask?.cancel()
         confirmationSubscriptionTask = Task { @MainActor [weak self] in
-            for await requests in await broker.pendingRequestUpdates() {
+            for await requests in await broker.pendingRequestUpdates(for: targetSession) {
                 guard let self else { break }
                 self.pendingConfirmationRequest = requests.first
             }
@@ -329,11 +337,12 @@ final class AIChatViewModel {
         errorMessage = nil
     }
 
-    // The streaming + cancellation concern (sendMessage launcher, runSend,
-    // cancelStreaming, consumeStream, runAgenticTurn, context builders, and the
-    // id-based write helper) lives in `AIChatViewModel+Streaming.swift`; the
-    // Feature #88 session lifecycle (loadSessions / newConversation / switch /
-    // rename / delete + the settled-turn save hook) lives in
-    // `AIChatViewModel+Sessions.swift`, both to keep this base file under the
-    // ~300-line guide.
+    deinit {
+        confirmationSubscriptionTask?.cancel()
+        if let sessionID = documentSessionID {
+            Task {
+                await AIActionConfirmationBroker.shared.cancelSession(sessionID)
+            }
+        }
+    }
 }

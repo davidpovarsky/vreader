@@ -32,6 +32,9 @@ struct AIChatMessageRow: View {
     /// Visual-identity-v2 theme tokens for the bubble surface + ink.
     let theme: ReaderThemeV2
 
+    /// Optional navigation closure when a source card is tapped.
+    var onNavigate: ((Locator) -> Void)? = nil
+
     // MARK: - Bubble form
 
     /// The two distinct visual forms the design's `ChatBubble` draws.
@@ -114,8 +117,25 @@ struct AIChatMessageRow: View {
                     ChatToolActivityCluster(traces: message.toolTraces, theme: theme)
                         .padding(.vertical, 4)
                 }
-                // Feature #86 WI-6: the "Drew on" provenance row under the reply.
-                if !message.citations.isEmpty {
+                // Feature #177: Structured source result cards
+                if !message.sourceProvenance.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(message.sourceProvenance) { prov in
+                            ChatSourceResultCard(provenance: prov, theme: theme) { loc in
+                                if let onNavigate {
+                                    onNavigate(loc)
+                                } else {
+                                    NotificationCenter.default.post(
+                                        name: .readerNavigateToLocator,
+                                        object: loc
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } else if !message.citations.isEmpty {
+                    // Feature #86 WI-6: the "Drew on" provenance row under the reply.
                     ChatCitationRow(citations: message.citations, theme: theme)
                         .padding(.bottom, 4)
                 }

@@ -71,13 +71,25 @@ struct AIToolRegistry: Sendable {
     /// Dispatch a `ToolCall` to its tool, binding the result to THIS call's id.
     /// An unknown tool name yields an `isError` result (never a throw).
     func run(_ call: ToolCall) async -> ToolResult {
+        await run(call, context: nil)
+    }
+
+    /// Dispatch a `ToolCall` with optional execution context. If the tool conforms to
+    /// `AIContextualTool` and context is present, delegates to contextual execution;
+    /// otherwise falls back to `AITool.run(_:)`.
+    func run(_ call: ToolCall, context: AIToolExecutionContext?) async -> ToolResult {
         guard let tool = toolsByName[call.name] else {
             return ToolResult(
                 toolUseID: call.id,
                 content: "Unknown tool '\(call.name)'. Available: \(toolsByName.keys.sorted().joined(separator: ", ")).",
                 isError: true)
         }
-        let result = await tool.run(call.input)
+        let result: ToolResult
+        if let contextual = tool as? any AIContextualTool, let context = context {
+            result = await contextual.run(call.input, context: context)
+        } else {
+            result = await tool.run(call.input)
+        }
         // The tool doesn't know the provider-assigned call id — bind it here so
         // the provider can match this result to its tool_use/tool_call.
         return ToolResult(toolUseID: call.id, content: result.content, isError: result.isError)

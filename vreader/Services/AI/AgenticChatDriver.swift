@@ -42,17 +42,21 @@ struct AgenticResult: Sendable, Equatable {
     var traces: [AIToolTrace] = []
     /// Sources genuinely retrieved and supplied to model this turn (Feature #177).
     var citations: [ChatCitation] = []
+    /// Structured provenance items for tool-derived replies (Feature #177).
+    var sourceProvenances: [AISourceProvenance] = []
 
     init(
         finalText: String,
         usedTools: Bool,
         traces: [AIToolTrace] = [],
-        citations: [ChatCitation] = []
+        citations: [ChatCitation] = [],
+        sourceProvenances: [AISourceProvenance] = []
     ) {
         self.finalText = finalText
         self.usedTools = usedTools
         self.traces = traces
         self.citations = citations
+        self.sourceProvenances = sourceProvenances
     }
 }
 
@@ -60,6 +64,25 @@ struct AgenticResult: Sendable, Equatable {
 struct AgenticChatDriver: Sendable {
 
     private static let log = Logger(subsystem: "com.vreader.app", category: "AgenticChatDriver")
+
+    private final class ProvenanceTapSink: AIToolEventSink, @unchecked Sendable {
+        let downstream: (any AIToolEventSink)?
+        let lock = NSLock()
+        var sources: [AISourceProvenance] = []
+
+        init(downstream: (any AIToolEventSink)?) {
+            self.downstream = downstream
+        }
+
+        func emit(_ event: AIToolEvent) async {
+            if !event.sources.isEmpty {
+                lock.lock()
+                sources.append(contentsOf: event.sources)
+                lock.unlock()
+            }
+            await downstream?.emit(event)
+        }
+    }
 
     /// Hard cap on provider round-trips (a runaway-loop / cost backstop).
     let maxIterations: Int
@@ -77,11 +100,14 @@ struct AgenticChatDriver: Sendable {
         registry: AIToolRegistry,
         provider: any ToolUseSending,
         maxTokens: Int,
-        eventSink: (any AIToolEventSink)? = nil
+        eventSink: (any AIToolEventSink)? = nil,
+        readerSessionID: AIDocumentSessionID? = nil,
+        turnID: String = UUID().uuidString
     ) async throws -> AgenticResult {
         var messages = history
         var usedTools = false
         let tools = registry.definitions()
+        let tappingSink = ProvenanceTapSink(downstream: eventSink)
 
         for iteration in 0..<maxIterations {
             // Bug #323: a Stop (or a session transition) cancels the streaming task
@@ -97,7 +123,13 @@ struct AgenticChatDriver: Sendable {
 
             switch turn {
             case .text(let text):
-                return AgenticResult(finalText: text, usedTools: usedTools)
+                let uniqueSources = Self.deduplicateSources(tappingSink.sources)
+                let citations = uniqueSources.map { $0.toChatCitation() }
+                return AgenticResult(
+                    finalText: text,
+                    usedTools: usedTools,
+                    citations: citations,
+                    sourceProvenances: uniqueSources)
 
             case .toolUse(let blocks):
                 usedTools = true
@@ -110,14 +142,20 @@ struct AgenticChatDriver: Sendable {
                 for call in turn.toolCalls {
                     try Task.checkCancellation()
                     let argSummary = AIToolDisplayMetadata.safeArgumentSummary(for: call.name, input: call.input)
-                    await eventSink?.emit(.queued(callID: call.id, toolName: call.name, argumentSummary: argSummary))
-                    await eventSink?.emit(.running(callID: call.id, toolName: call.name, argumentSummary: argSummary))
-                    let result = await registry.run(call)
+                    let execContext = AIToolExecutionContext(
+                        toolCallID: call.id,
+                        turnID: turnID,
+                        eventSink: tappingSink,
+                        readerSessionID: readerSessionID
+                    )
+                    await tappingSink.emit(.queued(callID: call.id, toolName: call.name, argumentSummary: argSummary))
+                    await tappingSink.emit(.running(callID: call.id, toolName: call.name, argumentSummary: argSummary))
+                    let result = await registry.run(call, context: execContext)
                     let resSummary = AIToolDisplayMetadata.safeResultSummary(result.content, isError: result.isError)
                     if result.isError {
-                        await eventSink?.emit(.failed(callID: call.id, toolName: call.name, error: resSummary))
+                        await tappingSink.emit(.failed(callID: call.id, toolName: call.name, error: resSummary))
                     } else {
-                        await eventSink?.emit(.succeeded(callID: call.id, toolName: call.name, resultSummary: resSummary))
+                        await tappingSink.emit(.succeeded(callID: call.id, toolName: call.name, resultSummary: resSummary))
                     }
                     resultBlocks.append(.toolResult(result))
                 }
@@ -131,9 +169,27 @@ struct AgenticChatDriver: Sendable {
         // any, else a graceful message. Never loop unbounded.
         Self.log.warning("agentic loop hit the \(self.maxIterations, privacy: .public)-iteration cap")
         let lastText = Self.lastAssistantText(in: messages)
+        let uniqueSources = Self.deduplicateSources(tappingSink.sources)
+        let citations = uniqueSources.map { $0.toChatCitation() }
         return AgenticResult(
             finalText: lastText ?? "I wasn't able to finish answering within the tool-call limit.",
-            usedTools: usedTools)
+            usedTools: usedTools,
+            citations: citations,
+            sourceProvenances: uniqueSources)
+    }
+
+    private static func deduplicateSources(_ sources: [AISourceProvenance]) -> [AISourceProvenance] {
+        var seen = Set<String>()
+        var result: [AISourceProvenance] = []
+        for src in sources {
+            let key = "\(src.bookFingerprintKey)|\(src.href ?? "")|\(src.pageIndex ?? -1)|\(src.snippet)"
+            if !seen.contains(src.id) && !seen.contains(key) {
+                seen.insert(src.id)
+                seen.insert(key)
+                result.append(src)
+            }
+        }
+        return result
     }
 
     /// The most recent non-empty assistant text in the history (for the cap path).

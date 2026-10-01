@@ -119,7 +119,7 @@ struct AIAgentToolExecutionGate: Sendable {
             let outcome = await broker.requestConfirmation(request)
             guard !Task.isCancelled else { return .cancelled }
             switch outcome {
-            case .allowed: return .allowed
+            case .allowed, .allowedOnce: return .allowed
             case .denied: return .denied
             case .cancelled: return .cancelled
             }

@@ -1,0 +1,138 @@
+// Purpose: AIAgent turn execution abstraction and router supporting cloud providers and Apple Foundation Models.
+// Enables seamless routing without modifying existing provider transport layers.
+
+import Foundation
+
+enum AIAgentBackendChoice: String, Sendable, Codable, CaseIterable {
+    case cloudProvider = "cloudProvider"
+    case appleFoundationModels = "appleFoundationModels"
+
+    var displayName: String {
+        switch self {
+        case .cloudProvider: return "Configured Provider"
+        case .appleFoundationModels: return "Apple Foundation Models"
+        }
+    }
+}
+
+protocol AIAgentTurnExecuting: Sendable {
+    func executeTurn(
+        prompt: String,
+        systemPrompt: String,
+        contextText: String?,
+        registry: AIToolRegistry,
+        documentSessionID: AIDocumentSessionID?,
+        turnID: String
+    ) async throws -> AgenticResult
+}
+
+final class CloudProviderTurnExecutor: AIAgentTurnExecuting {
+    private let aiService: AIService
+    private let driver: AgenticChatDriver
+
+    init(aiService: AIService, driver: AgenticChatDriver = AgenticChatDriver()) {
+        self.aiService = aiService
+        self.driver = driver
+    }
+
+    func executeTurn(
+        prompt: String,
+        systemPrompt: String,
+        contextText: String?,
+        registry: AIToolRegistry,
+        documentSessionID: AIDocumentSessionID?,
+        turnID: String
+    ) async throws -> AgenticResult {
+        let (config, _) = try await aiService.resolveToolProvider()
+        return try await driver.run(
+            userPrompt: prompt,
+            systemPrompt: systemPrompt,
+            contextText: contextText,
+            config: config,
+            registry: registry,
+            turnID: turnID,
+            readerSessionID: documentSessionID
+        )
+    }
+}
+
+final class AppleFoundationModelsTurnExecutor: AIAgentTurnExecuting {
+    private let backend: any AppleFoundationModelsBackendServicing
+    private let executionGate: AIAgentToolExecutionGate
+
+    init(
+        backend: any AppleFoundationModelsBackendServicing = AppleFoundationModelsBackend(),
+        executionGate: AIAgentToolExecutionGate
+    ) {
+        self.backend = backend
+        self.executionGate = executionGate
+    }
+
+    func executeTurn(
+        prompt: String,
+        systemPrompt: String,
+        contextText: String?,
+        registry: AIToolRegistry,
+        documentSessionID: AIDocumentSessionID?,
+        turnID: String
+    ) async throws -> AgenticResult {
+        let toolAdapter = AppleFoundationModelsToolAdapter(
+            registry: registry,
+            executionGate: executionGate
+        )
+        let combinedSystem = [systemPrompt, contextText].compactMap { $0 }.joined(separator: "\n\n")
+        return try await backend.executeTurn(
+            systemPrompt: combinedSystem,
+            prompt: prompt,
+            profile: .currentSectionAssistant,
+            mode: .onDevice,
+            toolAdapter: toolAdapter
+        )
+    }
+}
+
+final class AIAgentTurnRouter: AIAgentTurnExecuting {
+    private let cloudExecutor: AIAgentTurnExecuting
+    private let appleExecutor: AIAgentTurnExecuting
+    private let backendChoice: @Sendable () -> AIAgentBackendChoice
+
+    init(
+        cloudExecutor: AIAgentTurnExecuting,
+        appleExecutor: AIAgentTurnExecuting,
+        backendChoice: @escaping @Sendable () -> AIAgentBackendChoice = { .cloudProvider }
+    ) {
+        self.cloudExecutor = cloudExecutor
+        self.appleExecutor = appleExecutor
+        self.backendChoice = backendChoice
+    }
+
+    func executeTurn(
+        prompt: String,
+        systemPrompt: String,
+        contextText: String?,
+        registry: AIToolRegistry,
+        documentSessionID: AIDocumentSessionID?,
+        turnID: String
+    ) async throws -> AgenticResult {
+        switch backendChoice() {
+        case .cloudProvider:
+            return try await cloudExecutor.executeTurn(
+                prompt: prompt,
+                systemPrompt: systemPrompt,
+                contextText: contextText,
+                registry: registry,
+                documentSessionID: documentSessionID,
+                turnID: turnID
+            )
+        case .appleFoundationModels:
+            return try await appleExecutor.executeTurn(
+                prompt: prompt,
+                systemPrompt: systemPrompt,
+                contextText: contextText,
+                registry: registry,
+                documentSessionID: documentSessionID,
+                turnID: turnID
+            )
+        }
+    }
+}

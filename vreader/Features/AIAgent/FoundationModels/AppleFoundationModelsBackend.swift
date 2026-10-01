@@ -1,8 +1,11 @@
 // Purpose: Apple Foundation Models first-class backend implementation.
-// Executes sessions via LanguageModelSession on iOS 27 or mockable simulation in CI/tests.
+// Executes sessions via real LanguageModelSession on iOS 26+ / iOS 27 with availability and policy enforcement.
 
 import Foundation
 import OSLog
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 protocol AppleFoundationModelsBackendServicing: Sendable {
     func executeTurn(
@@ -46,15 +49,20 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
 
         Self.log.info("Executing Apple Foundation Models turn in mode \(resolvedMode.rawValue)")
 
-        // Simulated/fallback execution in test environments
-        var usedTools = false
-        if let toolAdapter, prompt.lowercased().contains("search") || prompt.lowercased().contains("find") {
-            usedTools = true
-            _ = await toolAdapter.invoke(toolName: "get_current_context", arguments: [:])
+#if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            let session = LanguageModelSession(instructions: systemPrompt)
+            let response = try await session.respond(to: prompt)
+            return AgenticResult(finalText: response.content, usedTools: false)
+        } else {
+            throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
+                NSLocalizedDescriptionKey: "Apple Foundation Models requires iOS 26+."
+            ])
         }
-
-        try Task.checkCancellation()
-        let response = "Apple Foundation Models (\(resolvedMode.rawValue)) response for: \(prompt)"
-        return AgenticResult(finalText: response, usedTools: usedTools)
+#else
+        throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
+            NSLocalizedDescriptionKey: "Apple Foundation Models framework unavailable on this platform."
+        ])
+#endif
     }
 }

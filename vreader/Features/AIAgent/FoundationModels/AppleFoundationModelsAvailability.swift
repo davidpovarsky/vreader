@@ -2,6 +2,9 @@
 // Maps system states into deterministic domain states testable in CI.
 
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 enum AppleFoundationModelsMode: String, Sendable, Codable, CaseIterable {
     case onDevice = "onDevice"
@@ -55,27 +58,61 @@ enum AppleFoundationModelsAvailabilityState: Sendable, Equatable {
 
 struct AppleFoundationModelsAvailability: Sendable {
     let state: AppleFoundationModelsAvailabilityState
+    private let isTestOverride: Bool
 
-    init(state: AppleFoundationModelsAvailabilityState = .deviceNotSupported) {
+    init(state: AppleFoundationModelsAvailabilityState) {
         self.state = state
+        self.isTestOverride = true
     }
 
     init(simulatedState: AppleFoundationModelsAvailabilityState? = nil) {
         self.state = simulatedState ?? .deviceNotSupported
+        self.isTestOverride = simulatedState != nil
+    }
+
+    init() {
+        self.state = .deviceNotSupported
+        self.isTestOverride = false
     }
 
     var isAvailable: Bool {
-        state.isAvailable
+        checkAvailability().isAvailable
     }
 
     var statusDescription: String {
-        state.displayDescription
+        checkAvailability().displayDescription
     }
 
-    /// Evaluates runtime availability of Apple Foundation Models.
+    /// Evaluates runtime availability of Apple Foundation Models using system APIs on iOS 26+.
     func checkAvailability() -> AppleFoundationModelsAvailabilityState {
+        if isTestOverride {
+            return state
+        }
         #if canImport(FoundationModels)
-        return .available
+        if #available(iOS 26.0, macOS 26.0, *) {
+            let model = SystemLanguageModel.default
+            switch model.availability {
+            case .available:
+                return .available
+            case .unavailable(let reason):
+                switch reason {
+                case .deviceNotEligible:
+                    return .deviceNotSupported
+                case .appleIntelligenceNotEnabled:
+                    return .disabledInSystemSettings
+                case .modelNotReady:
+                    return .modelNotDownloaded
+                case .restricted:
+                    return .restricted
+                @unknown default:
+                    return .unknown
+                }
+            @unknown default:
+                return .unknown
+            }
+        } else {
+            return .deviceNotSupported
+        }
         #else
         return state
         #endif

@@ -47,7 +47,7 @@ struct ExtractPageTextTool: AITool {
               case .number(let pageNum) = dict["page"],
               pageNum >= 1 else {
             return AIReaderToolOutput.boundedResult(
-                "A positive 1-based page integer is required.",
+                "A positive integer (1-based page number) is required.",
                 maxBytes: maxContentBytes,
                 isError: true
             )

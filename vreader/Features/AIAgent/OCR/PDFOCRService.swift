@@ -140,8 +140,8 @@ final class MockPDFOCRService: PDFOCRServicing, @unchecked Sendable {
         facade: any AIPDFDocumentFacading
     ) async throws -> PDFOCRResult {
         try Task.checkCancellation()
-        let text = mockResults[pageIndex]
-        let source = mockSources[pageIndex]
+        let text = mockResults[pageIndex] ?? (pageIndex == 0 ? mockResults[1] : nil)
+        let source = mockSources[pageIndex] ?? (pageIndex == 0 ? mockSources[1] : nil)
         if let text {
             let actualSource = source ?? (policy.needsOCR(nativeText: text) ? .visionOCR : .pdfTextLayer)
             return PDFOCRResult(
@@ -183,8 +183,8 @@ final class MockPDFOCRService: PDFOCRServicing, @unchecked Sendable {
         pageIndex: Int,
         nativeTextThreshold: Int = 20
     ) async throws -> PDFOCRResult {
-        let text = mockResults[pageIndex] ?? mockOCRText ?? ""
-        let source = mockSources[pageIndex] ?? (text.count < nativeTextThreshold ? .visionOCR : .pdfTextLayer)
+        let text = mockResults[pageIndex] ?? (pageIndex == 0 ? mockResults[1] : nil) ?? mockOCRText ?? ""
+        let source = mockSources[pageIndex] ?? (pageIndex == 0 ? mockSources[1] : nil) ?? (text.count < nativeTextThreshold ? .visionOCR : .pdfTextLayer)
         return PDFOCRResult(
             bookFingerprintKey: bookFingerprintKey,
             pageIndex: pageIndex,

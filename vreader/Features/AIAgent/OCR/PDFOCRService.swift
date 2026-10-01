@@ -13,29 +13,6 @@ protocol PDFOCRServicing: Sendable {
         pageIndex: Int,
         facade: any AIPDFDocumentFacading
     ) async throws -> PDFOCRResult
-
-    func extractPageText(
-        bookFingerprintKey: String,
-        pageIndex: Int,
-        nativeTextThreshold: Int
-    ) async throws -> PDFOCRResult
-}
-
-extension PDFOCRServicing {
-    func extractPageText(
-        bookFingerprintKey: String,
-        pageIndex: Int,
-        nativeTextThreshold: Int = 20
-    ) async throws -> PDFOCRResult {
-        PDFOCRResult(
-            bookFingerprintKey: bookFingerprintKey,
-            pageIndex: pageIndex,
-            text: "",
-            locator: makePDFLocator(bookKey: bookFingerprintKey, pageIndex: pageIndex),
-            source: .visionOCR,
-            isOCRDerived: true
-        )
-    }
 }
 
 func makePDFLocator(bookKey: String, pageIndex: Int) -> Locator {
@@ -116,9 +93,50 @@ actor PDFOCRService: PDFOCRServicing {
     }
 
     private func performVisionOCR(pageIndex: Int, facade: any AIPDFDocumentFacading) async throws -> String {
-        // Production Vision OCR path when page rendering is supported on facade
-        // If image rendering is not available, return empty so native text is preserved
+        try Task.checkCancellation()
+        guard let image = try await facade.renderPageForOCR(index: pageIndex, maxDimension: 1800) else {
+            return ""
+        }
+        #if canImport(Vision)
+        return try await withCheckedThrowingContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let observations = request.results as? [VNRecognizedTextObservation] else {
+                    continuation.resume(returning: "")
+                    return
+                }
+                let recognizedStrings = observations.compactMap { observation in
+                    observation.topCandidates(1).first?.string
+                }
+                continuation.resume(returning: recognizedStrings.joined(separator: "\n"))
+            }
+
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+
+            // Runtime language detection: Hebrew & English
+            if let supported = try? VNRecognizeTextRequest.supportedRecognitionLanguages(for: .accurate, revision: VNRecognizeTextRequestRevision3) {
+                var langs: [String] = []
+                if supported.contains("he-IL") || supported.contains("he") {
+                    langs.append("he")
+                }
+                langs.append(contentsOf: ["en-US", "en"])
+                request.recognitionLanguages = langs
+            }
+
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        #else
         return ""
+        #endif
     }
 }
 

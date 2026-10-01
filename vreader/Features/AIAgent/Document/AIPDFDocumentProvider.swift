@@ -8,12 +8,20 @@ protocol AIPDFDocumentFacading: AnyObject, Sendable {
     var pageCount: Int { get }
     var currentPageIndex: Int? { get }
     func text(forPage index: Int) async throws -> String
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage?
 }
 
 @MainActor
-final class AIPDFDocumentProvider: AIDocumentProvider {
+protocol AIPDFOCRSourceProviding: AnyObject, Sendable {
+    var ocrFacade: any AIPDFDocumentFacading { get }
+}
+
+@MainActor
+final class AIPDFDocumentProvider: AIDocumentProvider, AIPDFOCRSourceProviding {
     let bookFingerprint: DocumentFingerprint
-    private let facade: any AIPDFDocumentFacading
+    let facade: any AIPDFDocumentFacading
+
+    var ocrFacade: any AIPDFDocumentFacading { facade }
 
     init(
         fingerprint: DocumentFingerprint,

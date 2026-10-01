@@ -1,9 +1,9 @@
 // Purpose: Model-facing tool for extracting text from a PDF page using native text or Vision OCR.
-// Fully gated by AIAgentToolExecutionGate and spoiler-safe against the active reader boundary.
+// Fully gated by AIAgentToolExecutionGate, emits structured provenance, and spoiler-safe against active reader boundary.
 
 import Foundation
 
-struct ExtractPageTextTool: AITool {
+struct ExtractPageTextTool: AIContextualTool {
     static let toolName = "extract_page_text"
     let ocrService: any PDFOCRServicing
     let facade: (any AIPDFDocumentFacading)?
@@ -43,6 +43,10 @@ struct ExtractPageTextTool: AITool {
     }
 
     func run(_ input: JSONValue) async -> ToolResult {
+        await run(input, context: AIToolExecutionContext())
+    }
+
+    func run(_ input: JSONValue, context: AIToolExecutionContext) async -> ToolResult {
         guard case .object(let dict) = input,
               case .number(let pageNum) = dict["page"],
               pageNum >= 1 else {
@@ -58,7 +62,11 @@ struct ExtractPageTextTool: AITool {
         if let facade {
             totalPages = await facade.pageCount
         } else {
-            totalPages = 1000
+            return AIReaderToolOutput.boundedResult(
+                "PDF page source is unavailable for OCR extraction.",
+                maxBytes: maxContentBytes,
+                isError: true
+            )
         }
         guard pageIndex < totalPages else {
             return AIReaderToolOutput.boundedResult(
@@ -71,12 +79,12 @@ struct ExtractPageTextTool: AITool {
         if let denied = await AICurrentReaderToolSupport.authorize(
             toolName: Self.toolName,
             action: "Extract text from page \(Int(pageNum))",
-            context: context,
+            context: self.context,
             gate: authorizationGate,
             maxBytes: maxContentBytes
         ) { return denied }
 
-        guard let document = await context.resolveDocument(), !Task.isCancelled else {
+        guard let document = await self.context.resolveDocument(), !Task.isCancelled else {
             return AIReaderToolOutput.boundedResult(
                 "The exact active reader session is unavailable.",
                 maxBytes: maxContentBytes,
@@ -93,7 +101,8 @@ struct ExtractPageTextTool: AITool {
                 toolName: Self.toolName,
                 actionDescription: "Read ahead to future page \(Int(pageNum))",
                 category: .readAhead,
-                bookFingerprintKey: snapshot.bookFingerprint.canonicalKey
+                bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,
+                readerSessionID: context.readerSessionID
             ))
             guard readAheadOutcome == .allowed else {
                 return AIAgentToolAuthorization.errorResult(readAheadOutcome, maxBytes: maxContentBytes)
@@ -101,20 +110,25 @@ struct ExtractPageTextTool: AITool {
         }
 
         do {
-            let result: PDFOCRResult
-            if let facade {
-                result = try await ocrService.extractPageText(
-                    bookKey: snapshot.bookFingerprint.canonicalKey,
-                    pageIndex: pageIndex,
-                    facade: facade
-                )
-            } else {
-                result = try await ocrService.extractPageText(
-                    bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,
-                    pageIndex: pageIndex,
-                    nativeTextThreshold: 20
-                )
-            }
+            let result = try await ocrService.extractPageText(
+                bookKey: snapshot.bookFingerprint.canonicalKey,
+                pageIndex: pageIndex,
+                facade: facade
+            )
+
+            let provenance = AISourceProvenance(
+                bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,
+                bookTitle: snapshot.bookTitle,
+                locator: result.locator,
+                sourceLabel: "Page \(Int(pageNum))",
+                pageIndex: pageIndex,
+                snippet: String(result.text.prefix(250)),
+                retrievalMethod: .ocr,
+                aheadOfReader: pageIndex > boundaryPage,
+                toolCallID: context.toolCallID,
+                isOCRDerived: result.isOCRDerived
+            )
+            await context.recordSources([provenance])
 
             let sourceTag = (result.source == .visionOCR) ? "Vision OCR" : "Native PDF Text"
             let header = "[Page \(Int(pageNum)) | \(sourceTag)]\n"

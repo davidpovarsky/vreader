@@ -34,6 +34,22 @@ final class AIPDFKitDocumentFacade: AIPDFDocumentFacading {
         return document.page(at: index)?.string ?? ""
     }
 
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
+        try Task.checkCancellation()
+        guard let document, !document.isLocked else {
+            throw AIDocumentProviderError.documentUnavailable
+        }
+        guard index >= 0, index < document.pageCount, let page = document.page(at: index) else {
+            return nil
+        }
+        let bounds = page.bounds(for: .mediaBox)
+        let maxDim = max(100, min(maxDimension, 2048))
+        let scale = min(maxDim / max(1, bounds.width), maxDim / max(1, bounds.height))
+        let targetSize = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+        let thumbnail = page.thumbnail(of: targetSize, for: .mediaBox)
+        return thumbnail.cgImage
+    }
+
     func isAttached(to candidate: PDFDocument) -> Bool {
         document === candidate
     }

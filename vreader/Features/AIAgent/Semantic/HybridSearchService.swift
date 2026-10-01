@@ -46,8 +46,89 @@ struct HybridSearchHit: Identifiable, Sendable, Equatable {
     }
 }
 
+struct HybridSearchResultItem: Identifiable, Sendable, Equatable {
+    let id: String
+    let bookFingerprintKey: String
+    let title: String?
+    let locator: Locator
+    let snippet: String
+    let method: AIRetrievalMethod
+    let score: Double
+    let aheadOfReader: Bool
+
+    init(
+        id: String,
+        bookFingerprintKey: String,
+        title: String?,
+        locator: Locator,
+        snippet: String,
+        method: AIRetrievalMethod,
+        score: Double,
+        aheadOfReader: Bool
+    ) {
+        self.id = id
+        self.bookFingerprintKey = bookFingerprintKey
+        self.title = title
+        self.locator = locator
+        self.snippet = snippet
+        self.method = method
+        self.score = score
+        self.aheadOfReader = aheadOfReader
+    }
+}
+
 struct HybridSearchService: Sendable {
     static let kRRF: Double = 60.0
+    let rrfK: Double
+
+    init(rrfK: Double = 60.0) {
+        self.rrfK = rrfK
+    }
+
+    /// Combines ordered lexical and semantic HybridSearchResultItems using Reciprocal Rank Fusion.
+    func fuse(
+        lexical: [HybridSearchResultItem],
+        semantic: [HybridSearchResultItem],
+        limit: Int = 10
+    ) -> [HybridSearchResultItem] {
+        var itemsByID: [String: (item: HybridSearchResultItem, score: Double)] = [:]
+        var orderOfFirstSeen: [String] = []
+
+        for (idx, lex) in lexical.enumerated() {
+            let rrf = 1.0 / (rrfK + Double(idx + 1))
+            itemsByID[lex.id] = (item: lex, score: rrf)
+            orderOfFirstSeen.append(lex.id)
+        }
+
+        for (idx, sem) in semantic.enumerated() {
+            let rrf = 1.0 / (rrfK + Double(idx + 1))
+            if let existing = itemsByID[sem.id] {
+                itemsByID[sem.id] = (item: existing.item, score: existing.score + rrf)
+            } else {
+                itemsByID[sem.id] = (item: sem, score: rrf)
+                orderOfFirstSeen.append(sem.id)
+            }
+        }
+
+        var fused: [HybridSearchResultItem] = []
+        for id in orderOfFirstSeen {
+            guard let entry = itemsByID.removeValue(forKey: id) else { continue }
+            let updated = HybridSearchResultItem(
+                id: entry.item.id,
+                bookFingerprintKey: entry.item.bookFingerprintKey,
+                title: entry.item.title,
+                locator: entry.item.locator,
+                snippet: entry.item.snippet,
+                method: entry.item.method,
+                score: entry.score,
+                aheadOfReader: entry.item.aheadOfReader
+            )
+            fused.append(updated)
+        }
+
+        fused.sort { $0.score > $1.score }
+        return Array(fused.prefix(limit))
+    }
 
     /// Combines ordered lexical snippets and semantic hits into fused hybrid hits.
     static func fuse(

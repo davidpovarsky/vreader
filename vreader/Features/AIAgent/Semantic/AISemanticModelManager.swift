@@ -122,9 +122,12 @@ actor AISemanticModelManager {
             let hub = HubApi()
             state = .downloading(progress: 0.1)
             try Task.checkCancellation()
-            _ = try await hub.snapshot(from: Self.modelIdentifier, to: modelDirectory) { progress in
-                Task { [weak self] in
-                    await self?.updateDownloadProgress(progress.fractionCompleted)
+            let snapshotURL = try await hub.snapshot(from: Self.modelIdentifier)
+            let contents = (try? fileManager.contentsOfDirectory(at: snapshotURL, includingPropertiesForKeys: nil)) ?? []
+            for file in contents {
+                let dest = modelDirectory.appendingPathComponent(file.lastPathComponent)
+                if !fileManager.fileExists(atPath: dest.path) {
+                    try? fileManager.copyItem(at: file, to: dest)
                 }
             }
             #else

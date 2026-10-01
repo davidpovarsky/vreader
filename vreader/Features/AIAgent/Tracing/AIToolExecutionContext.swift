@@ -20,6 +20,10 @@ struct AIToolExecutionContext: Sendable {
         self.readerSessionID = readerSessionID
     }
 
+    static func fallback(toolCallID: String = UUID().uuidString) -> AIToolExecutionContext {
+        AIToolExecutionContext(toolCallID: toolCallID)
+    }
+
     func emitQueued(toolName: String, argumentSummary: String? = nil) async {
         await eventSink.emit(AIToolEvent(
             toolCallID: toolCallID,

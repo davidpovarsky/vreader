@@ -44,14 +44,18 @@ final class CloudProviderTurnExecutor: AIAgentTurnExecuting {
         turnID: String
     ) async throws -> AgenticResult {
         let (config, _) = try await aiService.resolveToolProvider()
+        var history: [ToolTurnMessage] = [ToolTurnMessage(role: .user, content: [.text(prompt)])]
+        if let contextText, let prelude = AIChatHistoryMapper.contextPrelude(bookContext: contextText) {
+            history.insert(prelude, at: 0)
+        }
         return try await driver.run(
-            userPrompt: prompt,
             systemPrompt: systemPrompt,
-            contextText: contextText,
-            config: config,
+            history: history,
             registry: registry,
-            turnID: turnID,
-            readerSessionID: documentSessionID
+            provider: AIServiceToolUseAdapter(service: aiService, config: config),
+            maxTokens: config.maxTokens,
+            readerSessionID: documentSessionID,
+            turnID: turnID
         )
     }
 }

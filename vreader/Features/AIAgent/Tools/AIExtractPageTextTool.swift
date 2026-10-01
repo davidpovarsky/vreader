@@ -115,7 +115,7 @@ struct ExtractPageTextTool: AIContextualTool {
                 facade: pdfFacade
             )
 
-            let bookTitle = await context.bookTitle
+            let bookTitle = await self.context.bookTitle
             let provenance = AISourceProvenance(
                 bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,
                 bookTitle: bookTitle,

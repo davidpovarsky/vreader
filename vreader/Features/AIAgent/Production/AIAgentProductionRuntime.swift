@@ -77,7 +77,7 @@ final class AIAgentProductionRuntime {
         // 3. Real semantic runtime (if enabled and model is ready)
         var semanticSearchService: SemanticSearchService? = nil
         let isModelReady = await semanticModelManager.state.isReady
-        let isModelInstalled = await semanticModelManager.isInstalled
+        let isModelInstalled = await semanticModelManager.state.isInstalled
         if capabilities.isSemanticSearchEnabled && isModelInstalled && isModelReady {
             let embeddingService = await semanticModelManager.loadedEmbeddingService ?? MLXE5EmbeddingService()
             semanticSearchService = SemanticSearchService(embeddingService: embeddingService)
@@ -98,9 +98,9 @@ final class AIAgentProductionRuntime {
         var mcpAdapters: [MCPToolAdapter] = []
         let discoveredTools = await mcpClientManager.discoverEnabledTools()
         for discovered in discoveredTools {
-            let toolName = MCPToolNameMapper.serverPrefixedToolName(
-                serverName: discovered.profile.name,
-                toolName: discovered.tool.name
+            let toolName = MCPToolNameMapper.map(
+                serverPrefix: discovered.profile.name,
+                originalToolName: discovered.tool.name
             )
             let mappedDefinition = ToolDefinition(
                 name: toolName,
@@ -145,9 +145,8 @@ final class AIAgentProductionRuntime {
         return AIAgentTurnRouter(
             cloudExecutor: cloud,
             appleExecutor: apple,
-            backendChoice: { [capabilityStore] in
-                // Read synchronously from cached capabilityStore if possible or fallback
-                AIAgentCapabilityPreferencesStore.shared.load().backendChoice
+            backendChoice: {
+                AIAgentCapabilityPreferencesStore.currentBackendChoice()
             }
         )
     }

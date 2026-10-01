@@ -113,8 +113,8 @@ actor SemanticIndexStore {
 
         let mPath = dir.appendingPathComponent("mappings.json")
         if let data = try? Data(contentsOf: mPath),
-           let snapshot = try? JSONDecoder().decode(MappingSnapshot.self, from: data) {
-            self.keyTable = snapshot.keyTable
+           let snapshot = try? JSONDecoder().decode(PersistedMappings.self, from: data) {
+            self.keyTable = SemanticVectorKeyTable(chunkIDToKey: snapshot.chunkIDToKey, keyToChunkID: snapshot.keyToChunkID)
             self.keyToBookKey = snapshot.keyToBookKey
         }
     }

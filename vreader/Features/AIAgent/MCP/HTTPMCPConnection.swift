@@ -139,15 +139,15 @@ final class HTTPMCPConnection: MCPConnecting, @unchecked Sendable {
             mcpArgs = dict.mapValues(toMCPValue)
         }
         let (content, isError) = try await client.callTool(name: name, arguments: mcpArgs)
-        if isError {
+        if isError ?? false {
             let errorText = content.compactMap { block -> String? in
-                if case .text(let t) = block { return t }
+                if case .text(let payload) = block { return payload.text }
                 return nil
             }.joined(separator: "\n")
             throw NSError(domain: "vreader.mcp", code: 500, userInfo: [NSLocalizedDescriptionKey: errorText.isEmpty ? "MCP tool call returned error" : errorText])
         }
         let textBlocks = content.compactMap { block -> String? in
-            if case .text(let t) = block { return t }
+            if case .text(let payload) = block { return payload.text }
             return nil
         }
         return .object(["result": .string(textBlocks.joined(separator: "\n"))])

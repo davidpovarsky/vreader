@@ -338,14 +338,16 @@ struct AddHighlightTool: AIContextualTool {
         let snapshot = document.snapshot
         let locator: Locator
         if let decoded = AIReaderToolOutput.decodeLocator(input) {
-            if !decoded.fingerprintKey.isEmpty && decoded.fingerprintKey != snapshot.bookFingerprint.canonicalKey {
+            if !decoded.bookFingerprint.canonicalKey.isEmpty && decoded.bookFingerprint.canonicalKey != snapshot.bookFingerprint.canonicalKey {
                 return AIReaderToolOutput.boundedResult("Highlight locator does not match current book fingerprint.", maxBytes: maxContentBytes, isError: true)
             }
             locator = decoded
         } else if dict["locator_json"] != nil {
             return AIReaderToolOutput.boundedResult("Invalid locator_json provided for highlight.", maxBytes: maxContentBytes, isError: true)
         } else {
-            guard let fallback = snapshot.currentLocator ?? (snapshot.readSoFarBoundary.locator.href.isEmpty ? nil : snapshot.readSoFarBoundary.locator) else {
+            let boundary = snapshot.readSoFarBoundary.locator
+            let validBoundary = (boundary.href?.isEmpty == false || boundary.page != nil || boundary.charOffsetUTF16 != nil) ? boundary : nil
+            guard let fallback = snapshot.currentLocator ?? validBoundary else {
                 return AIReaderToolOutput.boundedResult("No valid locator anchor available for highlight.", maxBytes: maxContentBytes, isError: true)
             }
             locator = fallback

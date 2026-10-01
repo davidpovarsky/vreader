@@ -79,6 +79,14 @@ actor AIAgentCapabilityPreferencesStore {
     private let key = "vreader.ai.capabilityPreferences"
     private var cached: AIAgentCapabilityPreferences
 
+    nonisolated static func currentBackendChoice(userDefaults: UserDefaults = .standard) -> AIAgentBackendChoice {
+        guard let data = userDefaults.data(forKey: "vreader.ai.capabilityPreferences"),
+              let decoded = try? JSONDecoder().decode(AIAgentCapabilityPreferences.self, from: data) else {
+            return .cloudProvider
+        }
+        return decoded.backendChoice
+    }
+
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         if let data = userDefaults.data(forKey: key),

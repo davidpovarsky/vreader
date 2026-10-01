@@ -285,7 +285,12 @@ final class AIChatViewModel {
     // Feature #177: Tool action confirmation UI
     var pendingConfirmationRequest: AIActionConfirmationRequest?
     @ObservationIgnored private var confirmationSubscriptionTask: Task<Void, Never>?
-    var documentSessionID: AIDocumentSessionID?
+    var documentSessionID: AIDocumentSessionID? {
+        didSet {
+            rawDocumentSessionID = documentSessionID
+        }
+    }
+    @ObservationIgnored private nonisolated(unsafe) var rawDocumentSessionID: AIDocumentSessionID?
 
     func startObservingConfirmations(
         broker: AIActionConfirmationBroker = .shared,
@@ -339,7 +344,7 @@ final class AIChatViewModel {
 
     deinit {
         confirmationSubscriptionTask?.cancel()
-        if let sessionID = documentSessionID {
+        if let sessionID = rawDocumentSessionID {
             Task {
                 await AIActionConfirmationBroker.shared.cancelSession(sessionID)
             }

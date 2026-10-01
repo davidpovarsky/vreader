@@ -3,7 +3,7 @@
 
 import Foundation
 
-enum AppleFoundationModelMode: String, Sendable, Codable, CaseIterable {
+enum AppleFoundationModelsMode: String, Sendable, Codable, CaseIterable {
     case onDevice = "onDevice"
     case privateCloudCompute = "privateCloudCompute"
     case automatic = "automatic"
@@ -15,10 +15,16 @@ enum AppleFoundationModelMode: String, Sendable, Codable, CaseIterable {
         case .automatic: return "Apple AI — Automatic"
         }
     }
+
+    var displayName: String {
+        localizedTitle
+    }
 }
 
+typealias AppleFoundationModelMode = AppleFoundationModelsMode
+
 enum AppleFoundationModelsAvailabilityState: Sendable, Equatable {
-    case available(modes: [AppleFoundationModelMode])
+    case available
     case deviceNotSupported
     case modelNotDownloaded
     case disabledInSystemSettings
@@ -26,15 +32,13 @@ enum AppleFoundationModelsAvailabilityState: Sendable, Equatable {
     case unknown
 
     var isAvailable: Bool {
-        if case .available = self { return true }
-        return false
+        self == .available
     }
 
     var displayDescription: String {
         switch self {
-        case .available(let modes):
-            let names = modes.map(\.localizedTitle).joined(separator: ", ")
-            return "Available (\(names))"
+        case .available:
+            return "Available"
         case .deviceNotSupported:
             return "Apple Intelligence is not supported on this device."
         case .modelNotDownloaded:
@@ -50,22 +54,30 @@ enum AppleFoundationModelsAvailabilityState: Sendable, Equatable {
 }
 
 struct AppleFoundationModelsAvailability: Sendable {
-    private let simulatedState: AppleFoundationModelsAvailabilityState?
+    let state: AppleFoundationModelsAvailabilityState
+
+    init(state: AppleFoundationModelsAvailabilityState = .deviceNotSupported) {
+        self.state = state
+    }
 
     init(simulatedState: AppleFoundationModelsAvailabilityState? = nil) {
-        self.simulatedState = simulatedState
+        self.state = simulatedState ?? .deviceNotSupported
+    }
+
+    var isAvailable: Bool {
+        state.isAvailable
+    }
+
+    var statusDescription: String {
+        state.displayDescription
     }
 
     /// Evaluates runtime availability of Apple Foundation Models.
     func checkAvailability() -> AppleFoundationModelsAvailabilityState {
-        if let sim = simulatedState { return sim }
-
         #if canImport(FoundationModels)
-        // When running on genuine iOS 27 with FoundationModels framework
-        return .available(modes: [.onDevice, .privateCloudCompute, .automatic])
+        return .available
         #else
-        // Fallback in simulator / non-Apple-Intelligence environments
-        return .deviceNotSupported
+        return state
         #endif
     }
 }

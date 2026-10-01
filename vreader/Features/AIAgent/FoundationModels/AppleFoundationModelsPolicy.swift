@@ -4,40 +4,80 @@
 import Foundation
 
 struct AppleFoundationModelsPolicy: Sendable {
-    let mode: AppleFoundationModelMode
-    let isPCCConsentGranted: Bool
+    let mode: AppleFoundationModelsMode
+    let userConsentedToPCC: Bool
 
     init(
-        mode: AppleFoundationModelMode = .onDevice,
-        isPCCConsentGranted: Bool = false
+        mode: AppleFoundationModelsMode = .onDevice,
+        userConsentedToPCC: Bool = false
     ) {
         self.mode = mode
-        self.isPCCConsentGranted = isPCCConsentGranted
+        self.userConsentedToPCC = userConsentedToPCC
+    }
+
+    init(
+        mode: AppleFoundationModelsMode = .onDevice,
+        isPCCConsentGranted: Bool
+    ) {
+        self.init(mode: mode, userConsentedToPCC: isPCCConsentGranted)
+    }
+
+    var isPCCConsentGranted: Bool {
+        userConsentedToPCC
+    }
+
+    var permitsNetworkAccess: Bool {
+        switch mode {
+        case .onDevice:
+            return false
+        case .privateCloudCompute, .automatic:
+            return userConsentedToPCC
+        }
+    }
+
+    var permitsPrivateCloudCompute: Bool {
+        switch mode {
+        case .onDevice:
+            return false
+        case .privateCloudCompute, .automatic:
+            return userConsentedToPCC
+        }
+    }
+
+    var canExecute: Bool {
+        switch mode {
+        case .onDevice:
+            return true
+        case .privateCloudCompute:
+            return userConsentedToPCC
+        case .automatic:
+            return true
+        }
     }
 
     /// Resolves the actual execution path, enforcing privacy invariants.
-    func resolveExecutionMode(availableModes: [AppleFoundationModelMode]) -> AppleFoundationModelMode? {
+    func resolveExecutionMode(onDeviceAvailable: Bool, pccAvailable: Bool) -> AppleFoundationModelsMode? {
         switch mode {
         case .onDevice:
-            // STRICT: Must use on-device only. Never fall back to PCC or cloud.
-            return availableModes.contains(.onDevice) ? .onDevice : nil
-
+            return onDeviceAvailable ? .onDevice : nil
         case .privateCloudCompute:
-            // Requires both runtime availability and explicit PCC consent
-            guard isPCCConsentGranted, availableModes.contains(.privateCloudCompute) else {
-                return nil
-            }
-            return .privateCloudCompute
-
+            return (userConsentedToPCC && pccAvailable) ? .privateCloudCompute : nil
         case .automatic:
-            if availableModes.contains(.onDevice) {
+            if onDeviceAvailable {
                 return .onDevice
             }
-            if isPCCConsentGranted && availableModes.contains(.privateCloudCompute) {
+            if userConsentedToPCC && pccAvailable {
                 return .privateCloudCompute
             }
             return nil
         }
+    }
+
+    func resolveExecutionMode(availableModes: [AppleFoundationModelsMode]) -> AppleFoundationModelsMode? {
+        resolveExecutionMode(
+            onDeviceAvailable: availableModes.contains(.onDevice),
+            pccAvailable: availableModes.contains(.privateCloudCompute)
+        )
     }
 
     /// Whether data leaves the local device for this configuration.
@@ -45,7 +85,7 @@ struct AppleFoundationModelsPolicy: Sendable {
         switch mode {
         case .onDevice: return false
         case .privateCloudCompute: return true
-        case .automatic: return isPCCConsentGranted
+        case .automatic: return userConsentedToPCC
         }
     }
 }

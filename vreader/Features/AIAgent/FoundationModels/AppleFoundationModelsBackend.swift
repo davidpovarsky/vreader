@@ -37,8 +37,8 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
         try Task.checkCancellation()
 
         let availState = availability.checkAvailability()
-        guard case .available(let modes) = availState,
-              let resolvedMode = policy.resolveExecutionMode(availableModes: modes) else {
+        guard availState.isAvailable,
+              let resolvedMode = policy.resolveExecutionMode(availableModes: [.onDevice, .privateCloudCompute, .automatic]) else {
             throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
                 NSLocalizedDescriptionKey: "Apple Foundation Models backend is not available in mode \(mode.rawValue)."
             ])

@@ -4,16 +4,26 @@
 import Foundation
 
 enum AppleFoundationModelsProfile: String, Sendable, Codable, CaseIterable {
-    case currentSectionAssistant
-    case chapterResearch
-    case wholeBookResearch
-    case libraryResearch
-    case annotationMode
-    case multimodalDocumentAnalysis
+    case currentSection = "currentSection"
+    case chapterResearch = "chapterResearch"
+    case wholeBookResearch = "wholeBookResearch"
+    case libraryResearch = "libraryResearch"
+    case annotationMode = "annotationMode"
+    case multimodalDocumentAnalysis = "multimodalDocumentAnalysis"
+
+    static var currentSectionAssistant: AppleFoundationModelsProfile { .currentSection }
+
+    var identifier: String {
+        rawValue
+    }
+
+    var systemPromptDirective: String {
+        systemInstructionSuffix
+    }
 
     var systemInstructionSuffix: String {
         switch self {
-        case .currentSectionAssistant:
+        case .currentSection:
             return "Focus on the currently open section of the book. Answer concisely."
         case .chapterResearch:
             return "Analyze the current chapter context thoroughly and reference key events."
@@ -30,9 +40,20 @@ enum AppleFoundationModelsProfile: String, Sendable, Codable, CaseIterable {
 
     var defaultMaxTokens: Int {
         switch self {
-        case .currentSectionAssistant, .annotationMode: return 1024
+        case .currentSection, .annotationMode: return 1024
         case .chapterResearch, .multimodalDocumentAnalysis: return 2048
         case .wholeBookResearch, .libraryResearch: return 4096
+        }
+    }
+
+    static func profile(for scope: ChatContextScope) -> AppleFoundationModelsProfile {
+        switch scope {
+        case .section:
+            return .currentSection
+        case .chapter:
+            return .chapterResearch
+        case .bookSoFar, .wholeBook:
+            return .wholeBookResearch
         }
     }
 }

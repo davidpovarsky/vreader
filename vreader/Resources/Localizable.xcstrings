@@ -1,533 +1,992 @@
 {
-  "sourceLanguage" : "en",
-  "strings" : {
-    "AI Assistant Settings" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI Assistant Settings"
+  "sourceLanguage": "en",
+  "strings": {
+    "AI Assistant Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Assistant Settings"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הגדרות עוזר AI"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הגדרות עוזר AI"
           }
         }
       }
     },
-    "Access Other Books" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Access Other Books"
+    "Access Other Books": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access Other Books"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "גישה לספרים אחרים"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "גישה לספרים אחרים"
           }
         }
       }
     },
-    "Add Highlight" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add Highlight"
+    "Add Highlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Highlight"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הוסף הדגשה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הוסף הדגשה"
           }
         }
       }
     },
-    "Add Note" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add Note"
+    "Add Note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Note"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הוסף הערה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הוסף הערה"
           }
         }
       }
     },
-    "Allow" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allow"
+    "Allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "אפשר"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אפשר"
           }
         }
       }
     },
-    "Allow Once" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allow Once"
+    "Allow Once": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Once"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "אפשר פעם אחת"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אפשר פעם אחת"
           }
         }
       }
     },
-    "Always Allow" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Always Allow"
+    "Always Allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Allow"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "אפשר תמיד"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אפשר תמיד"
           }
         }
       }
     },
-    "Always ask" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Always ask"
+    "Always ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always ask"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "שאל תמיד"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "שאל תמיד"
           }
         }
       }
     },
-    "Apple AI — Automatic" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple AI — Automatic"
+    "Apple AI — Automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI — Automatic"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple AI — אוטומטי"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI — אוטומטי"
           }
         }
       }
     },
-    "Apple AI — On Device" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple AI — On Device"
+    "Apple AI — On Device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI — On Device"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple AI — על המכשיר"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI — על המכשיר"
           }
         }
       }
     },
-    "Apple AI — Private Cloud Compute" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple AI — Private Cloud Compute"
+    "Apple AI — Private Cloud Compute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI — Private Cloud Compute"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple AI — מחשוב ענן פרטי"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI — מחשוב ענן פרטי"
           }
         }
       }
     },
-    "Apple Foundation Models" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple Foundation Models"
+    "Apple Foundation Models": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Foundation Models"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "מודלי יסוד של Apple"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מודלי יסוד של Apple"
           }
         }
       }
     },
-    "Ask" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ask"
+    "Ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "שאל"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "שאל"
           }
         }
       }
     },
-    "Ask before reading ahead" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ask before reading ahead"
+    "Ask before reading ahead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask before reading ahead"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "שאל לפני קריאה קדימה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "שאל לפני קריאה קדימה"
           }
         }
       }
     },
-    "Book so far" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Book so far"
+    "Book so far": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Book so far"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "עד מקום הקריאה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "עד מקום הקריאה"
           }
         }
       }
     },
-    "Confirm Deletion" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Confirm Deletion"
+    "Confirm Deletion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Deletion"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "אשר מחיקה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אשר מחיקה"
           }
         }
       }
     },
-    "Current chapter" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Current chapter"
+    "Current chapter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current chapter"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הפרק הנוכחי"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הפרק הנוכחי"
           }
         }
       }
     },
-    "Deny" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deny"
+    "Deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "אל תאפשר"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אל תאפשר"
           }
         }
       }
     },
-    "Download Model (~470 MB)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Download Model (~470 MB)"
+    "Download Model (~470 MB)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Model (~470 MB)"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הורד מודל (כ-470 MB)"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הורד מודל (כ-470 MB)"
           }
         }
       }
     },
-    "External server" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "External server"
+    "External server": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "External server"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "שרת חיצוני"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "שרת חיצוני"
           }
         }
       }
     },
-    "MCP Servers" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "MCP Servers"
+    "MCP Servers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP Servers"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "שרתי MCP"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "שרתי MCP"
           }
         }
       }
     },
-    "Never read ahead" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Never read ahead"
+    "Never read ahead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never read ahead"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "לעולם אל תקרא קדימה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "לעולם אל תקרא קדימה"
           }
         }
       }
     },
-    "OCR for Scanned PDFs" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OCR for Scanned PDFs"
+    "OCR for Scanned PDFs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OCR for Scanned PDFs"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "זיהוי טקסט (OCR) לקובצי PDF סרוקים"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "זיהוי טקסט (OCR) לקובצי PDF סרוקים"
           }
         }
       }
     },
-    "Read ahead" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Read ahead"
+    "Read ahead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read ahead"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "קריאה קדימה"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "קריאה קדימה"
           }
         }
       }
     },
-    "Remove Downloaded Model" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove Downloaded Model"
+    "Remove Downloaded Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Downloaded Model"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הסר מודל שהורד"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הסר מודל שהורד"
           }
         }
       }
     },
-    "Semantic Search & Embeddings" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Semantic Search & Embeddings"
+    "Semantic Search & Embeddings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantic Search & Embeddings"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "חיפוש סמנטי ושיקועים"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "חיפוש סמנטי ושיקועים"
           }
         }
       }
     },
-    "Semantic search" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Semantic search"
+    "Semantic search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantic search"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "חיפוש סמנטי"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "חיפוש סמנטי"
           }
         }
       }
     },
-    "Sources" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sources"
+    "Sources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sources"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "מקורות"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מקורות"
           }
         }
       }
     },
-    "Tools" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tools"
+    "Tools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tools"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "כלים"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "כלים"
           }
         }
       }
     },
-    "Whole book" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Whole book"
+    "Whole book": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whole book"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הספר כולו"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הספר כולו"
           }
         }
       }
     },
-    "Whole book allowed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Whole book allowed"
+    "Whole book allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whole book allowed"
           }
         },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "הספר כולו מותר"
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הספר כולו מותר"
+          }
+        }
+      }
+    },
+    "Tools & Capabilities": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tools & Capabilities"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "כלים ויכולות"
+          }
+        }
+      }
+    },
+    "Use AI Agentic Tools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use AI Agentic Tools"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "השתמש בכלי AI אוטונומיים"
+          }
+        }
+      }
+    },
+    "MCP External Servers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP External Servers"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "שרתי MCP חיצוניים"
+          }
+        }
+      }
+    },
+    "AI Backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Backend"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מנוע AI"
+          }
+        }
+      }
+    },
+    "AI Backend & Foundation Models": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Backend & Foundation Models"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מנוע AI ומודלי מערכת"
+          }
+        }
+      }
+    },
+    "Apple AI Mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple AI Mode"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מצב Apple AI"
+          }
+        }
+      }
+    },
+    "Allow Private Cloud Compute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Private Cloud Compute"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אפשר מחשוב ענן פרטי (PCC)"
+          }
+        }
+      }
+    },
+    "Semantic Search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantic Search"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "חיפוש סמנטי"
+          }
+        }
+      }
+    },
+    "Semantic Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantic Model"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מודל סמנטי"
+          }
+        }
+      }
+    },
+    "Download Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Model"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הורד מודל"
+          }
+        }
+      }
+    },
+    "Remove Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Model"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הסר מודל"
+          }
+        }
+      }
+    },
+    "Model Ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Ready"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "המודל מוכן"
+          }
+        }
+      }
+    },
+    "Model Downloading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Downloading"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "המודל בהורדה"
+          }
+        }
+      }
+    },
+    "Model Not Installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Not Installed"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "המודל אינו מותקן"
+          }
+        }
+      }
+    },
+    "Installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מותקן"
+          }
+        }
+      }
+    },
+    "Not Installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Installed"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "לא מותקן"
+          }
+        }
+      }
+    },
+    "Configured Provider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configured Provider"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ספק מוגדר"
+          }
+        }
+      }
+    },
+    "External Tool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "External Tool"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "כלי חיצוני"
+          }
+        }
+      }
+    },
+    "Source Results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Results"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מקורות מידע"
+          }
+        }
+      }
+    },
+    "Navigate to": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigate to"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "נווט אל"
+          }
+        }
+      }
+    },
+    "Delete Note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Note"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "מחק פתק"
+          }
+        }
+      }
+    },
+    "Edit Note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Note"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ערוך פתק"
+          }
+        }
+      }
+    },
+    "Remove Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Bookmark"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הסר סימנייה"
+          }
+        }
+      }
+    },
+    "Add Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Bookmark"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הוסף סימנייה"
+          }
+        }
+      }
+    },
+    "Update Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Bookmark"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "עדכן סימנייה"
+          }
+        }
+      }
+    },
+    "Update Highlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Highlight"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "עדכן הדגשה"
+          }
+        }
+      }
+    },
+    "Remove Highlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Highlight"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הסר הדגשה"
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

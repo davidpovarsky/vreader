@@ -4,7 +4,7 @@
 
 import Foundation
 
-struct AIDocumentSessionID: Hashable, Sendable {
+struct AIDocumentSessionID: Hashable, Sendable, Codable {
     let fingerprintKey: String
     let readerToken: UUID
 }

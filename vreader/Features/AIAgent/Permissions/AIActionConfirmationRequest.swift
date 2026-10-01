@@ -15,6 +15,7 @@ struct AIToolAuthorizationContext: Equatable, Sendable {
     let bookFingerprintKey: String?
     let sourceLocator: Locator?
     let externalServerIdentifier: String?
+    let readerSessionID: AIDocumentSessionID?
 
     init(
         toolName: String,
@@ -27,7 +28,8 @@ struct AIToolAuthorizationContext: Equatable, Sendable {
         toolCallID: String? = nil,
         bookFingerprintKey: String? = nil,
         sourceLocator: Locator? = nil,
-        externalServerIdentifier: String? = nil
+        externalServerIdentifier: String? = nil,
+        readerSessionID: AIDocumentSessionID? = nil
     ) {
         self.toolName = toolName
         self.actionDescription = actionDescription
@@ -42,6 +44,7 @@ struct AIToolAuthorizationContext: Equatable, Sendable {
         self.bookFingerprintKey = bookFingerprintKey
         self.sourceLocator = sourceLocator
         self.externalServerIdentifier = externalServerIdentifier
+        self.readerSessionID = readerSessionID
     }
 
     func confirmationRequest(
@@ -60,7 +63,8 @@ struct AIToolAuthorizationContext: Equatable, Sendable {
             toolCallID: toolCallID,
             bookFingerprintKey: bookFingerprintKey,
             sourceLocator: overrideLocator ?? sourceLocator,
-            externalServerIdentifier: externalServerIdentifier
+            externalServerIdentifier: externalServerIdentifier,
+            readerSessionID: readerSessionID
         )
     }
 }
@@ -78,6 +82,7 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
     let bookFingerprintKey: String?
     let sourceLocator: Locator?
     let externalServerIdentifier: String?
+    let readerSessionID: AIDocumentSessionID?
 
     var externalServerName: String? {
         externalServerIdentifier ?? metadata["serverName"] ?? metadata["externalServerName"]
@@ -100,7 +105,8 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
         bookFingerprintKey: String? = nil,
         sourceLocator: Locator? = nil,
         externalServerIdentifier: String? = nil,
-        externalServerName: String? = nil
+        externalServerName: String? = nil,
+        readerSessionID: AIDocumentSessionID? = nil
     ) {
         let destructive = isDestructive || permissionCategory == .removeData
         self.id = id
@@ -117,6 +123,7 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
         self.bookFingerprintKey = bookFingerprintKey
         self.sourceLocator = sourceLocator
         self.externalServerIdentifier = externalServerIdentifier ?? externalServerName
+        self.readerSessionID = readerSessionID
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -132,6 +139,7 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
         case bookFingerprintKey
         case sourceLocator
         case externalServerIdentifier
+        case readerSessionID
     }
 
     init(from decoder: Decoder) throws {
@@ -166,6 +174,10 @@ struct AIActionConfirmationRequest: Identifiable, Codable, Equatable, Sendable {
             externalServerIdentifier: try container.decodeIfPresent(
                 String.self,
                 forKey: .externalServerIdentifier
+            ),
+            readerSessionID: try container.decodeIfPresent(
+                AIDocumentSessionID.self,
+                forKey: .readerSessionID
             )
         )
     }

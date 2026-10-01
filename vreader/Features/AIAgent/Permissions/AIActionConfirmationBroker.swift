@@ -37,9 +37,14 @@ actor AIActionConfirmationBroker {
         let continuation: CheckedContinuation<AIActionConfirmationOutcome, Never>
     }
 
+    private struct ObserverEntry {
+        let sessionID: AIDocumentSessionID?
+        let continuation: AsyncStream<[AIActionConfirmationRequest]>.Continuation
+    }
+
     private let preferencesStore: any AIAgentPreferencesStoring
     private var pending: [UUID: Pending] = [:]
-    private var observers: [UUID: AsyncStream<[AIActionConfirmationRequest]>.Continuation] = [:]
+    private var observers: [UUID: ObserverEntry] = [:]
 
     static let shared = AIActionConfirmationBroker()
 
@@ -49,17 +54,17 @@ actor AIActionConfirmationBroker {
 
     var pendingRequestCount: Int { pending.count }
 
-    func pendingRequests() -> [AIActionConfirmationRequest] {
-        currentRequests()
+    func pendingRequests(for sessionID: AIDocumentSessionID? = nil) -> [AIActionConfirmationRequest] {
+        currentRequests(for: sessionID)
     }
 
-    /// A buffering-newest stream gives future UI an initial snapshot and every
-    /// subsequent state change without coupling this domain actor to SwiftUI.
-    func pendingRequestUpdates() -> AsyncStream<[AIActionConfirmationRequest]> {
+    /// A buffering-newest stream gives UI an initial snapshot and every
+    /// subsequent state change filtered to the reader session (or all if nil).
+    func pendingRequestUpdates(for sessionID: AIDocumentSessionID? = nil) -> AsyncStream<[AIActionConfirmationRequest]> {
         let observerID = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            observers[observerID] = continuation
-            continuation.yield(currentRequests())
+            observers[observerID] = ObserverEntry(sessionID: sessionID, continuation: continuation)
+            continuation.yield(currentRequests(for: sessionID))
             continuation.onTermination = { @Sendable [weak self] _ in
                 Task { await self?.removeObserver(observerID) }
             }
@@ -145,9 +150,20 @@ actor AIActionConfirmationBroker {
         entry.continuation.resume(returning: .cancelled)
     }
 
-    func cancelTurn(_ turnID: String) {
+    func cancelTurn(_ turnID: String, sessionID: AIDocumentSessionID? = nil) {
+        let ids = pending.values.compactMap { entry -> UUID? in
+            guard entry.request.turnID == turnID else { return nil }
+            if let sessionID = sessionID {
+                return entry.request.readerSessionID == sessionID ? entry.request.id : nil
+            }
+            return entry.request.id
+        }
+        cancel(ids)
+    }
+
+    func cancelSession(_ sessionID: AIDocumentSessionID) {
         let ids = pending.values.compactMap {
-            $0.request.turnID == turnID ? $0.request.id : nil
+            $0.request.readerSessionID == sessionID ? $0.request.id : nil
         }
         cancel(ids)
     }
@@ -167,16 +183,18 @@ actor AIActionConfirmationBroker {
         }
     }
 
-    private func currentRequests() -> [AIActionConfirmationRequest] {
-        pending.values.map(\.request).sorted {
+    private func currentRequests(for sessionID: AIDocumentSessionID? = nil) -> [AIActionConfirmationRequest] {
+        let all = pending.values.map(\.request).sorted {
             $0.id.uuidString < $1.id.uuidString
         }
+        guard let sessionID else { return all }
+        return all.filter { $0.readerSessionID == sessionID }
     }
 
     private func publishPendingRequests() {
-        let snapshot = currentRequests()
-        for continuation in observers.values {
-            continuation.yield(snapshot)
+        for observer in observers.values {
+            let filtered = currentRequests(for: observer.sessionID)
+            observer.continuation.yield(filtered)
         }
     }
 

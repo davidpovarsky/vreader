@@ -119,11 +119,13 @@ enum AICurrentReaderToolSupport {
         maxBytes: Int
     ) async -> ToolResult? {
         let fingerprint = await context.fingerprint
+        let sessionID = await context.sessionID
         let outcome = await gate.authorize(AIAgentToolAuthorization.context(
             toolName: toolName,
             actionDescription: action,
             category: category,
-            bookFingerprintKey: fingerprint.canonicalKey
+            bookFingerprintKey: fingerprint.canonicalKey,
+            readerSessionID: sessionID
         ))
         guard outcome == .allowed else {
             return AIAgentToolAuthorization.errorResult(outcome, maxBytes: maxBytes)

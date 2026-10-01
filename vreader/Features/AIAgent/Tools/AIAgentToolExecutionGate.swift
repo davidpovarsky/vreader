@@ -134,7 +134,8 @@ enum AIAgentToolAuthorization {
         category: AIToolPermissionCategory,
         bookFingerprintKey: String? = nil,
         sourceLocator: Locator? = nil,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        readerSessionID: AIDocumentSessionID? = nil
     ) -> AIToolAuthorizationContext {
         AIToolAuthorizationContext(
             toolName: toolName,
@@ -142,7 +143,8 @@ enum AIAgentToolAuthorization {
             permissionCategory: category,
             metadata: metadata,
             bookFingerprintKey: bookFingerprintKey,
-            sourceLocator: sourceLocator
+            sourceLocator: sourceLocator,
+            readerSessionID: readerSessionID
         )
     }
 
@@ -152,7 +154,8 @@ enum AIAgentToolAuthorization {
         category: AIToolPermissionCategory,
         bookFingerprintKey: String? = nil,
         sourceLocator: Locator? = nil,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        readerSessionID: AIDocumentSessionID? = nil
     ) -> AIToolAuthorizationContext {
         context(
             toolName: toolName,
@@ -160,7 +163,8 @@ enum AIAgentToolAuthorization {
             category: category,
             bookFingerprintKey: bookFingerprintKey,
             sourceLocator: sourceLocator,
-            metadata: metadata
+            metadata: metadata,
+            readerSessionID: readerSessionID
         )
     }
 

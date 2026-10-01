@@ -17,16 +17,25 @@ enum AIAgentToolRegistryComposer {
         pdfFacade: (any AIPDFDocumentFacading)? = nil,
         mcpAdapters: [MCPToolAdapter] = []
     ) {
-        // 1. Semantic Search Tools
+        // 1. Semantic & Hybrid Search Tools
         if let semantic = semanticSearchService {
             tools.append(SemanticSearchLibraryTool(
                 service: semantic,
+                authorizationGate: authorizationGate
+            ))
+            tools.append(HybridSearchLibraryTool(
+                semanticService: semantic,
                 authorizationGate: authorizationGate
             ))
             if let currentBook, let readerContext {
                 _ = currentBook
                 tools.append(SemanticSearchCurrentBookTool(
                     service: semantic,
+                    context: readerContext,
+                    authorizationGate: authorizationGate
+                ))
+                tools.append(HybridSearchCurrentBookTool(
+                    semanticService: semantic,
                     context: readerContext,
                     authorizationGate: authorizationGate
                 ))

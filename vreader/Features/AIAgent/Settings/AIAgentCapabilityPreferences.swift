@@ -1,24 +1,31 @@
-// Purpose: User preferences for AI capabilities (Semantic search, OCR, Apple Foundation Models mode).
+// Purpose: User preferences for AI capabilities (Semantic search, OCR, Apple Foundation Models mode, backend choice).
 // Stored in UserDefaults, keeping WI-5 authorization preferences distinct and untouched.
 
 import Foundation
+
+extension Notification.Name {
+    static let aiAgentConfigurationDidChange = Notification.Name("vreader.aiAgent.configurationDidChange")
+}
 
 final class AIAgentCapabilityPreferences: Codable, @unchecked Sendable, Equatable {
     var isSemanticSearchEnabled: Bool
     var isOCREnabled: Bool
     var foundationModelMode: AppleFoundationModelMode
     var isPCCConsentGranted: Bool
+    var backendChoice: AIAgentBackendChoice
 
     init(
         isSemanticSearchEnabled: Bool = false,
         isOCREnabled: Bool = true,
         foundationModelMode: AppleFoundationModelMode = .onDevice,
-        isPCCConsentGranted: Bool = false
+        isPCCConsentGranted: Bool = false,
+        backendChoice: AIAgentBackendChoice = .cloudProvider
     ) {
         self.isSemanticSearchEnabled = isSemanticSearchEnabled
         self.isOCREnabled = isOCREnabled
         self.foundationModelMode = foundationModelMode
         self.isPCCConsentGranted = isPCCConsentGranted
+        self.backendChoice = backendChoice
     }
 
     static var `default`: AIAgentCapabilityPreferences {
@@ -26,7 +33,8 @@ final class AIAgentCapabilityPreferences: Codable, @unchecked Sendable, Equatabl
             isSemanticSearchEnabled: false,
             isOCREnabled: true,
             foundationModelMode: .onDevice,
-            isPCCConsentGranted: false
+            isPCCConsentGranted: false,
+            backendChoice: .cloudProvider
         )
     }
 
@@ -35,6 +43,7 @@ final class AIAgentCapabilityPreferences: Codable, @unchecked Sendable, Equatabl
         case isOCREnabled
         case foundationModelMode
         case isPCCConsentGranted
+        case backendChoice
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +52,7 @@ final class AIAgentCapabilityPreferences: Codable, @unchecked Sendable, Equatabl
         self.isOCREnabled = try container.decodeIfPresent(Bool.self, forKey: .isOCREnabled) ?? true
         self.foundationModelMode = try container.decodeIfPresent(AppleFoundationModelMode.self, forKey: .foundationModelMode) ?? .onDevice
         self.isPCCConsentGranted = try container.decodeIfPresent(Bool.self, forKey: .isPCCConsentGranted) ?? false
+        self.backendChoice = try container.decodeIfPresent(AIAgentBackendChoice.self, forKey: .backendChoice) ?? .cloudProvider
     }
 
     func encode(to encoder: Encoder) throws {
@@ -51,13 +61,15 @@ final class AIAgentCapabilityPreferences: Codable, @unchecked Sendable, Equatabl
         try container.encode(isOCREnabled, forKey: .isOCREnabled)
         try container.encode(foundationModelMode, forKey: .foundationModelMode)
         try container.encode(isPCCConsentGranted, forKey: .isPCCConsentGranted)
+        try container.encode(backendChoice, forKey: .backendChoice)
     }
 
     static func == (lhs: AIAgentCapabilityPreferences, rhs: AIAgentCapabilityPreferences) -> Bool {
         lhs.isSemanticSearchEnabled == rhs.isSemanticSearchEnabled &&
         lhs.isOCREnabled == rhs.isOCREnabled &&
         lhs.foundationModelMode == rhs.foundationModelMode &&
-        lhs.isPCCConsentGranted == rhs.isPCCConsentGranted
+        lhs.isPCCConsentGranted == rhs.isPCCConsentGranted &&
+        lhs.backendChoice == rhs.backendChoice
     }
 }
 
@@ -86,5 +98,6 @@ actor AIAgentCapabilityPreferencesStore {
         if let data = try? JSONEncoder().encode(prefs) {
             userDefaults.set(data, forKey: key)
         }
+        NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
     }
 }

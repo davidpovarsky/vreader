@@ -103,6 +103,11 @@ final class AIAgentSettingsViewModel: @unchecked Sendable {
         await capabilityStore.save(capabilities)
     }
 
+    func setBackendChoice(_ choice: AIAgentBackendChoice) async {
+        capabilities.backendChoice = choice
+        await capabilityStore.save(capabilities)
+    }
+
     func setAgenticToolsEnabled(_ enabled: Bool) {
         isAgenticToolsEnabled = enabled
         FeatureFlags.shared.setOverride(enabled, for: .agenticTools)

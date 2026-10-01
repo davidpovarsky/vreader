@@ -309,6 +309,7 @@ final class ReaderAICoordinator {
     /// isolated install and one nonisolated deinit read, matching the existing
     /// ChatAnnotationCache / AIProviderPickerViewModel lifetime pattern.
     nonisolated(unsafe) var documentRegistryObserver: NSObjectProtocol?
+    nonisolated(unsafe) var aiConfigObserver: NSObjectProtocol?
     /// Annotation stores for the sources cache (the `PersistenceActor`, which
     /// conforms to all three). Nil when persistence isn't injected.
     private let annotationStores: (any AnnotationPersisting & HighlightPersisting & BookmarkPersisting)?
@@ -340,6 +341,13 @@ final class ReaderAICoordinator {
     deinit {
         if let documentRegistryObserver {
             NotificationCenter.default.removeObserver(documentRegistryObserver)
+        }
+        if let aiConfigObserver {
+            NotificationCenter.default.removeObserver(aiConfigObserver)
+        }
+        let sessionToCancel = documentSessionID
+        Task {
+            await AIActionConfirmationBroker.shared.cancelSession(sessionID: sessionToCancel)
         }
     }
 
@@ -391,35 +399,16 @@ final class ReaderAICoordinator {
         // OFF-MAIN (the cold SQLite open is heavy), then inject it. A build failure
         // (e.g. the store can't open) → nil → the chat stays on the non-agentic path.
         // Gated on the flag so there's zero cost OFF.
-        if FeatureFlags.shared.agenticTools,
-           let fingerprint,
-           let library = annotationStores as? any LibraryPersisting {
-            let toolContext = AILiveReaderToolContext(
-                bookTitle: fallbackTitle,
-                fingerprint: fingerprint,
-                readerToken: readerToken,
-                providerResolver: documentProviderResolver,
-                tocProvider: { [weak self] in self?.tocEntries ?? [] }
-            )
-            let annotationReader = annotationStores.map {
-                AIAnnotationReadStoreAdapter(
-                    annotationStore: $0,
-                    highlightStore: $0,
-                    bookmarkStore: $0
-                )
-            }
-            Task { @MainActor [weak chatVM] in
-                let registry = try? await AgenticToolRegistryBuilder.buildLive(
-                    currentBook: fingerprint,
-                    library: library,
-                    readerContext: toolContext,
-                    authorizationGate: .productionUnavailable(),
-                    annotationStore: annotationReader,
-                    navigationRouter: NotificationAIReaderNavigationRouter()
-                )
-                chatVM?.setAgenticRegistry(registry)
+        if aiConfigObserver == nil {
+            aiConfigObserver = NotificationCenter.default.addObserver(
+                forName: .aiAgentConfigurationDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refreshAgenticToolsRegistry()
             }
         }
+        refreshAgenticToolsRegistry()
         pinnedAIService = service
         // Feature #86 WI-5b: the whole-book retrieval state machine.
         chatVM.wholeBookRetrieval = WholeBookRetrievalViewModel()
@@ -450,6 +439,37 @@ final class ReaderAICoordinator {
         // Feature #86 WI-1: assign chatViewModel FIRST, then refresh — else the
         // refresh no-ops against a nil VM (Gate-2 round-2 note).
         refreshChatContext()
+    }
+
+    /// Rebuilds the agentic tool registry via AIAgentProductionRuntime with real production subsystems.
+    func refreshAgenticToolsRegistry() {
+        guard FeatureFlags.shared.agenticTools,
+              let fingerprint = DocumentFingerprint(canonicalKey: fingerprintKey),
+              let library = annotationStores as? any LibraryPersisting,
+              let chatVM = chatViewModel else { return }
+
+        let toolContext = AILiveReaderToolContext(
+            bookTitle: fallbackTitle,
+            fingerprint: fingerprint,
+            readerToken: readerToken,
+            providerResolver: documentProviderResolver,
+            tocProvider: { [weak self] in self?.tocEntries ?? [] }
+        )
+        Task { @MainActor [weak chatVM, weak self] in
+            guard let self else { return }
+            do {
+                let registry = try await AIAgentProductionRuntime.shared.makeReaderToolRegistry(
+                    currentBook: fingerprint,
+                    readerToken: self.readerToken,
+                    readerContext: toolContext,
+                    library: library,
+                    annotationStores: self.annotationStores
+                )
+                chatVM?.setAgenticRegistry(registry)
+            } catch {
+                // Registry build error handled safely
+            }
+        }
     }
 
     /// Loads text content from the book file for AI context extraction.

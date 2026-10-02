@@ -2,6 +2,7 @@
 // and bounded legacy AZW3/MOBI mapping precision.
 
 import Foundation
+import CoreGraphics
 import Testing
 #if canImport(vreader)
 @testable import vreader

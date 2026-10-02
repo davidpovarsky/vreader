@@ -1,6 +1,7 @@
 // Purpose: Feature #177 WI-3 RED contracts for exact PDF and Readium mapping.
 
 import Foundation
+import CoreGraphics
 import Testing
 #if canImport(vreader)
 @testable import vreader

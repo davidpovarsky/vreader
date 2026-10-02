@@ -127,8 +127,9 @@ struct Feature177NoMocksGuardTests {
         let taskB = Task { await broker.requestConfirmation(reqB) }
 
         for _ in 0..<20 {
-            if await broker.pendingRequests(for: sessionA).count == 1 &&
-               await broker.pendingRequests(for: sessionB).count == 1 {
+            let countA = await broker.pendingRequests(for: sessionA).count
+            let countB = await broker.pendingRequests(for: sessionB).count
+            if countA == 1 && countB == 1 {
                 break
             }
             try? await Task.sleep(nanoseconds: 10_000_000)

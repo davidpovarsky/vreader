@@ -199,6 +199,10 @@ private final class PDFValueFacade: AIPDFDocumentFacading {
     func text(forPage index: Int) async throws -> String {
         pages[index]
     }
+
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
+        nil
+    }
 }
 
 @MainActor

@@ -12,6 +12,12 @@ protocol AIPDFDocumentFacading: AnyObject, Sendable {
     func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage?
 }
 
+extension AIPDFDocumentFacading {
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
+        nil
+    }
+}
+
 @MainActor
 protocol AIPDFOCRSourceProviding: AnyObject, Sendable {
     var ocrFacade: any AIPDFDocumentFacading { get }

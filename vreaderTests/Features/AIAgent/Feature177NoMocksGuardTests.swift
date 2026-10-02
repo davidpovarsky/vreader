@@ -162,14 +162,18 @@ struct Feature177NoMocksGuardTests {
             }
         }
 
+        final class ChoiceBox: @unchecked Sendable {
+            var choice: AIAgentBackendChoice = .cloudProvider
+        }
+        let box = ChoiceBox()
+
         let cloudSpy = SpyTurnExecutor()
         let appleSpy = SpyTurnExecutor()
-        var currentChoice: AIAgentBackendChoice = .cloudProvider
 
         let router = AIAgentTurnRouter(
             cloudExecutor: cloudSpy,
             appleExecutor: appleSpy,
-            backendChoice: { currentChoice }
+            backendChoice: { box.choice }
         )
 
         let emptyRegistry = AIToolRegistry([])
@@ -183,7 +187,7 @@ struct Feature177NoMocksGuardTests {
         #expect(appleSpy.executed == false)
 
         // 2. Switch to Apple
-        currentChoice = .appleFoundationModels
+        box.choice = .appleFoundationModels
         _ = try await router.executeTurn(
             prompt: "Test", systemPrompt: "Sys", contextText: nil,
             registry: emptyRegistry, documentSessionID: nil, turnID: "t2"

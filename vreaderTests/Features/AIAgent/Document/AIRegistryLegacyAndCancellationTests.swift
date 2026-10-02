@@ -244,4 +244,8 @@ private final class CancellationPDFValueFacade: AIPDFDocumentFacading {
         try await Task.sleep(nanoseconds: 30_000_000_000)
         return "page \(index)"
     }
+
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
+        nil
+    }
 }

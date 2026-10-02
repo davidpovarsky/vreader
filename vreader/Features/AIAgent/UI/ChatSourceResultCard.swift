@@ -107,38 +107,4 @@ struct ChatToolResultCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
-
-private struct ChatOCRSourceBadge: View {
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "text.viewfinder")
-                .font(.system(size: 8.5, weight: .bold))
-            Text("OCR")
-                .font(.system(size: 9.5, weight: .semibold))
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(Color.blue.opacity(0.15))
-        .foregroundStyle(Color.blue)
-        .clipShape(Capsule())
-    }
-}
-
-private struct ChatMCPServerBadge: View {
-    let serverName: String
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "network")
-                .font(.system(size: 8.5, weight: .bold))
-            Text(serverName.prefix(12))
-                .font(.system(size: 9.5, weight: .semibold))
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(Color.purple.opacity(0.15))
-        .foregroundStyle(Color.purple)
-        .clipShape(Capsule())
-    }
-}
 #endif

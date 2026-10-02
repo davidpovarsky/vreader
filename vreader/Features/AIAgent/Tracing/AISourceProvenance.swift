@@ -3,6 +3,7 @@
 // External sources (e.g. MCP) have locator == nil and do not fabricate locators.
 
 import Foundation
+import CryptoKit
 
 typealias AIRetrievalMethod = AISourceRetrievalMethod
 

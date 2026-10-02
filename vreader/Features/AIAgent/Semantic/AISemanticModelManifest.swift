@@ -13,7 +13,7 @@ struct AISemanticModelManifest: Codable, Sendable, Equatable {
 
 struct AISemanticAssetValidator: Sendable {
     let modelDirectory: URL
-    private let fileManager = FileManager.default
+    private var fileManager: FileManager { FileManager.default }
 
     init(modelDirectory: URL) {
         self.modelDirectory = modelDirectory

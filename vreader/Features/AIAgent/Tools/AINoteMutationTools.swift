@@ -164,7 +164,7 @@ struct EditNoteTool: AIContextualTool {
             guard isOwner else {
                 return AIReaderToolOutput.boundedResult("Note \(noteID.uuidString) does not belong to the current book.", maxBytes: maxContentBytes, isError: true)
             }
-            try await coordinator.updateNote(annotationID: noteID, content: content)
+            try await coordinator.editNote(annotationID: noteID, content: content)
             let summary = "Note updated successfully."
             await AIToolMutationIdempotency.shared.recordCompleted(
                 idempotencyKey: idempotencyKey,

@@ -92,7 +92,10 @@ struct AddHighlightTool: AIContextualTool {
         }
 
         let locator: Locator
-        if decoded.textRange != nil || (decoded.quote != nil && !decoded.quote!.isEmpty) {
+        let hasAnchor = (decoded.charRangeStartUTF16 != nil && decoded.charRangeEndUTF16 != nil) ||
+            (decoded.textQuote != nil && !decoded.textQuote!.isEmpty) ||
+            decoded.cfi != nil
+        if hasAnchor {
             locator = decoded
         } else {
             return AIReaderToolOutput.boundedResult(
@@ -106,7 +109,7 @@ struct AddHighlightTool: AIContextualTool {
             let record = try await coordinator.addHighlight(
                 bookKey: snapshot.bookFingerprint.canonicalKey,
                 locator: locator,
-                text: text,
+                selectedText: text,
                 color: color,
                 note: note
             )
@@ -200,7 +203,7 @@ struct UpdateHighlightTool: AIContextualTool {
             guard isOwner else {
                 return AIReaderToolOutput.boundedResult("Highlight \(highlightID.uuidString) does not belong to the current book.", maxBytes: maxContentBytes, isError: true)
             }
-            try await coordinator.updateHighlight(highlightID: highlightID, color: newColor, note: newNote)
+            try await coordinator.updateHighlight(highlightID: highlightID, note: newNote, color: newColor)
             let summary = "Highlight updated successfully."
             await AIToolMutationIdempotency.shared.recordCompleted(
                 idempotencyKey: idempotencyKey,
@@ -214,8 +217,10 @@ struct UpdateHighlightTool: AIContextualTool {
     }
 }
 
-struct DeleteHighlightTool: AIContextualTool {
-    static let toolName = "delete_highlight"
+typealias DeleteHighlightTool = RemoveHighlightTool
+
+struct RemoveHighlightTool: AIContextualTool {
+    static let toolName = "remove_highlight"
     let coordinator: AIAnnotationMutationCoordinator
     let context: any AIReaderToolContextProviding
     let authorizationGate: AIAgentToolExecutionGate

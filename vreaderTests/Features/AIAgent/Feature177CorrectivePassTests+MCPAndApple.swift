@@ -17,7 +17,7 @@ private final class MockHighlightContext: AIReaderToolContextProviding {
         self.sessionID = AIDocumentSessionID(fingerprintKey: fingerprint.canonicalKey, readerToken: UUID())
         let chunk = AIDocumentChunk(
             unit: .chapter(title: "Ch 1"),
-            locator: Locator(bookFingerprint: fingerprint, href: "ch1.xhtml", type: "text/html"),
+            locator: Locator.validated(bookFingerprint: fingerprint, href: "ch1.xhtml")!,
             text: "The golden passage to highlight.",
             isSafeCurrentSection: true,
             isSafeBookSoFar: true,
@@ -35,11 +35,11 @@ private final class MockHighlightPersistence: AnnotationPersisting, HighlightPer
     var createdHighlights: [(key: String, text: String, color: String)] = []
 
     func addHighlight(locator: Locator, anchor: AnnotationAnchor?, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
-        createdHighlights.append((key, selectedText, color))
+        createdHighlights.append((key: key, text: selectedText, color: color))
         return HighlightRecord(highlightId: UUID(), locator: locator, anchor: anchor, profileKey: key, selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
     }
     func addHighlight(locator: Locator, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
-        createdHighlights.append((key, selectedText, color))
+        createdHighlights.append((key: key, text: selectedText, color: color))
         return HighlightRecord(highlightId: UUID(), locator: locator, anchor: nil, profileKey: key, selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
     }
     func removeHighlight(highlightId: UUID) async throws {}
@@ -214,7 +214,7 @@ struct Feature177CorrectivePassMCPAndAppleTests {
 
         // 2. Rejects wrong-book locator
         let wrongFP = DocumentFingerprint(scheme: "test", value: "wrong-book")
-        let wrongLocator = Locator(bookFingerprint: wrongFP, href: "ch1.xhtml", type: "text/html", textQuote: "Quote")
+        let wrongLocator = Locator.validated(bookFingerprint: wrongFP, href: "ch1.xhtml", textQuote: "Quote")!
         let wrongData = (try? JSONEncoder().encode(wrongLocator)) ?? Data()
         let wrongJSON = String(data: wrongData, encoding: .utf8) ?? "{}"
 
@@ -226,7 +226,7 @@ struct Feature177CorrectivePassMCPAndAppleTests {
         #expect(wrongRes.content.contains("does not match current book fingerprint"))
 
         // 3. Accepts valid anchored locator
-        let validLocator = Locator(bookFingerprint: fp, href: "ch1.xhtml", type: "text/html", textQuote: "The golden passage")
+        let validLocator = Locator.validated(bookFingerprint: fp, href: "ch1.xhtml", textQuote: "The golden passage")!
         let validData = (try? JSONEncoder().encode(validLocator)) ?? Data()
         let validJSON = String(data: validData, encoding: .utf8) ?? "{}"
 

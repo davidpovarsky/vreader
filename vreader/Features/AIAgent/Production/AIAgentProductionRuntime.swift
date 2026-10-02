@@ -84,7 +84,8 @@ final class AIAgentProductionRuntime {
         var semanticSearchService: SemanticSearchService? = nil
         let isModelInstalled = await semanticModelManager.state.isInstalled
         if capabilities.isSemanticSearchEnabled && isModelInstalled {
-            if !semanticModelManager.state.isReady {
+            let isReadyBefore = await semanticModelManager.state.isReady
+            if !isReadyBefore {
                 try? await semanticModelManager.ensureLoaded()
             }
             if await semanticModelManager.state.isReady {
@@ -108,7 +109,7 @@ final class AIAgentProductionRuntime {
                 // Index current book in background if missing or stale
                 if let provider = AIDocumentProviderRegistry.shared.resolve(session: sessionID) {
                     Task { [coordinator, metadataStore, currentBook] in
-                        let existing = await metadataStore.metadata(forBook: currentBook.canonicalKey)
+                        let existing = await metadataStore.fetchMetadata(forBook: currentBook.canonicalKey)
                         if existing == nil || !existing!.isCompatible(withActiveModel: AISemanticModelManager.modelIdentifier, dimension: embeddingService.dimension) {
                             if let chunks = try? await provider.chunks() {
                                 try? await coordinator.indexBook(fingerprintKey: currentBook.canonicalKey, chunks: chunks)

@@ -2,6 +2,35 @@
 // Fully gated by AIAgentToolExecutionGate, emits structured provenance, and spoiler-safe against active reader boundary.
 
 import Foundation
+import CoreGraphics
+
+@MainActor
+private final class SnapshotPDFDocumentFacade: AIPDFDocumentFacading {
+    let snapshot: AIDocumentSnapshot
+    let chunks: [AIDocumentChunk]
+
+    init(document: AILiveReaderDocument) {
+        self.snapshot = document.snapshot
+        self.chunks = document.chunks
+    }
+
+    var pageCount: Int {
+        max(1, chunks.count)
+    }
+
+    var currentPageIndex: Int? {
+        snapshot.readSoFarBoundary.sourceUnitIndex
+    }
+
+    func text(forPage index: Int) async throws -> String {
+        guard index >= 0 && index < chunks.count else { return "" }
+        return chunks[index].text
+    }
+
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
+        nil
+    }
+}
 
 struct ExtractPageTextTool: AIContextualTool {
     static let toolName = "extract_page_text"
@@ -57,24 +86,6 @@ struct ExtractPageTextTool: AIContextualTool {
             )
         }
 
-        guard let pdfFacade = self.facade else {
-            return AIReaderToolOutput.boundedResult(
-                "PDF page source is unavailable for OCR extraction.",
-                maxBytes: maxContentBytes,
-                isError: true
-            )
-        }
-
-        let pageIndex = Int(pageNum) - 1
-        let totalPages = await pdfFacade.pageCount
-        guard pageIndex < totalPages else {
-            return AIReaderToolOutput.boundedResult(
-                "Page \(Int(pageNum)) is out of range. Document has \(totalPages) pages.",
-                maxBytes: maxContentBytes,
-                isError: true
-            )
-        }
-
         if let denied = await AICurrentReaderToolSupport.authorize(
             toolName: Self.toolName,
             action: "Extract text from page \(Int(pageNum))",
@@ -86,6 +97,25 @@ struct ExtractPageTextTool: AIContextualTool {
         guard let document = await self.context.resolveDocument(), !Task.isCancelled else {
             return AIReaderToolOutput.boundedResult(
                 "The exact active reader session is unavailable.",
+                maxBytes: maxContentBytes,
+                isError: true
+            )
+        }
+
+        let pdfFacade: any AIPDFDocumentFacading
+        if let explicitFacade = self.facade {
+            pdfFacade = explicitFacade
+        } else {
+            pdfFacade = await MainActor.run {
+                SnapshotPDFDocumentFacade(document: document)
+            }
+        }
+
+        let pageIndex = Int(pageNum) - 1
+        let totalPages = await pdfFacade.pageCount
+        guard totalPages == 0 || pageIndex < totalPages else {
+            return AIReaderToolOutput.boundedResult(
+                "Page \(Int(pageNum)) is out of range. Document has \(totalPages) pages.",
                 maxBytes: maxContentBytes,
                 isError: true
             )

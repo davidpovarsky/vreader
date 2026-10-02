@@ -8,8 +8,14 @@ import Foundation
 @Suite("SemanticIndexStoreTests")
 struct SemanticIndexStoreTests {
 
+    private func makeIsolatedStore(dimension: Int) -> SemanticIndexStore {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SemanticIndexStoreTests-\(UUID().uuidString)")
+        return SemanticIndexStore(dimension: dimension, indexDirectory: dir)
+    }
+
     @Test func dimensionValidationRejectsMismatchedVectors() async throws {
-        let store = SemanticIndexStore(dimension: 4)
+        let store = makeIsolatedStore(dimension: 4)
 
         // Valid dimension
         try await store.add(chunkID: "c1", vector: [1.0, 0.0, 0.0, 0.0], bookFingerprintKey: "book-1")
@@ -24,7 +30,7 @@ struct SemanticIndexStoreTests {
     }
 
     @Test func topKQueryReturnsNearestNeighbors() async throws {
-        let store = SemanticIndexStore(dimension: 3)
+        let store = makeIsolatedStore(dimension: 3)
 
         // Unit vectors along axes
         try await store.add(chunkID: "x_axis", vector: [1.0, 0.0, 0.0], bookFingerprintKey: "b1")
@@ -40,7 +46,7 @@ struct SemanticIndexStoreTests {
     }
 
     @Test func deleteBookRemovesAssociatedVectors() async throws {
-        let store = SemanticIndexStore(dimension: 2)
+        let store = makeIsolatedStore(dimension: 2)
 
         try await store.add(chunkID: "c1", vector: [1.0, 0.0], bookFingerprintKey: "b1")
         try await store.add(chunkID: "c2", vector: [0.0, 1.0], bookFingerprintKey: "b2")
@@ -60,7 +66,7 @@ struct SemanticIndexStoreTests {
     }
 
     @Test func countReflectsActiveVectors() async throws {
-        let store = SemanticIndexStore(dimension: 2)
+        let store = makeIsolatedStore(dimension: 2)
         #expect(await store.count() == 0)
 
         try await store.add(chunkID: "c1", vector: [1.0, 0.0], bookFingerprintKey: "b1")

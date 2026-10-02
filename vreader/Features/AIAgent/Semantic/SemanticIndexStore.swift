@@ -94,7 +94,7 @@ actor SemanticIndexStore {
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
 
         #if canImport(USearch)
-        let vPath = dir.appendingPathComponent("index.usearch")
+        let vPath = dir.appendingPathComponent("vectors.usearch")
         let idx = try? USearchIndex.make(
             metric: .cos,
             dimensions: UInt32(dimension),
@@ -239,12 +239,7 @@ actor SemanticIndexStore {
     }
 
     func count() -> Int {
-        #if canImport(USearch)
-        if let idx = index, let c = try? idx.count {
-            return Int(c)
-        }
-        #endif
-        return fallbackVectors.count
+        max(keyToBookKey.count, fallbackVectors.count)
     }
 
     func save() throws {

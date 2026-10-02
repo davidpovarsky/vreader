@@ -16,8 +16,53 @@ struct HybridSearchHit: Identifiable, Sendable, Equatable {
     let rrfScore: Double
     let lexicalRank: Int?
     let semanticRank: Int?
+    let sourceUnitIndex: Int?
+    let localStartUTF16: Int?
+    let localEndUTF16: Int?
+    let globalStartUTF16: Int?
+    let globalEndUTF16: Int?
     let isOCRDerived: Bool
     let aheadOfReader: Bool
+
+    init(
+        bookFingerprintKey: String,
+        bookTitle: String?,
+        locator: Locator,
+        sourceLabel: String?,
+        chapterTitle: String?,
+        pageIndex: Int?,
+        href: String?,
+        snippet: String,
+        rrfScore: Double,
+        lexicalRank: Int? = nil,
+        semanticRank: Int? = nil,
+        sourceUnitIndex: Int? = nil,
+        localStartUTF16: Int? = nil,
+        localEndUTF16: Int? = nil,
+        globalStartUTF16: Int? = nil,
+        globalEndUTF16: Int? = nil,
+        isOCRDerived: Bool = false,
+        aheadOfReader: Bool = false
+    ) {
+        self.bookFingerprintKey = bookFingerprintKey
+        self.bookTitle = bookTitle
+        self.locator = locator
+        self.sourceLabel = sourceLabel
+        self.chapterTitle = chapterTitle
+        self.pageIndex = pageIndex
+        self.href = href
+        self.snippet = snippet
+        self.rrfScore = rrfScore
+        self.lexicalRank = lexicalRank
+        self.semanticRank = semanticRank
+        self.sourceUnitIndex = sourceUnitIndex
+        self.localStartUTF16 = localStartUTF16
+        self.localEndUTF16 = localEndUTF16
+        self.globalStartUTF16 = globalStartUTF16
+        self.globalEndUTF16 = globalEndUTF16
+        self.isOCRDerived = isOCRDerived
+        self.aheadOfReader = aheadOfReader
+    }
 
     func toSourceProvenance(toolCallID: String? = nil) -> AISourceProvenance {
         let method: AIRetrievalMethod
@@ -170,7 +215,6 @@ struct HybridSearchService: Sendable {
                 sRank = s.rank
             }
 
-            // Pick locator & metadata from available entry
             guard let locator = entry.semantic?.item.locator ?? entry.lexical?.item.locator else {
                 continue
             }
@@ -183,6 +227,11 @@ struct HybridSearchService: Sendable {
             let snippet = entry.semantic?.item.snippet ?? entry.lexical?.item.snippet ?? ""
             let isOCR = entry.semantic?.item.isOCRDerived ?? false
             let isAhead = entry.semantic?.item.aheadOfReader ?? entry.lexical?.item.aheadOfReader ?? false
+            let sUnitIndex = entry.semantic?.item.sourceUnitIndex ?? entry.lexical?.item.pageIndex
+            let localStart = entry.semantic?.item.localStartUTF16
+            let localEnd = entry.semantic?.item.localEndUTF16
+            let globalStart = entry.semantic?.item.globalStartUTF16
+            let globalEnd = entry.semantic?.item.globalEndUTF16
 
             fused.append(HybridSearchHit(
                 bookFingerprintKey: bookKey,
@@ -196,6 +245,11 @@ struct HybridSearchService: Sendable {
                 rrfScore: score,
                 lexicalRank: lRank,
                 semanticRank: sRank,
+                sourceUnitIndex: sUnitIndex,
+                localStartUTF16: localStart,
+                localEndUTF16: localEnd,
+                globalStartUTF16: globalStart,
+                globalEndUTF16: globalEnd,
                 isOCRDerived: isOCR,
                 aheadOfReader: isAhead
             ))

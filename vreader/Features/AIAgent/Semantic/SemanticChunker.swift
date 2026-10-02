@@ -18,6 +18,8 @@ struct SemanticChunk: Identifiable, Sendable, Equatable, Codable {
     let href: String?
     let localStartUTF16: Int
     let localEndUTF16: Int
+    let globalStartUTF16: Int?
+    let globalEndUTF16: Int?
     let isOCRDerived: Bool
 }
 
@@ -87,6 +89,8 @@ struct SemanticChunker: Sendable {
                 href: docChunk.href,
                 localStartUTF16: baseStart,
                 localEndUTF16: baseEnd,
+                globalStartUTF16: docChunk.globalStartUTF16,
+                globalEndUTF16: docChunk.globalEndUTF16,
                 isOCRDerived: docChunk.isOCRDerived
             )]
         }
@@ -121,6 +125,8 @@ struct SemanticChunker: Sendable {
             let slice = String(characters[charStart..<charEnd])
             let subStartUTF16 = baseStart + String(characters[0..<charStart]).utf16.count
             let subEndUTF16 = subStartUTF16 + slice.utf16.count
+            let subGlobalStart: Int? = docChunk.globalStartUTF16.map { $0 + String(characters[0..<charStart]).utf16.count }
+            let subGlobalEnd: Int? = subGlobalStart.map { $0 + slice.utf16.count }
 
             let chunkID = makeChunkID(
                 fingerprintKey: bookFingerprintKey,
@@ -143,6 +149,8 @@ struct SemanticChunker: Sendable {
                 href: docChunk.href,
                 localStartUTF16: subStartUTF16,
                 localEndUTF16: subEndUTF16,
+                globalStartUTF16: subGlobalStart,
+                globalEndUTF16: subGlobalEnd,
                 isOCRDerived: docChunk.isOCRDerived
             ))
 

@@ -1,5 +1,6 @@
 // Purpose: Semantic search service querying the vector index and mapping to structured source hits.
 // Strictly enforces spoiler boundaries on current-book candidates before text is released.
+// Preserves exact UTF-16 and source unit ranges for exact partial-overlap clipping.
 
 import Foundation
 
@@ -15,8 +16,54 @@ struct SemanticSearchHit: Identifiable, Sendable, Equatable {
     let href: String?
     let snippet: String
     let similarityScore: Double
+    let sourceUnitID: String?
+    let sourceUnitIndex: Int?
+    let localStartUTF16: Int?
+    let localEndUTF16: Int?
+    let globalStartUTF16: Int?
+    let globalEndUTF16: Int?
     let isOCRDerived: Bool
     let aheadOfReader: Bool
+
+    init(
+        chunkID: String,
+        bookFingerprintKey: String,
+        bookTitle: String? = nil,
+        locator: Locator,
+        sourceLabel: String? = nil,
+        chapterTitle: String? = nil,
+        pageIndex: Int? = nil,
+        href: String? = nil,
+        snippet: String,
+        similarityScore: Double,
+        sourceUnitID: String? = nil,
+        sourceUnitIndex: Int? = nil,
+        localStartUTF16: Int? = nil,
+        localEndUTF16: Int? = nil,
+        globalStartUTF16: Int? = nil,
+        globalEndUTF16: Int? = nil,
+        isOCRDerived: Bool = false,
+        aheadOfReader: Bool = false
+    ) {
+        self.chunkID = chunkID
+        self.bookFingerprintKey = bookFingerprintKey
+        self.bookTitle = bookTitle
+        self.locator = locator
+        self.sourceLabel = sourceLabel
+        self.chapterTitle = chapterTitle
+        self.pageIndex = pageIndex
+        self.href = href
+        self.snippet = snippet
+        self.similarityScore = similarityScore
+        self.sourceUnitID = sourceUnitID
+        self.sourceUnitIndex = sourceUnitIndex
+        self.localStartUTF16 = localStartUTF16
+        self.localEndUTF16 = localEndUTF16
+        self.globalStartUTF16 = globalStartUTF16
+        self.globalEndUTF16 = globalEndUTF16
+        self.isOCRDerived = isOCRDerived
+        self.aheadOfReader = aheadOfReader
+    }
 
     func toSourceProvenance(toolCallID: String? = nil) -> AISourceProvenance {
         AISourceProvenance(
@@ -82,6 +129,12 @@ actor SemanticSearchService {
                 href: chunk.href,
                 snippet: chunk.snippet,
                 similarityScore: similarity,
+                sourceUnitID: chunk.sourceUnitID,
+                sourceUnitIndex: chunk.sourceUnitIndex,
+                localStartUTF16: chunk.localStartUTF16,
+                localEndUTF16: chunk.localEndUTF16,
+                globalStartUTF16: chunk.globalStartUTF16,
+                globalEndUTF16: chunk.globalEndUTF16,
                 isOCRDerived: chunk.isOCRDerived,
                 aheadOfReader: false
             ))
@@ -104,7 +157,6 @@ actor SemanticSearchService {
         for hit in bookHits {
             let isAhead = isHitAheadOfBoundary(hit: hit, boundary: boundary)
             if isAhead && !readAheadAllowed {
-                // Spoiler candidate suppressed in never/ask mode without approval
                 continue
             }
             safeHits.append(SemanticSearchHit(
@@ -118,6 +170,12 @@ actor SemanticSearchService {
                 href: hit.href,
                 snippet: hit.snippet,
                 similarityScore: hit.similarityScore,
+                sourceUnitID: hit.sourceUnitID,
+                sourceUnitIndex: hit.sourceUnitIndex,
+                localStartUTF16: hit.localStartUTF16,
+                localEndUTF16: hit.localEndUTF16,
+                globalStartUTF16: hit.globalStartUTF16,
+                globalEndUTF16: hit.globalEndUTF16,
                 isOCRDerived: hit.isOCRDerived,
                 aheadOfReader: isAhead
             ))

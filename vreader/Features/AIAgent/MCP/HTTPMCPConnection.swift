@@ -1,5 +1,5 @@
 // Purpose: Represents an active connection to an MCP server over HTTP transport using official MCP Swift SDK.
-// Encapsulates tool listing, tool invocation, connection state, and clean disconnect.
+// Encapsulates tool listing, tool invocation, connection state, clean disconnect, and Bearer/OAuth token injection.
 
 import Foundation
 import OSLog
@@ -41,7 +41,13 @@ final class HTTPMCPConnection: MCPConnecting, @unchecked Sendable {
 
 #if canImport(MCP)
         do {
-            let transport = HTTPClientTransport(endpoint: profile.endpointURL)
+            let sessionConfig = URLSessionConfiguration.default
+            if profile.authType != .none,
+               let token = secretStore.fetchToken(forProfileID: profile.id, endpoint: profile.endpointURL),
+               !token.isEmpty {
+                sessionConfig.httpAdditionalHeaders = ["Authorization": "Bearer \(token)"]
+            }
+            let transport = HTTPClientTransport(endpoint: profile.endpointURL, configuration: sessionConfig, streaming: true)
             let client = Client(name: "vreader", version: "1.0.0")
             try await client.connect(transport: transport)
 

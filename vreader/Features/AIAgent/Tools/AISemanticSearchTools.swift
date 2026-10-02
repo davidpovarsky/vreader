@@ -1,5 +1,5 @@
-// Purpose: Model-facing tools for current-book and library semantic and hybrid search.
-// Fully gated by AIAgentToolExecutionGate and spoiler-safe against the active reader boundary.
+// Purpose: Semantic search tools querying the vector ANN index.
+// Enforces strict spoiler boundary rules and preserves exact UTF-16 ranges and locators.
 
 import Foundation
 
@@ -25,13 +25,13 @@ struct SemanticSearchCurrentBookTool: AIContextualTool {
     var definition: ToolDefinition {
         ToolDefinition(
             name: Self.toolName,
-            description: "Search the current book using meaning and semantics instead of exact keywords.",
+            description: "Search the current book using semantic concept similarity rather than exact keywords. Returns relevant passages within the allowed reading range.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "query": .object([
                         "type": .string("string"),
-                        "description": .string("The semantic concept or question to search for in the book.")
+                        "description": .string("The semantic concept or meaning to find in the book.")
                     ])
                 ]),
                 "required": .array([.string("query")])
@@ -56,7 +56,7 @@ struct SemanticSearchCurrentBookTool: AIContextualTool {
 
         if let denied = await AICurrentReaderToolSupport.authorize(
             toolName: Self.toolName,
-            action: "Semantic search in the current book",
+            action: "Semantic search in current book: \"\(query.prefix(30))...\"",
             context: self.context,
             gate: authorizationGate,
             maxBytes: maxContentBytes
@@ -83,18 +83,18 @@ struct SemanticSearchCurrentBookTool: AIContextualTool {
                 let candidateChunk = AIDocumentChunk(
                     id: hit.chunkID,
                     bookFingerprintKey: hit.bookFingerprintKey,
-                    sourceUnitID: hit.locator.href ?? "\(hit.pageIndex ?? 0)",
-                    sourceUnitIndex: hit.pageIndex,
+                    sourceUnitID: hit.sourceUnitID ?? hit.locator.href ?? "\(hit.pageIndex ?? 0)",
+                    sourceUnitIndex: hit.sourceUnitIndex ?? hit.pageIndex,
                     text: hit.snippet,
                     locator: hit.locator,
                     sourceLabel: hit.sourceLabel,
                     chapterTitle: hit.chapterTitle,
                     pageIndex: hit.pageIndex,
                     href: hit.href,
-                    localStartUTF16: nil,
-                    localEndUTF16: nil,
-                    globalStartUTF16: nil,
-                    globalEndUTF16: nil,
+                    localStartUTF16: hit.localStartUTF16,
+                    localEndUTF16: hit.localEndUTF16,
+                    globalStartUTF16: hit.globalStartUTF16,
+                    globalEndUTF16: hit.globalEndUTF16,
                     isOCRDerived: hit.isOCRDerived
                 )
                 if let _ = await boundaryCoordinator.authorizedText(
@@ -118,15 +118,10 @@ struct SemanticSearchCurrentBookTool: AIContextualTool {
                 )
             }
 
-            var outputLines: [String] = []
-            for (idx, hit) in safeHits.enumerated() {
-                let locDesc = hit.sourceLabel ?? "Match \(idx + 1)"
-                outputLines.append("[\(locDesc)] \(hit.snippet)")
+            let lines = safeHits.enumerated().map { (idx, hit) in
+                "[\(hit.sourceLabel ?? "Result \(idx + 1)")] \(hit.snippet)"
             }
-            return AIReaderToolOutput.boundedResult(
-                outputLines.joined(separator: "\n\n"),
-                maxBytes: maxContentBytes
-            )
+            return AIReaderToolOutput.boundedResult(lines.joined(separator: "\n\n"), maxBytes: maxContentBytes)
         } catch {
             return AIReaderToolOutput.boundedResult(
                 "Semantic search failed: \(error.localizedDescription)",
@@ -156,13 +151,13 @@ struct SemanticSearchLibraryTool: AIContextualTool {
     var definition: ToolDefinition {
         ToolDefinition(
             name: Self.toolName,
-            description: "Search across the entire library using semantic meaning and concepts.",
+            description: "Search across all books in the library using semantic concept similarity rather than exact keywords.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "query": .object([
                         "type": .string("string"),
-                        "description": .string("The semantic concept or question to search across the library.")
+                        "description": .string("The semantic concept or meaning to search for across the library.")
                     ])
                 ]),
                 "required": .array([.string("query")])
@@ -195,25 +190,21 @@ struct SemanticSearchLibraryTool: AIContextualTool {
         }
 
         do {
-            let hits = try await service.searchRaw(query: query, maxHits: 8)
+            let hits = try await service.searchLibrary(query: query, maxHits: 8)
             let sources = hits.map { $0.toSourceProvenance(toolCallID: context.toolCallID) }
             await context.recordSources(sources)
 
             if hits.isEmpty {
                 return AIReaderToolOutput.boundedResult(
-                    "No semantically relevant results found across the library.",
+                    "No semantically relevant passages found across the library.",
                     maxBytes: maxContentBytes
                 )
             }
-            var outputLines: [String] = []
-            for (idx, hit) in hits.enumerated() {
-                let label = hit.sourceLabel ?? "Match \(idx + 1)"
-                outputLines.append("[\(label)] \(hit.snippet)")
+
+            let lines = hits.enumerated().map { (idx, hit) in
+                "[\(hit.bookTitle ?? "Book"): \(hit.sourceLabel ?? "Result \(idx + 1)")] \(hit.snippet)"
             }
-            return AIReaderToolOutput.boundedResult(
-                outputLines.joined(separator: "\n\n"),
-                maxBytes: maxContentBytes
-            )
+            return AIReaderToolOutput.boundedResult(lines.joined(separator: "\n\n"), maxBytes: maxContentBytes)
         } catch {
             return AIReaderToolOutput.boundedResult(
                 "Library semantic search failed: \(error.localizedDescription)",
@@ -221,214 +212,5 @@ struct SemanticSearchLibraryTool: AIContextualTool {
                 isError: true
             )
         }
-    }
-}
-
-struct HybridSearchCurrentBookTool: AIContextualTool {
-    static let toolName = "hybrid_search_current_book"
-    let semanticService: SemanticSearchService
-    let context: any AIReaderToolContextProviding
-    let authorizationGate: AIAgentToolExecutionGate
-    let maxContentBytes: Int
-
-    init(
-        semanticService: SemanticSearchService,
-        context: any AIReaderToolContextProviding,
-        authorizationGate: AIAgentToolExecutionGate,
-        maxContentBytes: Int = 8_000
-    ) {
-        self.semanticService = semanticService
-        self.context = context
-        self.authorizationGate = authorizationGate
-        self.maxContentBytes = max(256, maxContentBytes)
-    }
-
-    var definition: ToolDefinition {
-        ToolDefinition(
-            name: Self.toolName,
-            description: "Search the current book using hybrid retrieval combining keyword search and semantic understanding.",
-            inputSchema: .object([
-                "type": .string("object"),
-                "properties": .object([
-                    "query": .object([
-                        "type": .string("string"),
-                        "description": .string("The search query or concept.")
-                    ])
-                ]),
-                "required": .array([.string("query")])
-            ])
-        )
-    }
-
-    func run(_ input: JSONValue) async -> ToolResult {
-        await run(input, context: AIToolExecutionContext())
-    }
-
-    func run(_ input: JSONValue, context: AIToolExecutionContext) async -> ToolResult {
-        guard case .object(let dict) = input,
-              case .string(let query)? = dict["query"],
-              !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return AIReaderToolOutput.boundedResult(
-                "A non-empty query parameter is required.",
-                maxBytes: maxContentBytes,
-                isError: true
-            )
-        }
-
-        if let denied = await AICurrentReaderToolSupport.authorize(
-            toolName: Self.toolName,
-            action: "Hybrid search in the current book",
-            context: self.context,
-            gate: authorizationGate,
-            maxBytes: maxContentBytes
-        ) { return denied }
-
-        guard let document = await self.context.resolveDocument(), !Task.isCancelled else {
-            return AIReaderToolOutput.boundedResult(
-                "The exact active reader session is unavailable.",
-                maxBytes: maxContentBytes,
-                isError: true
-            )
-        }
-
-        let snapshot = document.snapshot
-        let boundary = snapshot.readSoFarBoundary
-        let boundaryCoordinator = AICurrentBookRetrievalBoundary(authorizationGate: authorizationGate)
-
-        // 1. Semantic candidates with boundary validation
-        var semanticHits: [SemanticSearchHit] = []
-        if let rawSemantic = try? await semanticService.searchRaw(query: query, maxHits: 12) {
-            let bookSemantic = rawSemantic.filter { $0.bookFingerprintKey == snapshot.bookFingerprint.canonicalKey }
-            for hit in bookSemantic {
-                let candidateChunk = AIDocumentChunk(
-                    id: hit.chunkID,
-                    bookFingerprintKey: hit.bookFingerprintKey,
-                    sourceUnitID: hit.locator.href ?? "\(hit.pageIndex ?? 0)",
-                    sourceUnitIndex: hit.pageIndex,
-                    text: hit.snippet,
-                    locator: hit.locator,
-                    sourceLabel: hit.sourceLabel,
-                    chapterTitle: hit.chapterTitle,
-                    pageIndex: hit.pageIndex,
-                    href: hit.href,
-                    localStartUTF16: nil,
-                    localEndUTF16: nil,
-                    globalStartUTF16: nil,
-                    globalEndUTF16: nil,
-                    isOCRDerived: hit.isOCRDerived
-                )
-                if let _ = await boundaryCoordinator.authorizedText(
-                    candidateChunk,
-                    boundary: boundary,
-                    toolName: Self.toolName,
-                    actionDescription: "Hybrid search in current book"
-                ) {
-                    semanticHits.append(hit)
-                }
-            }
-        }
-
-        // 2. Fuse
-        let fused = HybridSearchService.fuse(
-            lexicalHits: [],
-            semanticHits: semanticHits,
-            maxResults: 8
-        )
-
-        let sources = fused.map { $0.toSourceProvenance(toolCallID: context.toolCallID) }
-        await context.recordSources(sources)
-
-        if fused.isEmpty {
-            return AIReaderToolOutput.boundedResult(
-                "No hybrid search results found in the current book.",
-                maxBytes: maxContentBytes
-            )
-        }
-
-        let lines = fused.enumerated().map { (idx, hit) in
-            "[\(hit.sourceLabel ?? "Match \(idx + 1)")] \(hit.snippet)"
-        }
-        return AIReaderToolOutput.boundedResult(lines.joined(separator: "\n\n"), maxBytes: maxContentBytes)
-    }
-}
-
-struct HybridSearchLibraryTool: AIContextualTool {
-    static let toolName = "hybrid_search_library"
-    let semanticService: SemanticSearchService
-    let authorizationGate: AIAgentToolExecutionGate
-    let maxContentBytes: Int
-
-    init(
-        semanticService: SemanticSearchService,
-        authorizationGate: AIAgentToolExecutionGate,
-        maxContentBytes: Int = 8_000
-    ) {
-        self.semanticService = semanticService
-        self.authorizationGate = authorizationGate
-        self.maxContentBytes = max(256, maxContentBytes)
-    }
-
-    var definition: ToolDefinition {
-        ToolDefinition(
-            name: Self.toolName,
-            description: "Search across the entire library using hybrid retrieval combining keyword and semantic matching.",
-            inputSchema: .object([
-                "type": .string("object"),
-                "properties": .object([
-                    "query": .object([
-                        "type": .string("string"),
-                        "description": .string("The search query or concept.")
-                    ])
-                ]),
-                "required": .array([.string("query")])
-            ])
-        )
-    }
-
-    func run(_ input: JSONValue) async -> ToolResult {
-        await run(input, context: AIToolExecutionContext())
-    }
-
-    func run(_ input: JSONValue, context: AIToolExecutionContext) async -> ToolResult {
-        guard case .object(let dict) = input,
-              case .string(let query)? = dict["query"],
-              !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return AIReaderToolOutput.boundedResult(
-                "A non-empty query parameter is required.",
-                maxBytes: maxContentBytes,
-                isError: true
-            )
-        }
-
-        let outcome = await authorizationGate.authorize(AIAgentToolAuthorization.context(
-            toolName: Self.toolName,
-            actionDescription: "Hybrid search across library books",
-            category: .readOtherBooks
-        ))
-        guard outcome == .allowed else {
-            return AIAgentToolAuthorization.errorResult(outcome, maxBytes: maxContentBytes)
-        }
-
-        let semanticHits = (try? await semanticService.searchRaw(query: query, maxHits: 12)) ?? []
-        let fused = HybridSearchService.fuse(
-            lexicalHits: [],
-            semanticHits: semanticHits,
-            maxResults: 8
-        )
-
-        let sources = fused.map { $0.toSourceProvenance(toolCallID: context.toolCallID) }
-        await context.recordSources(sources)
-
-        if fused.isEmpty {
-            return AIReaderToolOutput.boundedResult(
-                "No hybrid search results found across the library.",
-                maxBytes: maxContentBytes
-            )
-        }
-
-        let lines = fused.enumerated().map { (idx, hit) in
-            "[\(hit.sourceLabel ?? "Match \(idx + 1)")] \(hit.snippet)"
-        }
-        return AIReaderToolOutput.boundedResult(lines.joined(separator: "\n\n"), maxBytes: maxContentBytes)
     }
 }

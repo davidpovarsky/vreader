@@ -68,6 +68,40 @@ struct Feature177NoMocksGuardTests {
                 "SemanticIndexStore must use USearchIndex for persistent ANN search.")
         #expect(content.contains("insertBatch(coherentItems:"),
                 "SemanticIndexStore must provide coherent insertion of vectors, chunks, and book keys.")
+        #expect(!content.contains("fallbackVectors"),
+                "SemanticIndexStore must not contain in-memory fallbackVectors in production.")
+        #expect(!content.contains("try? index?.add"),
+                "SemanticIndexStore must propagate USearch insertion errors rather than silencing with try?.")
+    }
+
+    @Test("Production MLXE5EmbeddingService does not contain mock fallbacks or static vectors")
+    func mlxE5DoesNotContainMocksOrStaticVectors() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/Semantic/MLXE5EmbeddingService.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(!content.contains("[Float](repeating: 0.05"),
+                "MLXE5EmbeddingService must not return static placeholder 0.05 vectors.")
+        #expect(!content.contains("MockSemanticEmbeddingService"),
+                "MLXE5EmbeddingService must not reference MockSemanticEmbeddingService.")
+    }
+
+    @Test("Production AIHybridSearchTools fuses real FTS5 lexical hits instead of empty array")
+    func hybridSearchToolsFusesRealLexicalHits() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/Tools/AIHybridSearchTools.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(!content.contains("lexicalHits: []"),
+                "AIHybridSearchTools must execute real lexical searches, not hardcode empty lexical hits.")
     }
 
     @Test("SemanticVectorKey provides deterministic non-Hasher key derivation")

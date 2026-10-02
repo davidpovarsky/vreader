@@ -1,4 +1,5 @@
 // Purpose: Navigable source card for local retrieval, semantic search, and OCR hits.
+// External sources (e.g. MCP) without local locators display an External badge and are non-navigable.
 
 #if canImport(UIKit)
 import SwiftUI
@@ -9,38 +10,47 @@ struct ChatSourceResultCard: View {
     let onNavigate: (Locator) -> Void
 
     var body: some View {
-        Button {
-            onNavigate(provenance.locator)
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(headerTitle)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(theme.inkColor))
-
-                    Spacer()
-
-                    badgeView
-                }
-
-                if !provenance.snippet.isEmpty {
-                    Text(provenance.snippet)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(theme.inkColor).opacity(0.8))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
+        if let locator = provenance.locator {
+            Button {
+                onNavigate(locator)
+            } label: {
+                cardBody
             }
-            .padding(10)
-            .background(Color(theme.sheetCardSurfaceColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(theme.inkColor).opacity(0.08), lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chatSourceResultCard")
+        } else {
+            cardBody
+                .accessibilityIdentifier("chatSourceResultCardExternal")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("chatSourceResultCard")
+    }
+
+    private var cardBody: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(headerTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(theme.inkColor))
+
+                Spacer()
+
+                badgeView
+            }
+
+            if !provenance.snippet.isEmpty {
+                Text(provenance.snippet)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(theme.inkColor).opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(10)
+        .background(Color(theme.sheetCardSurfaceColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(theme.inkColor).opacity(0.08), lineWidth: 1)
+        )
     }
 
     private var headerTitle: String {
@@ -98,28 +108,37 @@ struct ChatToolResultCard: View {
     }
 }
 
-struct ChatSemanticSearchStatus: View {
-    let state: SemanticIndexingState
-    let theme: ReaderThemeV2
+private struct ChatOCRSourceBadge: View {
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "text.viewfinder")
+                .font(.system(size: 8.5, weight: .bold))
+            Text("OCR")
+                .font(.system(size: 9.5, weight: .semibold))
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Color.blue.opacity(0.15))
+        .foregroundStyle(Color.blue)
+        .clipShape(Capsule())
+    }
+}
+
+private struct ChatMCPServerBadge: View {
+    let serverName: String
 
     var body: some View {
-        switch state {
-        case .indexing(_, let progress):
-            HStack(spacing: 6) {
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 80)
-                Text("Indexing: \(Int(progress * 100))%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        case .failed(_, let err):
-            Text("Indexing error: \(err)")
-                .font(.caption2)
-                .foregroundStyle(.red)
-        default:
-            EmptyView()
+        HStack(spacing: 3) {
+            Image(systemName: "network")
+                .font(.system(size: 8.5, weight: .bold))
+            Text(serverName.prefix(12))
+                .font(.system(size: 9.5, weight: .semibold))
         }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Color.purple.opacity(0.15))
+        .foregroundStyle(Color.purple)
+        .clipShape(Capsule())
     }
 }
 #endif

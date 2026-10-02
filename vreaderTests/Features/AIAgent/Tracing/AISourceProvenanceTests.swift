@@ -1,5 +1,5 @@
 // Purpose: Unit tests for AISourceProvenance and ChatCitation conversion.
-// Validates locator preservation, retrieval method tagging, and spoiler flags.
+// Validates locator preservation, retrieval method tagging, spoiler flags, and external locatorless safety.
 
 import Testing
 import Foundation
@@ -8,7 +8,7 @@ import Foundation
 @Suite("AISourceProvenanceTests")
 struct AISourceProvenanceTests {
 
-    @Test func sourceProvenanceMapsToChatCitationAccurately() {
+    @Test func sourceProvenanceMapsToChatCitationAccurately() throws {
         let fp = DocumentFingerprint(contentSHA256: String(repeating: "a", count: 64), fileByteCount: 1024, format: .epub)
         let locator = Locator(
             bookFingerprint: fp,
@@ -39,7 +39,7 @@ struct AISourceProvenanceTests {
             toolCallID: "call_sem_1"
         )
 
-        let citation = prov.toChatCitation()
+        let citation = try #require(prov.toChatCitation())
 
         #expect(citation.label == "Ch. 3")
         #expect(citation.sourceKind == .searchResult)
@@ -47,7 +47,7 @@ struct AISourceProvenanceTests {
         #expect(citation.aheadOfReader == true)
     }
 
-    @Test func ocrProvenanceCarriesOCRFlag() {
+    @Test func ocrProvenanceCarriesOCRFlag() throws {
         let prov = AISourceProvenance(
             bookFingerprintKey: "pdf-doc",
             pageIndex: 4,
@@ -57,8 +57,20 @@ struct AISourceProvenanceTests {
         )
 
         #expect(prov.isOCRDerived == true)
-        let citation = prov.toChatCitation()
+        let citation = try #require(prov.toChatCitation())
         #expect(citation.label == "Page 5")
         #expect(citation.sourceKind == .searchResult)
+    }
+
+    @Test func externalMCPProvenanceHasNilLocatorAndNoCitation() {
+        let prov = AISourceProvenance(
+            bookFingerprintKey: "mcp-server-1",
+            snippet: "External weather data",
+            retrievalMethod: .mcpExternal,
+            mcpServerName: "WeatherService"
+        )
+
+        #expect(prov.locator == nil)
+        #expect(prov.toChatCitation() == nil)
     }
 }

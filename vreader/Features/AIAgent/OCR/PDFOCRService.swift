@@ -80,10 +80,21 @@ actor PDFOCRService: PDFOCRServicing {
         // 3. Fallback to Vision OCR
         try Task.checkCancellation()
         let ocrText = try await performVisionOCR(pageIndex: pageIndex, facade: facade)
+        try Task.checkCancellation()
+
+        let chosenText = ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nativeText : ocrText
+        guard !chosenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NSError(
+                domain: "vreader.ocr",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "No text detected on page \(pageIndex + 1). Both native text and Vision OCR were empty."]
+            )
+        }
+
         let result = PDFOCRResult(
             bookFingerprintKey: bookKey,
             pageIndex: pageIndex,
-            text: ocrText.isEmpty ? nativeText : ocrText,
+            text: chosenText,
             locator: locator,
             source: ocrText.isEmpty ? .pdfTextLayer : .visionOCR,
             isOCRDerived: !ocrText.isEmpty

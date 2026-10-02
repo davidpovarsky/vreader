@@ -1,6 +1,6 @@
 // Purpose: Real USearch-backed vector index store for ANN similarity search.
 // Provides persistent USearch storage, deterministic vector keys, atomic coherent inserts,
-// metadata compatibility verification, and corruption recovery.
+// metadata compatibility verification, and corruption recovery without brute-force fallback.
 
 import Foundation
 import CryptoKit
@@ -9,10 +9,12 @@ import CryptoKit
 import USearch
 #endif
 
-enum SemanticIndexStoreError: Error, LocalizedError, Sendable {
+enum SemanticIndexStoreError: Error, LocalizedError, Sendable, Equatable {
     case dimensionMismatch(expected: Int, actual: Int)
     case indexCorrupted
     case fileOperationFailed(String)
+    case indexUnavailable
+    case operationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +24,10 @@ enum SemanticIndexStoreError: Error, LocalizedError, Sendable {
             return "Vector index file is corrupted or incompatible."
         case .fileOperationFailed(let msg):
             return "Vector index file operation failed: \(msg)"
+        case .indexUnavailable:
+            return "USearch vector index engine is unavailable."
+        case .operationFailed(let msg):
+            return "Vector index operation failed: \(msg)"
         }
     }
 }
@@ -34,20 +40,17 @@ struct SemanticIndexStoreResult: Sendable, Equatable {
 }
 
 struct SemanticIndexInsertItem: Sendable {
-    let key: UInt64
     let chunkID: String
     let bookFingerprintKey: String
     let vector: [Float]
 
-    init(key: UInt64, chunkID: String, bookFingerprintKey: String, vector: [Float]) {
-        self.key = key
+    init(chunkID: String, bookFingerprintKey: String, vector: [Float]) {
         self.chunkID = chunkID
         self.bookFingerprintKey = bookFingerprintKey
         self.vector = vector
     }
 
-    init(chunkID: String, bookFingerprintKey: String, vector: [Float]) {
-        self.key = SemanticVectorKey.deriveKey(for: chunkID)
+    init(key: UInt64 = 0, chunkID: String, bookFingerprintKey: String, vector: [Float]) {
         self.chunkID = chunkID
         self.bookFingerprintKey = bookFingerprintKey
         self.vector = vector
@@ -60,7 +63,6 @@ actor SemanticIndexStore {
     private let fileManager = FileManager.default
     private var keyTable = SemanticVectorKeyTable()
     private var keyToBookKey: [UInt64: String] = [:]
-    private var fallbackVectors: [UInt64: [Float]] = [:]
 
     #if canImport(USearch)
     private var index: USearchIndex?
@@ -137,15 +139,15 @@ actor SemanticIndexStore {
         return base.appendingPathComponent(safeDirectoryName(for: bookFingerprintKey), isDirectory: true)
     }
 
-    private func initIndex() {
+    private func initIndex() throws {
         #if canImport(USearch)
-        let idx = try? USearchIndex.make(
+        let idx = try USearchIndex.make(
             metric: .cos,
             dimensions: UInt32(dimension),
             connectivity: 16,
             quantization: .f32
         )
-        if fileManager.fileExists(atPath: vectorsPath.path), let idx {
+        if fileManager.fileExists(atPath: vectorsPath.path) {
             do {
                 try idx.load(path: vectorsPath.path)
             } catch {
@@ -163,83 +165,71 @@ actor SemanticIndexStore {
         }
         let key = keyTable.key(for: chunkID)
         keyToBookKey[key] = bookFingerprintKey
-        fallbackVectors[key] = vector
 
         #if canImport(USearch)
-        try? index?.add(key: key, vector: vector)
+        guard let idx = index else { throw SemanticIndexStoreError.indexUnavailable }
+        try idx.add(key: key, vector: vector)
+        #else
+        throw SemanticIndexStoreError.indexUnavailable
         #endif
 
-        try? saveMappings()
-        try? saveVectors()
+        try saveMappings()
+        try saveVectors()
         return key
     }
 
-    func insert(key: UInt64, vector: [Float]) throws {
-        guard vector.count == dimension else {
-            throw SemanticIndexStoreError.dimensionMismatch(expected: dimension, actual: vector.count)
-        }
-        fallbackVectors[key] = vector
+    @discardableResult
+    func insertBatch(coherentItems: [SemanticIndexInsertItem]) throws -> [String: UInt64] {
+        var assignedKeys: [String: UInt64] = [:]
         #if canImport(USearch)
-        try? index?.add(key: key, vector: vector)
-        #endif
-    }
-
-    func insertBatch(items: [(key: UInt64, vector: [Float])]) throws {
-        for (k, v) in items {
-            try insert(key: k, vector: v)
-        }
-        try? saveVectors()
-    }
-
-    func insertBatch(coherentItems: [SemanticIndexInsertItem]) throws {
+        guard let idx = index else { throw SemanticIndexStoreError.indexUnavailable }
         for item in coherentItems {
             guard item.vector.count == dimension else {
                 throw SemanticIndexStoreError.dimensionMismatch(expected: dimension, actual: item.vector.count)
             }
-            let key = item.key
-            keyTable.key(for: item.chunkID)
+            let key = keyTable.key(for: item.chunkID)
             keyToBookKey[key] = item.bookFingerprintKey
-            fallbackVectors[key] = item.vector
-
-            #if canImport(USearch)
-            try? index?.add(key: key, vector: item.vector)
-            #endif
+            try idx.add(key: key, vector: item.vector)
+            assignedKeys[item.chunkID] = key
         }
-        try? saveMappings()
-        try? saveVectors()
+        #else
+        throw SemanticIndexStoreError.indexUnavailable
+        #endif
+
+        try saveMappings()
+        try saveVectors()
+        return assignedKeys
     }
 
     func delete(bookFingerprintKey: String) throws {
         let keysToRemove = keyToBookKey.filter { $0.value == bookFingerprintKey }.map { $0.key }
-        remove(keys: keysToRemove)
+        try remove(keys: keysToRemove)
     }
 
-    func remove(keys: [UInt64]) {
+    func remove(keys: [UInt64]) throws {
         for k in keys {
-            fallbackVectors.removeValue(forKey: k)
             keyTable.remove(key: k)
             keyToBookKey.removeValue(forKey: k)
             #if canImport(USearch)
-            try? index?.remove(key: k)
+            try index?.remove(key: k)
             #endif
         }
-        try? saveMappings()
-        try? saveVectors()
+        try saveMappings()
+        try saveVectors()
     }
 
-    func clear() {
-        fallbackVectors.removeAll()
+    func clear() throws {
         keyTable.clear()
         keyToBookKey.removeAll()
         #if canImport(USearch)
-        initIndex()
+        try initIndex()
         #endif
         try? fileManager.removeItem(at: vectorsPath)
         try? fileManager.removeItem(at: mappingsPath)
     }
 
     func count() -> Int {
-        max(keyToBookKey.count, fallbackVectors.count)
+        keyToBookKey.count
     }
 
     func save() throws {
@@ -293,7 +283,7 @@ actor SemanticIndexStore {
         keyToBookKey = data.keyToBookKey
     }
 
-    /// Performs top-K similarity search, using real USearch when available with fallback.
+    /// Performs top-K similarity search using real USearch. No brute-force fallback in production.
     func search(queryVector: [Float], count: Int, bookFingerprintKey: String? = nil) throws -> [SemanticIndexStoreResult] {
         guard queryVector.count == dimension else {
             throw SemanticIndexStoreError.dimensionMismatch(expected: dimension, actual: queryVector.count)
@@ -301,50 +291,27 @@ actor SemanticIndexStore {
         guard count > 0 else { return [] }
 
         #if canImport(USearch)
-        let idxCount = (try? index?.count) ?? 0
-        if let idx = index, idxCount > 0 {
-            // Retrieve 3x candidates to allow for book filtering
-            let fetchCount = bookFingerprintKey == nil ? count : max(count * 3, 32)
-            if let searchResult = try? idx.search(vector: queryVector, count: fetchCount) {
-                let keys = searchResult.0
-                let distances = searchResult.1
-                var results: [SemanticIndexStoreResult] = []
-                for i in 0..<keys.count {
-                    let k = keys[i]
-                    if let bookFingerprintKey, keyToBookKey[k] != bookFingerprintKey {
-                        continue
-                    }
-                    let dist = distances[i]
-                    let sim = max(0.0, 1.0 - dist)
-                    let cid = keyTable.chunkID(for: k) ?? "\(k)"
-                    results.append(SemanticIndexStoreResult(key: k, chunkID: cid, distance: dist, similarity: sim))
-                    if results.count >= count { break }
-                }
-                return results
-            }
-        }
-        #endif
-
-        // In-memory fallback
-        guard !fallbackVectors.isEmpty else { return [] }
+        guard let idx = index, try idx.count > 0 else { return [] }
+        // Retrieve 3x candidates to allow for book filtering
+        let fetchCount = bookFingerprintKey == nil ? count : max(count * 3, 32)
+        let searchResult = try idx.search(vector: queryVector, count: fetchCount)
+        let keys = searchResult.0
+        let distances = searchResult.1
         var results: [SemanticIndexStoreResult] = []
-        results.reserveCapacity(fallbackVectors.count)
-
-        for (key, vec) in fallbackVectors {
-            if let bookFingerprintKey, keyToBookKey[key] != bookFingerprintKey {
+        for i in 0..<keys.count {
+            let k = keys[i]
+            if let bookFingerprintKey, keyToBookKey[k] != bookFingerprintKey {
                 continue
             }
-            var dot: Float = 0
-            for i in 0..<dimension {
-                dot += queryVector[i] * vec[i]
-            }
-            let sim = max(0.0, dot)
-            let distance = max(0.0, 1.0 - dot)
-            let cid = keyTable.chunkID(for: key) ?? "\(key)"
-            results.append(SemanticIndexStoreResult(key: key, chunkID: cid, distance: distance, similarity: sim))
+            let dist = distances[i]
+            let sim = max(0.0, 1.0 - dist)
+            let cid = keyTable.chunkID(for: k) ?? "\(k)"
+            results.append(SemanticIndexStoreResult(key: k, chunkID: cid, distance: dist, similarity: sim))
+            if results.count >= count { break }
         }
-
-        results.sort { $0.similarity > $1.similarity }
-        return Array(results.prefix(count))
+        return results
+        #else
+        throw SemanticIndexStoreError.indexUnavailable
+        #endif
     }
 }

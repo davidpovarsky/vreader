@@ -446,7 +446,8 @@ final class ReaderAICoordinator {
         guard FeatureFlags.shared.agenticTools,
               let fingerprint = DocumentFingerprint(canonicalKey: fingerprintKey),
               let library = annotationStores as? any LibraryPersisting,
-              let chatVM = chatViewModel else { return }
+              let chatVM = chatViewModel,
+              let service = pinnedAIService else { return }
 
         let toolContext = AILiveReaderToolContext(
             bookTitle: fallbackTitle,
@@ -465,6 +466,15 @@ final class ReaderAICoordinator {
                     library: library,
                     annotationStores: self.annotationStores
                 )
+                let gate = AIAgentToolExecutionGate.productionConnected(
+                    broker: .shared,
+                    preferencesStore: AIAgentPreferencesStore.shared
+                )
+                let turnRouter = AIAgentProductionRuntime.shared.makeTurnRouter(
+                    aiService: service,
+                    executionGate: gate
+                )
+                chatVM?.turnRouter = turnRouter
                 chatVM?.setAgenticRegistry(registry)
             } catch {
                 // Registry build error handled safely

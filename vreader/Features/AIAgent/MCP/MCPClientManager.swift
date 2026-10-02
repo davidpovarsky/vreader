@@ -1,4 +1,5 @@
 // Purpose: Central actor managing MCP server connection lifecycles, credentials, and tool discovery.
+// Ensures enabled profiles auto-reconnect on discovery after relaunch and notifies configuration changes.
 
 import Foundation
 import OSLog
@@ -57,6 +58,7 @@ actor MCPClientManager {
             try await connection.connect()
             let tools = try await connection.listTools()
             connectionStatuses[profile.id] = .connected(serverInfo: profile.name, protocolVersion: "2024-11-05", toolCount: tools.count)
+            NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
             return tools
         } catch {
             connectionStatuses[profile.id] = .error(message: error.localizedDescription)
@@ -69,19 +71,37 @@ actor MCPClientManager {
             await connection.disconnect()
         }
         connectionStatuses[profileID] = .disconnected
+        NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
     }
 
-    /// Discovers tools across all enabled profiles.
+    /// Discovers tools across all enabled profiles, reconnecting after relaunch if needed.
     func discoverEnabledTools() async -> [(profile: MCPServerProfile, tool: ToolDefinition)] {
         let profiles = await profileStore.allProfiles().filter { $0.isEnabled && $0.isSecureEndpoint }
         var discovered: [(profile: MCPServerProfile, tool: ToolDefinition)] = []
 
         for profile in profiles {
-            if let connection = activeConnections[profile.id], connection.status.isConnected {
-                if let tools = try? await connection.listTools() {
-                    for t in tools {
-                        discovered.append((profile: profile, tool: t))
-                    }
+            let connection: any MCPConnecting
+            if let existing = activeConnections[profile.id] {
+                connection = existing
+            } else {
+                connection = connectionFactory(profile)
+                activeConnections[profile.id] = connection
+            }
+
+            if !connection.status.isConnected {
+                do {
+                    try await connection.connect()
+                    connectionStatuses[profile.id] = connection.status
+                } catch {
+                    connectionStatuses[profile.id] = .error(message: error.localizedDescription)
+                    Self.log.error("Failed to connect MCP profile \(profile.name): \(error.localizedDescription)")
+                    continue
+                }
+            }
+
+            if let tools = try? await connection.listTools() {
+                for t in tools {
+                    discovered.append((profile: profile, tool: t))
                 }
             }
         }

@@ -280,7 +280,8 @@ final class AIChatViewModel {
         self.chatSessionStore = chatSessionStore
     }
 
-    // MARK: - Actions
+    // Feature #177: Production turn router
+    var turnRouter: (any AIAgentTurnExecuting)?
 
     // Feature #177: Tool action confirmation UI
     var pendingConfirmationRequest: AIActionConfirmationRequest?

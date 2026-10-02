@@ -3,6 +3,29 @@
 
 import Foundation
 
+enum SemanticModelError: LocalizedError, Equatable, Sendable {
+    case modelNotInstalled
+    case modelNotLoaded
+    case inferenceFailed(String)
+    case corruptedAssets(String)
+    case dimensionMismatch(expected: Int, actual: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .modelNotInstalled:
+            return "Semantic embedding model is not installed."
+        case .modelNotLoaded:
+            return "Semantic embedding model is not loaded in memory."
+        case .inferenceFailed(let reason):
+            return "Semantic model inference failed: \(reason)"
+        case .corruptedAssets(let reason):
+            return "Semantic model assets are corrupted or missing: \(reason)"
+        case .dimensionMismatch(let expected, let actual):
+            return "Vector dimension mismatch: expected \(expected), got \(actual)."
+        }
+    }
+}
+
 protocol SemanticEmbeddingProviding: Sendable {
     var dimension: Int { get }
     func embedQuery(_ text: String) async throws -> [Float]

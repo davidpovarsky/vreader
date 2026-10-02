@@ -137,14 +137,8 @@ extension AIChatViewModel {
         messages.append(assistantMessage)
 
         do {
-            let capabilities = await AIAgentCapabilityPreferencesStore.shared.load()
-            if capabilities.backendChoice == .appleFoundationModels, let registry = agenticRegistry {
-                let gate = AIAgentToolExecutionGate.productionConnected(
-                    broker: .shared,
-                    preferencesStore: AIAgentPreferencesStore.shared
-                )
-                let appleExecutor = AppleFoundationModelsTurnExecutor(executionGate: gate)
-                let result = try await appleExecutor.executeTurn(
+            if let turnRouter, let registry = agenticRegistry, !registry.isEmpty {
+                let result = try await turnRouter.executeTurn(
                     prompt: trimmed,
                     systemPrompt: AIChatHistoryMapper.systemPrompt(),
                     contextText: contextText,

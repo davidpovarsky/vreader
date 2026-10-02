@@ -18,6 +18,12 @@ final class AIAgentProductionRuntime {
     private let mcpProfileStore: MCPServerProfileStore
     private let mcpClientManager: MCPClientManager
 
+    // Shared persistent stores for semantic indexing & ANN search
+    private let sharedIndexStore = SemanticIndexStore()
+    private let sharedMetadataStore = SemanticIndexMetadataStore()
+    private var semanticIndexCoordinator: SemanticIndexCoordinator?
+    private var activeSemanticSearchService: SemanticSearchService?
+
     init(
         preferencesStore: any AIAgentPreferencesStoring = AIAgentPreferencesStore.shared,
         capabilityStore: AIAgentCapabilityPreferencesStore = .shared,
@@ -74,13 +80,44 @@ final class AIAgentProductionRuntime {
 
         let capabilities = await capabilityStore.load()
 
-        // 3. Real semantic runtime (if enabled and model is ready)
+        // 3. Real semantic runtime with shared stores and lazy load
         var semanticSearchService: SemanticSearchService? = nil
-        let isModelReady = await semanticModelManager.state.isReady
         let isModelInstalled = await semanticModelManager.state.isInstalled
-        if capabilities.isSemanticSearchEnabled && isModelInstalled && isModelReady {
-            let embeddingService = await semanticModelManager.loadedEmbeddingService ?? MLXE5EmbeddingService()
-            semanticSearchService = SemanticSearchService(embeddingService: embeddingService)
+        if capabilities.isSemanticSearchEnabled && isModelInstalled {
+            if !semanticModelManager.state.isReady {
+                try? await semanticModelManager.ensureLoaded()
+            }
+            if await semanticModelManager.state.isReady {
+                let embeddingService = await semanticModelManager.loadedEmbeddingService ?? MLXE5EmbeddingService()
+                let indexStore = self.sharedIndexStore
+                let metadataStore = self.sharedMetadataStore
+                let coordinator = SemanticIndexCoordinator(
+                    embeddingService: embeddingService,
+                    metadataStore: metadataStore,
+                    indexStore: indexStore
+                )
+                self.semanticIndexCoordinator = coordinator
+                let searchService = SemanticSearchService(
+                    embeddingService: embeddingService,
+                    metadataStore: metadataStore,
+                    indexStore: indexStore
+                )
+                self.activeSemanticSearchService = searchService
+                semanticSearchService = searchService
+
+                // Index current book in background if missing or stale
+                if let provider = AIDocumentProviderRegistry.shared.resolve(session: sessionID) {
+                    Task { [coordinator, metadataStore, currentBook] in
+                        let existing = await metadataStore.metadata(forBook: currentBook.canonicalKey)
+                        if existing == nil || !existing!.isCompatible(withActiveModel: AISemanticModelManager.modelIdentifier, dimension: embeddingService.dimension) {
+                            if let chunks = try? await provider.chunks() {
+                                try? await coordinator.indexBook(fingerprintKey: currentBook.canonicalKey, chunks: chunks)
+                                NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // 4. Real PDF OCR runtime (if enabled and live PDF OCR source available)

@@ -1,6 +1,6 @@
 // Purpose: OAuth 2.0 PKCE authorization coordinator for MCP servers.
 // Manages PKCE code generation, state verification, ASWebAuthenticationSession browser flow,
-// token exchange, token refresh, and Keychain storage.
+// token exchange, token refresh with rotation, and origin-bound Keychain storage.
 
 import Foundation
 import CryptoKit
@@ -25,20 +25,36 @@ final class WebAuthPresentationAnchor: NSObject, ASWebAuthenticationPresentation
 }
 #endif
 
+struct PendingOAuthState: Sendable {
+    let verifier: String
+    let profileID: UUID
+    let clientID: String
+    let redirectURI: String
+}
+
 actor MCPOAuthCoordinator {
     private let secretStore: MCPSecretStore
-    private var pendingStates: [String: (verifier: String, profileID: UUID)] = [:]
+    private var pendingStates: [String: PendingOAuthState] = [:]
 
     init(secretStore: MCPSecretStore = MCPSecretStore()) {
         self.secretStore = secretStore
     }
 
     /// Generates PKCE authorization parameters: state, code_verifier, code_challenge.
-    func generateAuthorizationParameters(forProfileID profileID: UUID) -> (state: String, codeChallenge: String, verifier: String) {
+    func generateAuthorizationParameters(
+        forProfileID profileID: UUID,
+        clientID: String = "",
+        redirectURI: String = ""
+    ) -> (state: String, codeChallenge: String, verifier: String) {
         let state = UUID().uuidString
         let verifier = generateCodeVerifier()
         let challenge = generateCodeChallenge(from: verifier)
-        pendingStates[state] = (verifier: verifier, profileID: profileID)
+        pendingStates[state] = PendingOAuthState(
+            verifier: verifier,
+            profileID: profileID,
+            clientID: clientID,
+            redirectURI: redirectURI
+        )
         return (state: state, codeChallenge: challenge, verifier: verifier)
     }
 
@@ -52,13 +68,18 @@ actor MCPOAuthCoordinator {
         callbackScheme: String = "vreader-mcp-oauth"
     ) async throws {
         try Task.checkCancellation()
-        let params = await generateAuthorizationParameters(forProfileID: profileID)
+        let redirectURI = "\(callbackScheme)://callback"
+        let params = await generateAuthorizationParameters(
+            forProfileID: profileID,
+            clientID: clientID,
+            redirectURI: redirectURI
+        )
 
         var components = URLComponents(url: authorizationURL, resolvingAgainstBaseURL: true)
         var queryItems = components?.queryItems ?? []
         queryItems.append(URLQueryItem(name: "response_type", value: "code"))
         queryItems.append(URLQueryItem(name: "client_id", value: clientID))
-        queryItems.append(URLQueryItem(name: "redirect_uri", value: "\(callbackScheme)://callback"))
+        queryItems.append(URLQueryItem(name: "redirect_uri", value: redirectURI))
         queryItems.append(URLQueryItem(name: "state", value: params.state))
         queryItems.append(URLQueryItem(name: "code_challenge", value: params.codeChallenge))
         queryItems.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
@@ -119,11 +140,18 @@ actor MCPOAuthCoordinator {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let bodyParams = [
+        var bodyParams: [String: String] = [
             "grant_type": "authorization_code",
             "code": code,
             "code_verifier": pending.verifier
         ]
+        if !pending.clientID.isEmpty {
+            bodyParams["client_id"] = pending.clientID
+        }
+        if !pending.redirectURI.isEmpty {
+            bodyParams["redirect_uri"] = pending.redirectURI
+        }
+
         request.httpBody = bodyParams
             .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
             .joined(separator: "&")
@@ -140,13 +168,13 @@ actor MCPOAuthCoordinator {
         }
 
         let refreshToken = json["refresh_token"] as? String
-        try secretStore.saveOAuthTokens(accessToken: accessToken, refreshToken: refreshToken, forProfileID: pending.profileID)
+        try secretStore.saveOAuthTokens(accessToken: accessToken, refreshToken: refreshToken, forProfileID: pending.profileID, endpoint: tokenEndpoint)
     }
 
-    /// Refreshes the OAuth access token using the stored refresh token.
-    func refreshToken(forProfileID profileID: UUID, tokenEndpoint: URL) async throws -> String {
+    /// Refreshes the OAuth access token using the stored refresh token with token rotation support.
+    func refreshToken(forProfileID profileID: UUID, tokenEndpoint: URL, clientID: String? = nil) async throws -> String {
         try Task.checkCancellation()
-        guard let refreshToken = secretStore.fetchRefreshToken(forProfileID: profileID) else {
+        guard let refreshToken = secretStore.fetchRefreshToken(forProfileID: profileID, endpoint: tokenEndpoint) else {
             throw NSError(domain: "vreader.mcp.oauth", code: 404, userInfo: [NSLocalizedDescriptionKey: "No refresh token available"])
         }
 
@@ -154,10 +182,14 @@ actor MCPOAuthCoordinator {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let bodyParams = [
+        var bodyParams: [String: String] = [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken
         ]
+        if let clientID, !clientID.isEmpty {
+            bodyParams["client_id"] = clientID
+        }
+
         request.httpBody = bodyParams
             .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
             .joined(separator: "&")
@@ -173,15 +205,16 @@ actor MCPOAuthCoordinator {
             throw NSError(domain: "vreader.mcp.oauth", code: 422, userInfo: [NSLocalizedDescriptionKey: "Malformed token refresh response"])
         }
 
+        // Handle refresh-token rotation
         let newRefreshToken = json["refresh_token"] as? String ?? refreshToken
-        try secretStore.saveOAuthTokens(accessToken: newAccessToken, refreshToken: newRefreshToken, forProfileID: profileID)
+        try secretStore.saveOAuthTokens(accessToken: newAccessToken, refreshToken: newRefreshToken, forProfileID: profileID, endpoint: tokenEndpoint)
         return newAccessToken
     }
 
     /// Disconnects and removes all credentials for a profile.
-    func logout(profileID: UUID) throws {
+    func logout(profileID: UUID, endpoint: URL? = nil) throws {
         cancelPending(forProfileID: profileID)
-        try secretStore.deleteCredentials(forProfileID: profileID)
+        try secretStore.deleteCredentials(forProfileID: profileID, endpoint: endpoint)
     }
 
     func cancelPending(forProfileID profileID: UUID) {

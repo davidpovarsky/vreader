@@ -67,7 +67,8 @@ struct AgenticChatDriver: Sendable {
 
     private actor ProvenanceTapSink: AIToolEventSink {
         let downstream: (any AIToolEventSink)?
-        var sources: [AISourceProvenance] = []
+        private var stagedSourcesByCallID: [String: [AISourceProvenance]] = [:]
+        private var committedSources: [AISourceProvenance] = []
 
         init(downstream: (any AIToolEventSink)?) {
             self.downstream = downstream
@@ -75,13 +76,23 @@ struct AgenticChatDriver: Sendable {
 
         func emit(_ event: AIToolEvent) async {
             if !event.sources.isEmpty {
-                sources.append(contentsOf: event.sources)
+                stagedSourcesByCallID[event.toolCallID, default: []].append(contentsOf: event.sources)
             }
             await downstream?.emit(event)
         }
 
+        func commitSources(for callID: String) {
+            if let staged = stagedSourcesByCallID.removeValue(forKey: callID) {
+                committedSources.append(contentsOf: staged)
+            }
+        }
+
+        func discardSources(for callID: String) {
+            stagedSourcesByCallID.removeValue(forKey: callID)
+        }
+
         func collectedSources() -> [AISourceProvenance] {
-            sources
+            committedSources
         }
     }
 
@@ -126,7 +137,7 @@ struct AgenticChatDriver: Sendable {
             case .text(let text):
                 let collected = await tappingSink.collectedSources()
                 let uniqueSources = Self.deduplicateSources(collected)
-                let citations = uniqueSources.map { $0.toChatCitation() }
+                let citations = uniqueSources.compactMap { $0.toChatCitation() }
                 return AgenticResult(
                     finalText: text,
                     usedTools: usedTools,
@@ -155,8 +166,10 @@ struct AgenticChatDriver: Sendable {
                     let result = await registry.run(call, context: execContext)
                     let resSummary = AIToolDisplayMetadata.safeResultSummary(result.content, isError: result.isError)
                     if result.isError {
+                        await tappingSink.discardSources(for: call.id)
                         await tappingSink.emit(.failed(callID: call.id, toolName: call.name, error: resSummary))
                     } else {
+                        await tappingSink.commitSources(for: call.id)
                         await tappingSink.emit(.succeeded(callID: call.id, toolName: call.name, resultSummary: resSummary))
                     }
                     resultBlocks.append(.toolResult(result))
@@ -173,7 +186,7 @@ struct AgenticChatDriver: Sendable {
         let lastText = Self.lastAssistantText(in: messages)
         let collected = await tappingSink.collectedSources()
         let uniqueSources = Self.deduplicateSources(collected)
-        let citations = uniqueSources.map { $0.toChatCitation() }
+        let citations = uniqueSources.compactMap { $0.toChatCitation() }
         return AgenticResult(
             finalText: lastText ?? "I wasn't able to finish answering within the tool-call limit.",
             usedTools: usedTools,

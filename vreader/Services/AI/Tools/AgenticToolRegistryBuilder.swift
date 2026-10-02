@@ -114,6 +114,8 @@ enum AgenticToolRegistryBuilder {
             readerContext: readerContext,
             annotationCoordinator: annotationCoordinator,
             semanticSearchService: semanticSearchService,
+            currentBookSearch: currentBookSearch,
+            libraryBackend: libraryBackend,
             ocrService: ocrService,
             pdfFacade: pdfFacade,
             mcpAdapters: mcpAdapters

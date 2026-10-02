@@ -1,5 +1,6 @@
 // Purpose: Coordinates background indexing of books into the semantic index.
 // Ensures actor-isolated serialization, one active job per book, cancellation, and progress observation.
+// Preserves exact collision-assigned vector keys and exact UTF-16 ranges.
 
 import Foundation
 import OSLog
@@ -40,7 +41,6 @@ actor SemanticIndexCoordinator {
         fingerprintKey: String,
         chunks: [AIDocumentChunk]
     ) async throws {
-        // Prevent duplicate concurrent indexing for the same book
         if activeTasks[fingerprintKey] != nil {
             Self.log.info("Indexing already in flight for \(fingerprintKey)")
             return
@@ -79,42 +79,49 @@ actor SemanticIndexCoordinator {
         }
 
         // 2. Embeddings
-        var chunkMetadataList: [SemanticChunkMetadata] = []
         var insertItems: [SemanticIndexInsertItem] = []
         let total = semanticChunks.count
 
         for (idx, sc) in semanticChunks.enumerated() {
             try Task.checkCancellation()
             let vector = try await embeddingService.embedPassages([sc.text]).first ?? []
-            let vKey = SemanticVectorKey.deriveKey(for: sc.id)
 
             insertItems.append(SemanticIndexInsertItem(
-                key: vKey,
                 chunkID: sc.id,
                 bookFingerprintKey: fingerprintKey,
                 vector: vector
-            ))
-
-            chunkMetadataList.append(SemanticChunkMetadata(
-                chunkID: sc.id,
-                vectorKey: vKey,
-                bookFingerprintKey: fingerprintKey,
-                sourceUnitID: sc.sourceUnitID,
-                sourceLabel: sc.sourceLabel,
-                chapterTitle: sc.chapterTitle,
-                pageIndex: sc.pageIndex,
-                href: sc.href,
-                snippet: String(sc.text.prefix(200)),
-                locator: sc.locator,
-                isOCRDerived: sc.isOCRDerived
             ))
 
             let progress = Double(idx + 1) / Double(total)
             currentState = .indexing(bookFingerprintKey: fingerprintKey, progress: progress)
         }
 
-        // 3. Save to Index and Metadata Store coherently
-        try await indexStore.insertBatch(coherentItems: insertItems)
+        // 3. Save to Index with collision-safe key assignment and save to Metadata Store coherently
+        let assignedKeys = try await indexStore.insertBatch(coherentItems: insertItems)
+
+        var chunkMetadataList: [SemanticChunkMetadata] = []
+        for sc in semanticChunks {
+            let assignedKey = assignedKeys[sc.id] ?? SemanticVectorKey.deriveKey(for: sc.id)
+            chunkMetadataList.append(SemanticChunkMetadata(
+                chunkID: sc.id,
+                vectorKey: assignedKey,
+                bookFingerprintKey: fingerprintKey,
+                sourceUnitID: sc.sourceUnitID,
+                sourceUnitIndex: sc.sourceUnitIndex,
+                sourceLabel: sc.sourceLabel,
+                chapterTitle: sc.chapterTitle,
+                pageIndex: sc.pageIndex,
+                href: sc.href,
+                snippet: String(sc.text.prefix(200)),
+                locator: sc.locator,
+                localStartUTF16: sc.localStartUTF16,
+                localEndUTF16: sc.localEndUTF16,
+                globalStartUTF16: sc.globalStartUTF16,
+                globalEndUTF16: sc.globalEndUTF16,
+                isOCRDerived: sc.isOCRDerived
+            ))
+        }
+
         let metadata = SemanticIndexMetadata(
             bookFingerprintKey: fingerprintKey,
             embeddingDimension: embeddingService.dimension,
@@ -144,7 +151,7 @@ actor SemanticIndexCoordinator {
         for task in activeTasks.values { task.cancel() }
         activeTasks.removeAll()
         try await metadataStore.removeAll()
-        await indexStore.clear()
+        try await indexStore.clear()
         currentState = .idle
     }
 

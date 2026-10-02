@@ -13,6 +13,8 @@ enum AIAgentToolRegistryComposer {
         readerContext: (any AIReaderToolContextProviding)? = nil,
         annotationCoordinator: AIAnnotationMutationCoordinator? = nil,
         semanticSearchService: SemanticSearchService? = nil,
+        currentBookSearch: (any SearchProviding)? = nil,
+        libraryBackend: (any LibrarySearchBackend)? = nil,
         ocrService: (any PDFOCRServicing)? = nil,
         pdfFacade: (any AIPDFDocumentFacading)? = nil,
         mcpAdapters: [MCPToolAdapter] = []
@@ -25,6 +27,8 @@ enum AIAgentToolRegistryComposer {
             ))
             tools.append(HybridSearchLibraryTool(
                 semanticService: semantic,
+                libraryBackend: libraryBackend,
+                currentBookFingerprintKey: currentBook?.canonicalKey,
                 authorizationGate: authorizationGate
             ))
             if let currentBook, let readerContext {
@@ -36,6 +40,7 @@ enum AIAgentToolRegistryComposer {
                 ))
                 tools.append(HybridSearchCurrentBookTool(
                     semanticService: semantic,
+                    lexicalSearch: currentBookSearch,
                     context: readerContext,
                     authorizationGate: authorizationGate
                 ))

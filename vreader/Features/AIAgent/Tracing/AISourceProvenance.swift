@@ -1,8 +1,8 @@
 // Purpose: Structured source provenance model for local retrieval, OCR, and tool results.
 // Preserves book, location, snippet, retrieval method, and spoiler status without fabricating data.
+// External sources (e.g. MCP) have locator == nil and do not fabricate locators.
 
 import Foundation
-import CryptoKit
 
 typealias AIRetrievalMethod = AISourceRetrievalMethod
 
@@ -27,7 +27,7 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let bookFingerprintKey: String
     let bookTitle: String
-    let locator: Locator
+    let locator: Locator?
     let sourceLabel: String?
     let chapterTitle: String?
     let pageIndex: Int?
@@ -40,6 +40,7 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
     let toolCallID: String?
     let mcpServerName: String?
     let isOCRDerived: Bool
+    let liveReaderToken: UUID?
 
     init(
         id: String = UUID().uuidString,
@@ -57,14 +58,15 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
         aheadOfReader: Bool = false,
         toolCallID: String? = nil,
         mcpServerName: String? = nil,
-        isOCRDerived: Bool = false
+        isOCRDerived: Bool = false,
+        liveReaderToken: UUID? = nil
     ) {
         self.id = id
         self.bookFingerprintKey = bookFingerprintKey
         self.bookTitle = bookTitle ?? ""
         if let locator {
             self.locator = locator
-        } else {
+        } else if retrievalMethod != .mcpExternal && !bookFingerprintKey.isEmpty {
             let fp = DocumentFingerprint(canonicalKey: bookFingerprintKey) ?? {
                 let sha = SHA256.hash(data: Data(bookFingerprintKey.utf8)).map { String(format: "%02x", $0) }.joined()
                 return DocumentFingerprint(contentSHA256: sha, fileByteCount: 1024, format: isOCRDerived ? .pdf : .epub)
@@ -83,6 +85,8 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
                 textContextBefore: nil,
                 textContextAfter: nil
             )
+        } else {
+            self.locator = nil
         }
         self.sourceLabel = sourceLabel
         self.chapterTitle = chapterTitle
@@ -96,10 +100,13 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
         self.toolCallID = toolCallID
         self.mcpServerName = mcpServerName
         self.isOCRDerived = isOCRDerived
+        self.liveReaderToken = liveReaderToken
     }
 
-    /// Converts this provenance into a user-facing ChatCitation.
-    func toChatCitation() -> ChatCitation {
+    /// Converts this provenance into a user-facing ChatCitation, returning nil if no real locator exists.
+    func toChatCitation() -> ChatCitation? {
+        guard let locator else { return nil }
+
         let label: String
         if let explicit = sourceLabel, !explicit.isEmpty {
             label = explicit
@@ -133,4 +140,3 @@ struct AISourceProvenance: Identifiable, Codable, Hashable, Sendable {
         )
     }
 }
-

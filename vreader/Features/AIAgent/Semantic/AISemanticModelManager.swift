@@ -4,6 +4,8 @@
 import Foundation
 import OSLog
 
+import CryptoKit
+
 #if canImport(Hub)
 import Hub
 #elseif canImport(HuggingFace)
@@ -67,8 +69,12 @@ actor AISemanticModelManager {
 
     init(storageDirectory: URL? = nil) {
         self.storageDirectoryOverride = storageDirectory
-        let marker = (storageDirectory ?? Self.defaultModelDirectory()).appendingPathComponent(".completed")
-        if FileManager.default.fileExists(atPath: marker.path) {
+        let dir = storageDirectory ?? Self.defaultModelDirectory()
+        let marker = dir.appendingPathComponent(".completed")
+        let configFile = dir.appendingPathComponent("config.json")
+        let hasMarker = FileManager.default.fileExists(atPath: marker.path)
+        let hasConfig = FileManager.default.fileExists(atPath: configFile.path)
+        if hasMarker && hasConfig {
             self.state = .installed
         } else {
             self.state = .notInstalled
@@ -104,9 +110,12 @@ actor AISemanticModelManager {
         }
     }
 
+    func validateInstalledAssets() -> Bool {
+        AISemanticAssetValidator(modelDirectory: modelDirectory).validateInstalledAssets()
+    }
+
     private func isModelWeightsPresent() -> Bool {
-        let marker = modelDirectory.appendingPathComponent(".completed")
-        return fileManager.fileExists(atPath: marker.path)
+        validateInstalledAssets()
     }
 
     private(set) var loadedEmbeddingService: (any SemanticEmbeddingProviding)?
@@ -135,12 +144,17 @@ actor AISemanticModelManager {
             state = .downloading(progress: 0.5)
             #endif
 
-            // Verify installation: write marker file only after validating model assets
+            // Verify installation: write manifest and marker file only after validating model assets
             try Task.checkCancellation()
+            guard validateInstalledAssets() else {
+                throw SemanticModelError.corruptedAssets("Downloaded model files failed structural validation")
+            }
+            try writeInstallManifest()
             let marker = modelDirectory.appendingPathComponent(".completed")
             try "installed".write(to: marker, atomically: true, encoding: .utf8)
             state = .installed
             Self.log.info("multilingual-e5-small model installed successfully")
+            NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
         } catch is CancellationError {
             state = .notInstalled
             try? fileManager.removeItem(at: modelDirectory)
@@ -150,6 +164,10 @@ actor AISemanticModelManager {
             Self.log.error("Model download failed: \(error.localizedDescription)")
             throw error
         }
+    }
+
+    private func writeInstallManifest() throws {
+        try AISemanticAssetValidator(modelDirectory: modelDirectory).buildAndSaveManifest(modelID: Self.modelIdentifier)
     }
 
     private func updateDownloadProgress(_ fraction: Double) {
@@ -174,6 +192,7 @@ actor AISemanticModelManager {
             try fileManager.removeItem(at: modelDirectory)
         }
         state = .notInstalled
+        NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
     }
 
     func diskUsageBytes() -> Int64 {
@@ -189,10 +208,21 @@ actor AISemanticModelManager {
         return total
     }
 
+    /// Lazily loads the model into memory if assets are present, without requiring app restart.
+    func ensureLoaded() async throws {
+        if state.isReady && loadedEmbeddingService != nil {
+            return
+        }
+        guard isModelWeightsPresent() else {
+            throw SemanticModelError.modelNotInstalled
+        }
+        try await loadModel()
+    }
+
     /// Loads model into memory when requested and validates with a bounded smoke check.
     func loadModel() async throws {
         guard isModelWeightsPresent() else {
-            throw NSError(domain: "vreader.semantic", code: 404, userInfo: [NSLocalizedDescriptionKey: "Model not installed"])
+            throw SemanticModelError.modelNotInstalled
         }
         state = .loading
         try Task.checkCancellation()
@@ -202,11 +232,13 @@ actor AISemanticModelManager {
 
         let smokeVector = try await service.embedQuery("smoke test")
         guard smokeVector.count == Self.embeddingDimension, smokeVector.allSatisfy({ $0.isFinite }) else {
-            throw NSError(domain: "vreader.semantic", code: 500, userInfo: [NSLocalizedDescriptionKey: "Semantic model verification failed"])
+            state = .failed("Invalid smoke vector")
+            throw SemanticModelError.inferenceFailed("Semantic model verification failed with invalid smoke vector")
         }
 
         self.loadedEmbeddingService = service
         state = .ready
+        NotificationCenter.default.post(name: .aiAgentConfigurationDidChange, object: nil)
     }
 
     func unloadModel() {

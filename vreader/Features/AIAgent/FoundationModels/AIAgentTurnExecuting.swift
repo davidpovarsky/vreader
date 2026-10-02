@@ -63,13 +63,16 @@ final class CloudProviderTurnExecutor: AIAgentTurnExecuting {
 final class AppleFoundationModelsTurnExecutor: AIAgentTurnExecuting {
     private let backend: any AppleFoundationModelsBackendServicing
     private let executionGate: AIAgentToolExecutionGate
+    private let capabilityStore: AIAgentCapabilityPreferencesStore
 
     init(
         backend: any AppleFoundationModelsBackendServicing = AppleFoundationModelsBackend(),
-        executionGate: AIAgentToolExecutionGate
+        executionGate: AIAgentToolExecutionGate,
+        capabilityStore: AIAgentCapabilityPreferencesStore = .shared
     ) {
         self.backend = backend
         self.executionGate = executionGate
+        self.capabilityStore = capabilityStore
     }
 
     func executeTurn(
@@ -84,12 +87,18 @@ final class AppleFoundationModelsTurnExecutor: AIAgentTurnExecuting {
             registry: registry,
             executionGate: executionGate
         )
+        let capabilities = await capabilityStore.load()
+        let policy = AppleFoundationModelsPolicy(
+            mode: capabilities.foundationModelMode,
+            userConsentedToPCC: capabilities.isPCCConsentGranted
+        )
         let combinedSystem = [systemPrompt, contextText].compactMap { $0 }.joined(separator: "\n\n")
         return try await backend.executeTurn(
             systemPrompt: combinedSystem,
             prompt: prompt,
             profile: .currentSectionAssistant,
-            mode: .onDevice,
+            mode: capabilities.foundationModelMode,
+            policy: policy,
             toolAdapter: toolAdapter
         )
     }

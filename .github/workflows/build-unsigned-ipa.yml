@@ -330,6 +330,9 @@ jobs:
             -only-testing:vreaderTests/AppleFoundationModelsProfileTests \
             -only-testing:vreaderTests/AIAgentSettingsViewModelTests \
             -only-testing:vreaderTests/ChatActionConfirmationCardTests \
+            -only-testing:vreaderTests/Feature177NoMocksGuardTests \
+            -only-testing:vreaderTests/Feature177CorrectivePassTests \
+            -only-testing:vreaderTests/Feature177CorrectivePassMCPAndAppleTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -505,7 +508,10 @@ jobs:
             vreaderTests/AppleFoundationModelsToolAdapterTests \
             vreaderTests/AppleFoundationModelsProfileTests \
             vreaderTests/AIAgentSettingsViewModelTests \
-            vreaderTests/ChatActionConfirmationCardTests
+            vreaderTests/ChatActionConfirmationCardTests \
+            vreaderTests/Feature177NoMocksGuardTests \
+            vreaderTests/Feature177CorrectivePassTests \
+            vreaderTests/Feature177CorrectivePassMCPAndAppleTests
 
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}

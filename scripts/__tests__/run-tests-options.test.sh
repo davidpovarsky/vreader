@@ -45,10 +45,12 @@ run_fake "$TMP/focused.args" \
     TEST_SCHEME=Feature177Core \
     TEST_COLLECT_DIAGNOSTICS=always \
     TEST_DERIVED_DATA_PATH="$TMP/DerivedData" \
+    TEST_CLONED_SOURCE_PACKAGES_DIR_PATH="$TMP/SourcePackages" \
     TEST_RESULT_BUNDLE_PATH="$TMP/result/Feature177.xcresult"
 assert_arg_pair "$TMP/focused.args" -scheme Feature177Core
 assert_arg_pair "$TMP/focused.args" -collect-test-diagnostics always
 assert_arg_pair "$TMP/focused.args" -derivedDataPath "$TMP/DerivedData"
+assert_arg_pair "$TMP/focused.args" -clonedSourcePackagesDirPath "$TMP/SourcePackages"
 assert_arg_pair "$TMP/focused.args" -resultBundlePath "$TMP/result/Feature177.xcresult"
 
 echo "run-tests-options: PASS"

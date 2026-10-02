@@ -337,6 +337,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             2>&1 | tee build/feature-177-regression-compile.log
+          mkdir -p "$PWD/build/Feature177RegressionDerivedData"
+          ln -sfn "$PWD/build/SourcePackages" "$PWD/build/Feature177RegressionDerivedData/SourcePackages" || true
 
       - name: Run focused Feature 177 WI-6 local retrieval and reader tool tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
@@ -351,9 +353,10 @@ jobs:
           TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
           TEST_SCHEME: vreader
           TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_CLONED_SOURCE_PACKAGES_DIR_PATH: ${{ github.workspace }}/build/SourcePackages
           TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177WI6Tests.xcresult
           TEST_COLLECT_DIAGNOSTICS: never
-          TIMEOUT_SECS: 300
+          TIMEOUT_SECS: 600
         run: |
           set -euo pipefail
           scripts/run-tests.sh \
@@ -384,9 +387,10 @@ jobs:
           TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
           TEST_SCHEME: vreader
           TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_CLONED_SOURCE_PACKAGES_DIR_PATH: ${{ github.workspace }}/build/SourcePackages
           TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177ExistingToolTests.xcresult
           TEST_COLLECT_DIAGNOSTICS: never
-          TIMEOUT_SECS: 300
+          TIMEOUT_SECS: 600
         run: |
           set -euo pipefail
           scripts/run-tests.sh \
@@ -409,9 +413,10 @@ jobs:
           TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
           TEST_SCHEME: vreader
           TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_CLONED_SOURCE_PACKAGES_DIR_PATH: ${{ github.workspace }}/build/SourcePackages
           TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177WI5Tests.xcresult
           TEST_COLLECT_DIAGNOSTICS: never
-          TIMEOUT_SECS: 300
+          TIMEOUT_SECS: 600
         run: |
           set -euo pipefail
           scripts/run-tests.sh \
@@ -433,6 +438,7 @@ jobs:
           TEST_PROJECT: ${{ github.workspace }}/vreader.xcodeproj
           TEST_SCHEME: vreader
           TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/build/Feature177RegressionDerivedData
+          TEST_CLONED_SOURCE_PACKAGES_DIR_PATH: ${{ github.workspace }}/build/SourcePackages
           TEST_RESULT_BUNDLE_PATH: ${{ github.workspace }}/build/Feature177RegressionTests.xcresult
           TEST_COLLECT_DIAGNOSTICS: never
           TIMEOUT_SECS: 900

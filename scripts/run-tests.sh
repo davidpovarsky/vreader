@@ -58,6 +58,13 @@ PATH_ARGS=()
 if [ -n "${TEST_DERIVED_DATA_PATH:-}" ]; then
   PATH_ARGS+=(-derivedDataPath "$TEST_DERIVED_DATA_PATH")
 fi
+CLONED_SOURCE_PACKAGES_DIR_PATH="${TEST_CLONED_SOURCE_PACKAGES_DIR_PATH:-}"
+if [ -z "$CLONED_SOURCE_PACKAGES_DIR_PATH" ] && [ -d "$PWD/build/SourcePackages" ]; then
+  CLONED_SOURCE_PACKAGES_DIR_PATH="$PWD/build/SourcePackages"
+fi
+if [ -n "$CLONED_SOURCE_PACKAGES_DIR_PATH" ]; then
+  PATH_ARGS+=(-clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH")
+fi
 if [ -n "${TEST_RESULT_BUNDLE_PATH:-}" ]; then
   mkdir -p "$(dirname "$TEST_RESULT_BUNDLE_PATH")"
   PATH_ARGS+=(-resultBundlePath "$TEST_RESULT_BUNDLE_PATH")

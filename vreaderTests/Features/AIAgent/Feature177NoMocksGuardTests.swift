@@ -72,9 +72,9 @@ struct Feature177NoMocksGuardTests {
 
     @Test("SemanticVectorKey provides deterministic non-Hasher key derivation")
     func semanticVectorKeyIsDeterministic() {
-        let key1 = SemanticVectorKey.deriveKey(from: "book1:chapter1:chunk0")
-        let key2 = SemanticVectorKey.deriveKey(from: "book1:chapter1:chunk0")
-        let key3 = SemanticVectorKey.deriveKey(from: "book1:chapter1:chunk1")
+        let key1 = SemanticVectorKey.deriveKey(for: "book1:chapter1:chunk0")
+        let key2 = SemanticVectorKey.deriveKey(for: "book1:chapter1:chunk0")
+        let key3 = SemanticVectorKey.deriveKey(for: "book1:chapter1:chunk1")
 
         #expect(key1 == key2, "Derived key for same chunk ID must be strictly identical across calls.")
         #expect(key1 != key3, "Derived keys for different chunk IDs must differ.")
@@ -109,22 +109,30 @@ struct Feature177NoMocksGuardTests {
         let reqA = AIActionConfirmationRequest(
             toolName: "delete_note",
             actionDescription: "Delete note A",
-            category: .removeData,
+            permissionCategory: .removeData,
             readerSessionID: sessionA
         )
         let reqB = AIActionConfirmationRequest(
             toolName: "delete_note",
             actionDescription: "Delete note B",
-            category: .removeData,
+            permissionCategory: .removeData,
             readerSessionID: sessionB
         )
 
         let pendingBeforeA = await broker.pendingRequests(for: sessionA)
         #expect(pendingBeforeA.isEmpty)
 
-        // Publish to broker
-        await broker.publish(reqA)
-        await broker.publish(reqB)
+        // Request confirmation on broker in background tasks
+        let taskA = Task { await broker.requestConfirmation(reqA) }
+        let taskB = Task { await broker.requestConfirmation(reqB) }
+
+        for _ in 0..<20 {
+            if await broker.pendingRequests(for: sessionA).count == 1 &&
+               await broker.pendingRequests(for: sessionB).count == 1 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
 
         let pendingA = await broker.pendingRequests(for: sessionA)
         let pendingB = await broker.pendingRequests(for: sessionB)
@@ -135,12 +143,15 @@ struct Feature177NoMocksGuardTests {
         #expect(pendingB.first?.id == reqB.id)
 
         // Cancel session A must not cancel session B
-        await broker.cancelSession(sessionID: sessionA)
+        await broker.cancelSession(sessionA)
         let pendingAfterCancelA = await broker.pendingRequests(for: sessionA)
         let pendingAfterCancelB = await broker.pendingRequests(for: sessionB)
 
         #expect(pendingAfterCancelA.isEmpty)
         #expect(pendingAfterCancelB.count == 1)
+
+        _ = await taskA.value
+        taskB.cancel()
     }
 
     // MARK: - 4. Turn Routing Invariant

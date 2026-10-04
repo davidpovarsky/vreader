@@ -29,6 +29,7 @@ actor MLXE5EmbeddingService: SemanticEmbeddingProviding {
 
     static let queryPrefix = "query: "
     static let passagePrefix = "passage: "
+    static let dimension: Int = 384
 
     nonisolated let dimension: Int
     nonisolated let modelID: String

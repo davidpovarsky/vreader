@@ -40,21 +40,18 @@ private final class MockHighlightPersistence: AnnotationPersisting, HighlightPer
         return HighlightRecord(highlightId: UUID(), locator: locator, anchor: anchor, profileKey: key, selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
     }
     func addHighlight(locator: Locator, selectedText: String, color: String, note: String?, toBookWithKey key: String) async throws -> HighlightRecord {
-        createdHighlights.append((key: key, text: selectedText, color: color))
-        return HighlightRecord(highlightId: UUID(), locator: locator, anchor: nil, profileKey: key, selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
+        try await addHighlight(locator: locator, anchor: nil, selectedText: selectedText, color: color, note: note, toBookWithKey: key)
     }
     func removeHighlight(highlightId: UUID) async throws {}
     func updateHighlightNote(highlightId: UUID, note: String?) async throws {}
     func updateHighlightColor(highlightId: UUID, color: String) async throws {}
     func fetchHighlights(forBookWithKey key: String) async throws -> [HighlightRecord] { [] }
-
     func addAnnotation(locator: Locator, content: String, toBookWithKey key: String) async throws -> AnnotationRecord {
         AnnotationRecord(annotationId: UUID(), locator: locator, profileKey: key, content: content, createdAt: Date(), updatedAt: Date())
     }
     func removeAnnotation(annotationId: UUID) async throws {}
     func updateAnnotation(annotationId: UUID, content: String) async throws {}
     func fetchAnnotations(forBookWithKey key: String) async throws -> [AnnotationRecord] { [] }
-
     func addBookmark(locator: Locator, title: String?, toBookWithKey key: String) async throws -> BookmarkRecord {
         BookmarkRecord(bookmarkId: UUID(), locator: locator, profileKey: key, title: title, createdAt: Date(), updatedAt: Date())
     }
@@ -171,12 +168,17 @@ struct Feature177CorrectivePassMCPAndAppleTests {
 
     // MARK: - 13. Apple Mode & Consent Routing
     @Test func appleBackendConfigResolvesModeAndConsent() {
-        let store = InMemoryAIAgentPreferencesStore()
-        store.preferences.capabilityPreferences.appleFoundationModelRoutingMode = .onDevicePreferred
-        store.preferences.capabilityPreferences.allowPrivateCloudCompute = false
-
-        #expect(store.preferences.capabilityPreferences.appleFoundationModelRoutingMode == .onDevicePreferred)
-        #expect(store.preferences.capabilityPreferences.allowPrivateCloudCompute == false)
+        let prefs = AIAgentCapabilityPreferences(
+            foundationModelMode: .onDevice,
+            isPCCConsentGranted: false
+        )
+        let policy = AppleFoundationModelsPolicy(
+            mode: prefs.foundationModelMode,
+            userConsentedToPCC: prefs.isPCCConsentGranted
+        )
+        #expect(policy.mode == .onDevice)
+        #expect(!policy.isPCCConsentGranted)
+        #expect(!policy.permitsPrivateCloudCompute)
     }
 
     // MARK: - 14. Apple Multi-Turn Context Persistence
@@ -214,25 +216,15 @@ struct Feature177CorrectivePassMCPAndAppleTests {
         // 2. Rejects wrong-book locator
         let wrongFP = DocumentFingerprint(scheme: "test", value: "wrong-book")
         let wrongLocator = Locator.validated(bookFingerprint: wrongFP, href: "ch1.xhtml", textQuote: "Quote")!
-        let wrongData = (try? JSONEncoder().encode(wrongLocator)) ?? Data()
-        let wrongJSON = String(data: wrongData, encoding: .utf8) ?? "{}"
-
-        let wrongRes = await tool.run(.object([
-            "text": .string("Passage"),
-            "locator_json": .string(wrongJSON)
-        ]))
+        let wrongJSON = String(data: (try? JSONEncoder().encode(wrongLocator)) ?? Data(), encoding: .utf8) ?? "{}"
+        let wrongRes = await tool.run(.object(["text": .string("Passage"), "locator_json": .string(wrongJSON)]))
         #expect(wrongRes.isError)
         #expect(wrongRes.content.contains("does not match current book fingerprint"))
 
         // 3. Accepts valid anchored locator
         let validLocator = Locator.validated(bookFingerprint: fp, href: "ch1.xhtml", textQuote: "The golden passage")!
-        let validData = (try? JSONEncoder().encode(validLocator)) ?? Data()
-        let validJSON = String(data: validData, encoding: .utf8) ?? "{}"
-
-        let successRes = await tool.run(.object([
-            "text": .string("The golden passage"),
-            "locator_json": .string(validJSON)
-        ]))
+        let validJSON = String(data: (try? JSONEncoder().encode(validLocator)) ?? Data(), encoding: .utf8) ?? "{}"
+        let successRes = await tool.run(.object(["text": .string("The golden passage"), "locator_json": .string(validJSON)]))
         #expect(!successRes.isError)
         #expect(successRes.content.contains("Added highlight"))
         #expect(persistence.createdHighlights.count == 1)
@@ -251,7 +243,7 @@ struct Feature177CorrectivePassMCPAndAppleTests {
     }
 
     // MARK: - 17. Failed-Tool Provenance Exclusion
-    @Test func failedToolCallDiscardsStagedProvenance() {
+    @Test func failedToolCallDiscardsStagedProvenance() async {
         let sink = ProvenanceTapSink()
         let callID = "call-failing-tool"
 
@@ -261,19 +253,22 @@ struct Feature177CorrectivePassMCPAndAppleTests {
             retrievalMethod: .semanticSearch
         )
 
-        sink.stage(prov, for: callID)
-        #expect(sink.allSources().isEmpty, "Staged source must not be visible in allSources before commit.")
+        await sink.stage(prov, for: callID)
+        let initial = await sink.allSources()
+        #expect(initial.isEmpty, "Staged source must not be visible in allSources before commit.")
 
         // Tool execution encounters error -> discard
-        sink.discardSources(for: callID)
-        #expect(sink.allSources().isEmpty, "Discarded source must not be committed.")
+        await sink.discardSources(for: callID)
+        let afterDiscard = await sink.allSources()
+        #expect(afterDiscard.isEmpty, "Discarded source must not be committed.")
 
         // Successful call -> commit
         let successCallID = "call-success-tool"
-        sink.stage(prov, for: successCallID)
-        sink.commitSources(for: successCallID)
-        #expect(sink.allSources().count == 1)
-        #expect(sink.allSources().first?.id == prov.id)
+        await sink.stage(prov, for: successCallID)
+        await sink.commitSources(for: successCallID)
+        let final = await sink.allSources()
+        #expect(final.count == 1)
+        #expect(final.first?.id == prov.id)
     }
 
     // MARK: - 18. Expanded No-Fake-Completion Guard

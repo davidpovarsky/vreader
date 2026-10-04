@@ -60,17 +60,19 @@ struct AgenticResult: Sendable, Equatable {
     }
 }
 
+typealias ProvenanceTapSink = AgenticChatDriver.ProvenanceTapSink
+
 /// The bounded send → tool → result → re-send loop.
 struct AgenticChatDriver: Sendable {
 
     private static let log = Logger(subsystem: "com.vreader.app", category: "AgenticChatDriver")
 
-    private actor ProvenanceTapSink: AIToolEventSink {
+    actor ProvenanceTapSink: AIToolEventSink {
         let downstream: (any AIToolEventSink)?
         private var stagedSourcesByCallID: [String: [AISourceProvenance]] = [:]
         private var committedSources: [AISourceProvenance] = []
 
-        init(downstream: (any AIToolEventSink)?) {
+        init(downstream: (any AIToolEventSink)? = nil) {
             self.downstream = downstream
         }
 
@@ -79,6 +81,10 @@ struct AgenticChatDriver: Sendable {
                 stagedSourcesByCallID[event.toolCallID, default: []].append(contentsOf: event.sources)
             }
             await downstream?.emit(event)
+        }
+
+        func stage(_ source: AISourceProvenance, for callID: String) {
+            stagedSourcesByCallID[callID, default: []].append(source)
         }
 
         func commitSources(for callID: String) {
@@ -92,6 +98,10 @@ struct AgenticChatDriver: Sendable {
         }
 
         func collectedSources() -> [AISourceProvenance] {
+            committedSources
+        }
+
+        func allSources() -> [AISourceProvenance] {
             committedSources
         }
     }

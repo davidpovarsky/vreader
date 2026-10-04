@@ -9,54 +9,6 @@ import CryptoKit
 import USearch
 #endif
 
-enum SemanticIndexStoreError: Error, LocalizedError, Sendable, Equatable {
-    case dimensionMismatch(expected: Int, actual: Int)
-    case indexCorrupted
-    case fileOperationFailed(String)
-    case indexUnavailable
-    case operationFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .dimensionMismatch(let expected, let actual):
-            return "Vector dimension mismatch: expected \(expected), got \(actual)."
-        case .indexCorrupted:
-            return "Vector index file is corrupted or incompatible."
-        case .fileOperationFailed(let msg):
-            return "Vector index file operation failed: \(msg)"
-        case .indexUnavailable:
-            return "USearch vector index engine is unavailable."
-        case .operationFailed(let msg):
-            return "Vector index operation failed: \(msg)"
-        }
-    }
-}
-
-struct SemanticIndexStoreResult: Sendable, Equatable {
-    let key: UInt64
-    let chunkID: String
-    let distance: Float
-    let similarity: Float
-}
-
-struct SemanticIndexInsertItem: Sendable {
-    let chunkID: String
-    let bookFingerprintKey: String
-    let vector: [Float]
-
-    init(chunkID: String, bookFingerprintKey: String, vector: [Float]) {
-        self.chunkID = chunkID
-        self.bookFingerprintKey = bookFingerprintKey
-        self.vector = vector
-    }
-
-    init(key: UInt64 = 0, chunkID: String, bookFingerprintKey: String, vector: [Float]) {
-        self.chunkID = chunkID
-        self.bookFingerprintKey = bookFingerprintKey
-        self.vector = vector
-    }
-}
-
 actor SemanticIndexStore {
     let dimension: Int
     private let indexDirectory: URL
@@ -110,6 +62,7 @@ actor SemanticIndexStore {
                 try? fileManager.removeItem(at: vPath)
             }
         }
+        try? idx?.reserve(64)
         self.index = idx
         #endif
 
@@ -154,6 +107,7 @@ actor SemanticIndexStore {
                 try? fileManager.removeItem(at: vectorsPath)
             }
         }
+        try idx.reserve(64)
         self.index = idx
         #endif
     }
@@ -168,6 +122,12 @@ actor SemanticIndexStore {
 
         #if canImport(USearch)
         guard let idx = index else { throw SemanticIndexStoreError.indexUnavailable }
+        let currentCap = (try? idx.capacity) ?? 0
+        let currentCount = (try? idx.count) ?? 0
+        if currentCount + 1 > Int(currentCap) {
+            let targetCap = max(UInt32((currentCount + 1) * 2), UInt32(currentCap * 2), 64)
+            try idx.reserve(targetCap)
+        }
         try idx.add(key: key, vector: vector)
         #else
         throw SemanticIndexStoreError.indexUnavailable
@@ -183,6 +143,13 @@ actor SemanticIndexStore {
         var assignedKeys: [String: UInt64] = [:]
         #if canImport(USearch)
         guard let idx = index else { throw SemanticIndexStoreError.indexUnavailable }
+        let currentCap = (try? idx.capacity) ?? 0
+        let currentCount = (try? idx.count) ?? 0
+        let needed = currentCount + coherentItems.count
+        if needed > Int(currentCap) {
+            let targetCap = max(UInt32(needed * 2), UInt32(currentCap * 2), 64)
+            try idx.reserve(targetCap)
+        }
         for item in coherentItems {
             guard item.vector.count == dimension else {
                 throw SemanticIndexStoreError.dimensionMismatch(expected: dimension, actual: item.vector.count)

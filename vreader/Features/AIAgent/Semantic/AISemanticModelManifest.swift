@@ -70,7 +70,8 @@ struct AISemanticModelManifest: Codable, Sendable, Equatable {
         for (filename, spec) in expectedFiles {
             let fileURL = directory.appendingPathComponent(filename)
             guard fm.fileExists(atPath: fileURL.path) else { return false }
-            let actualSize = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            let attrs = try? fm.attributesOfItem(atPath: fileURL.path)
+            let actualSize = (attrs?[.size] as? NSNumber)?.int64Value ?? Int64((try? Data(contentsOf: fileURL).count) ?? 0)
             guard actualSize == spec.byteCount else { return false }
             guard let data = try? Data(contentsOf: fileURL) else { return false }
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

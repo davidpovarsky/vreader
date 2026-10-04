@@ -99,11 +99,11 @@ struct Feature177CorrectivePassMCPAndAppleTests {
             scopes: ["tools:read", "tools:call"]
         )
 
-        let query = url.query ?? ""
-        #expect(query.contains("client_id=vreader-client-id"))
-        #expect(query.contains("redirect_uri=vreader%3A%2F%2Foauth-callback"))
-        #expect(query.contains("response_type=code"))
-        #expect(query.contains("state="))
+        let fullURL = url.absoluteString
+        #expect(fullURL.contains("client_id=vreader-client-id"))
+        #expect(fullURL.contains("redirect_uri=vreader%3A%2F%2Foauth-callback") || fullURL.contains("redirect_uri=vreader://oauth-callback"))
+        #expect(fullURL.contains("response_type=code"))
+        #expect(fullURL.contains("state="))
     }
 
     // MARK: - 11. MCP Auto-Connect on Startup

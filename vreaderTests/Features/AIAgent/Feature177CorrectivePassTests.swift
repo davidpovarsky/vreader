@@ -3,6 +3,7 @@
 
 import Testing
 import Foundation
+import CryptoKit
 @testable import vreader
 
 @Suite("Feature177CorrectivePassTests — Semantic & Search (Req 1-8)")
@@ -63,7 +64,7 @@ struct Feature177CorrectivePassTests {
         let testFile = tempDir.appendingPathComponent("weights.npz")
         try content.write(to: testFile, atomically: true, encoding: .utf8)
 
-        let sha = "e6057dc6be31bb7be2ebc165efb598b0f805a8f4c281358f2be7eecdd7bb3a0d" // sha256("hello-e5-weights")
+        let sha = SHA256.hash(data: Data(content.utf8)).map { String(format: "%02x", $0) }.joined()
         let manifest = AISemanticModelManifest(
             modelName: "e5-small-v2",
             version: "1.0",

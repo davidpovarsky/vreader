@@ -92,7 +92,7 @@ struct HybridSearchCurrentBookTool: AIContextualTool {
                 page: 0,
                 pageSize: 12
             ) {
-                let currentTitle = await context.bookTitle
+                let currentTitle = await self.context.bookTitle
                 lexicalSnippets = lexPage.results.map { res in
                     SearchSnippet(
                         bookFingerprintKey: snapshot.bookFingerprint.canonicalKey,

@@ -21,18 +21,23 @@ struct AppleFoundationModelsToolAdapter: Sendable {
     /// Executes a tool call parsed from Apple Foundation Models output.
     func invoke(
         toolName: String,
-        arguments: [String: Any],
+        input: JSONValue,
         callID: String = UUID().uuidString
     ) async -> ToolResult {
+        let summary: String
+        if case .object(let dict) = input {
+            summary = dict.keys.joined(separator: ", ")
+        } else {
+            summary = ""
+        }
         await eventSink.emit(AIToolEvent(
             toolCallID: callID,
             toolName: toolName,
             phase: .running,
-            argumentSummary: "\(arguments.keys.joined(separator: ", "))"
+            argumentSummary: summary
         ))
 
-        let jsonInput = JSONValue(foundation: arguments)
-        let toolCall = ToolCall(id: callID, name: toolName, input: jsonInput)
+        let toolCall = ToolCall(id: callID, name: toolName, input: input)
 
         guard registry.hasTool(named: toolName) else {
             let notFound = ToolResult(toolUseID: callID, content: "Tool not found: \(toolName)", isError: true)
@@ -64,6 +69,15 @@ struct AppleFoundationModelsToolAdapter: Sendable {
         }
 
         return result
+    }
+
+    /// Convenience overload accepting Foundation dictionary arguments.
+    func invoke(
+        toolName: String,
+        arguments: [String: Any],
+        callID: String = UUID().uuidString
+    ) async -> ToolResult {
+        await invoke(toolName: toolName, input: JSONValue(foundation: arguments), callID: callID)
     }
 
     init(

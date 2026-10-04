@@ -107,7 +107,7 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
                     try Task.checkCancellation()
                     let result = await adapter.invoke(
                         toolName: toolCall.name,
-                        arguments: toolCall.arguments,
+                        input: toolCall.input,
                         callID: toolCall.id
                     )
                     currentPrompt = "Tool result for \(toolCall.name):\n\(result.content)"
@@ -134,10 +134,10 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
 #endif
     }
 
-    private func parseToolCall(
+    private nonisolated func parseToolCall(
         _ content: String,
         registry: AIToolRegistry
-    ) -> (id: String, name: String, arguments: [String: Any])? {
+    ) -> (id: String, name: String, input: JSONValue)? {
         // Match JSON object indicating a tool call: {"tool": "...", "arguments": {...}}
         guard let data = content.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -149,6 +149,6 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
         }
         let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) ?? [:]
         let callID = (json["id"] as? String) ?? UUID().uuidString
-        return (id: callID, name: toolName, arguments: args)
+        return (id: callID, name: toolName, input: JSONValue(foundation: args))
     }
 }

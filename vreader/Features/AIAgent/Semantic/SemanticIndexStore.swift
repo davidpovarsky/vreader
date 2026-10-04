@@ -15,6 +15,7 @@ actor SemanticIndexStore {
     private let fileManager = FileManager.default
     private var keyTable = SemanticVectorKeyTable()
     private var keyToBookKey: [UInt64: String] = [:]
+    private var reservedCapacity: Int = 64
 
     #if canImport(USearch)
     private var index: USearchIndex?
@@ -62,7 +63,7 @@ actor SemanticIndexStore {
                 try? fileManager.removeItem(at: vPath)
             }
         }
-        try? idx?.reserve(64)
+        try? idx?.reserve(UInt32(reservedCapacity))
         self.index = idx
         #endif
 
@@ -71,6 +72,7 @@ actor SemanticIndexStore {
            let snapshot = try? JSONDecoder().decode(PersistedMappings.self, from: data) {
             self.keyTable = SemanticVectorKeyTable(chunkIDToKey: snapshot.chunkIDToKey, keyToChunkID: snapshot.keyToChunkID)
             self.keyToBookKey = snapshot.keyToBookKey
+            self.reservedCapacity = max(self.reservedCapacity, snapshot.keyToBookKey.count)
         }
     }
 
@@ -107,7 +109,7 @@ actor SemanticIndexStore {
                 try? fileManager.removeItem(at: vectorsPath)
             }
         }
-        try idx.reserve(64)
+        try idx.reserve(UInt32(reservedCapacity))
         self.index = idx
         #endif
     }
@@ -122,11 +124,9 @@ actor SemanticIndexStore {
 
         #if canImport(USearch)
         guard let idx = index else { throw SemanticIndexStoreError.indexUnavailable }
-        let currentCap = (try? idx.capacity) ?? 0
-        let currentCount = (try? idx.count) ?? 0
-        if currentCount + 1 > Int(currentCap) {
-            let targetCap = max(UInt32((currentCount + 1) * 2), UInt32(currentCap * 2), 64)
-            try idx.reserve(targetCap)
+        if keyToBookKey.count > reservedCapacity {
+            reservedCapacity = max(reservedCapacity * 2, keyToBookKey.count * 2, 64)
+            try idx.reserve(UInt32(reservedCapacity))
         }
         try idx.add(key: key, vector: vector)
         #else
@@ -143,12 +143,10 @@ actor SemanticIndexStore {
         var assignedKeys: [String: UInt64] = [:]
         #if canImport(USearch)
         guard let idx = index else { throw SemanticIndexStoreError.indexUnavailable }
-        let currentCap = (try? idx.capacity) ?? 0
-        let currentCount = (try? idx.count) ?? 0
-        let needed = currentCount + coherentItems.count
-        if needed > Int(currentCap) {
-            let targetCap = max(UInt32(needed * 2), UInt32(currentCap * 2), 64)
-            try idx.reserve(targetCap)
+        let needed = keyToBookKey.count + coherentItems.count
+        if needed > reservedCapacity {
+            reservedCapacity = max(reservedCapacity * 2, needed * 2, 64)
+            try idx.reserve(UInt32(reservedCapacity))
         }
         for item in coherentItems {
             guard item.vector.count == dimension else {
@@ -188,6 +186,7 @@ actor SemanticIndexStore {
     func clear() throws {
         keyTable.clear()
         keyToBookKey.removeAll()
+        reservedCapacity = 64
         #if canImport(USearch)
         try initIndex()
         #endif
@@ -210,6 +209,7 @@ actor SemanticIndexStore {
         guard fileManager.fileExists(atPath: vectorsPath.path) else { return }
         guard let idx = index else { throw SemanticIndexStoreError.indexCorrupted }
         try idx.load(path: vectorsPath.path)
+        reservedCapacity = max(reservedCapacity, keyToBookKey.count)
         #endif
     }
 
@@ -258,7 +258,7 @@ actor SemanticIndexStore {
         guard count > 0 else { return [] }
 
         #if canImport(USearch)
-        guard let idx = index, try idx.count > 0 else { return [] }
+        guard let idx = index, !keyToBookKey.isEmpty else { return [] }
         // Retrieve 3x candidates to allow for book filtering
         let fetchCount = bookFingerprintKey == nil ? count : max(count * 3, 32)
         let searchResult = try idx.search(vector: queryVector, count: fetchCount)

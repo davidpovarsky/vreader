@@ -129,6 +129,7 @@ struct SemanticChunkMetadata: Codable, Sendable, Equatable, Identifiable {
         pageIndex: Int? = nil,
         href: String? = nil,
         snippet: String,
+        charRange: Range<Int>? = nil,
         localStartUTF16: Int? = nil,
         localEndUTF16: Int? = nil,
         globalStartUTF16: Int? = nil,
@@ -151,8 +152,8 @@ struct SemanticChunkMetadata: Codable, Sendable, Equatable, Identifiable {
         self.href = href
         self.snippet = snippet
         self.locator = locator
-        self.localStartUTF16 = localStartUTF16
-        self.localEndUTF16 = localEndUTF16
+        self.localStartUTF16 = localStartUTF16 ?? charRange?.lowerBound
+        self.localEndUTF16 = localEndUTF16 ?? charRange?.upperBound
         self.globalStartUTF16 = globalStartUTF16
         self.globalEndUTF16 = globalEndUTF16
         self.isOCRDerived = isOCRDerived

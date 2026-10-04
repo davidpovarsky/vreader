@@ -73,7 +73,7 @@ struct SemanticIndexStoreTests {
         try await store.add(chunkID: "c2", vector: [0.0, 1.0], bookFingerprintKey: "b1")
         #expect(await store.count() == 2)
 
-        await store.clear()
+        try await store.clear()
         #expect(await store.count() == 0)
     }
 }

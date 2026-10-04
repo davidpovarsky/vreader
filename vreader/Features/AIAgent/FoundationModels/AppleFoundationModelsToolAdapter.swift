@@ -80,6 +80,10 @@ struct AppleFoundationModelsToolAdapter: Sendable {
         await invoke(toolName: toolName, input: JSONValue(foundation: arguments), callID: callID)
     }
 
+    var definitions: [ToolDefinition] {
+        registry.definitions()
+    }
+
     init(
         tool: any AITool,
         executionGate: AIAgentToolExecutionGate = .productionUnavailable(),
@@ -90,16 +94,31 @@ struct AppleFoundationModelsToolAdapter: Sendable {
         self.eventSink = eventSink
     }
 
+    init(
+        tools: [any AITool],
+        executionGate: AIAgentToolExecutionGate = .productionUnavailable(),
+        eventSink: any AIToolEventSink = NoOpAIToolEventSink.shared
+    ) {
+        self.registry = AIToolRegistry(tools)
+        self.executionGate = executionGate
+        self.eventSink = eventSink
+    }
+
     /// Executes the first registered tool using raw JSON string arguments.
     func execute(argumentsJSON: String, callID: String = UUID().uuidString) async -> String {
-        guard let data = argumentsJSON.data(using: .utf8),
-              let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return "Invalid JSON arguments"
-        }
         guard let toolName = registry.definitions().first?.name else {
             return "No tool registered"
         }
-        let result = await invoke(toolName: toolName, arguments: jsonObject, callID: callID)
+        return await executeToolCall(name: toolName, arguments: argumentsJSON, callID: callID)
+    }
+
+    /// Executes a registered tool by name with a JSON arguments string.
+    func executeToolCall(name: String, arguments: String, callID: String = UUID().uuidString) async -> String {
+        guard let data = arguments.data(using: .utf8),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "Invalid JSON arguments"
+        }
+        let result = await invoke(toolName: name, input: JSONValue(foundation: jsonObject), callID: callID)
         return result.content
     }
 }

@@ -62,6 +62,7 @@ enum PDFOCRError: Error, LocalizedError, Sendable {
     case renderingFailed
     case ocrRecognitionFailed(String)
     case unsupportedLanguage(String)
+    case emptyTextDetected(page: Int)
 
     var errorDescription: String? {
         switch self {
@@ -75,6 +76,8 @@ enum PDFOCRError: Error, LocalizedError, Sendable {
             return "Vision OCR text recognition failed: \(msg)"
         case .unsupportedLanguage(let lang):
             return "The requested recognition language (\(lang)) is not supported on this device."
+        case .emptyTextDetected(let page):
+            return "No text detected on page \(page + 1). Both native text and Vision OCR were empty."
         }
     }
 }

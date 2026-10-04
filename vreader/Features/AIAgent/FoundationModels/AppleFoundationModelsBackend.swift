@@ -151,4 +151,23 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
         let callID = (json["id"] as? String) ?? UUID().uuidString
         return (id: callID, name: toolName, input: JSONValue(foundation: args))
     }
+
+    /// Preserves bounded multi-turn conversation transcripts without persisting framework objects.
+    final class SessionTranscript: @unchecked Sendable {
+        struct Turn: Sendable {
+            let role: String
+            let text: String
+        }
+
+        let sessionID: String
+        private(set) var turns: [Turn] = []
+
+        init(sessionID: String) {
+            self.sessionID = sessionID
+        }
+
+        func append(role: String, text: String) {
+            turns.append(Turn(role: role, text: text))
+        }
+    }
 }

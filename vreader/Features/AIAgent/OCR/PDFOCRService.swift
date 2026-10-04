@@ -84,11 +84,7 @@ actor PDFOCRService: PDFOCRServicing {
 
         let chosenText = ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nativeText : ocrText
         guard !chosenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw NSError(
-                domain: "vreader.ocr",
-                code: 404,
-                userInfo: [NSLocalizedDescriptionKey: "No text detected on page \(pageIndex + 1). Both native text and Vision OCR were empty."]
-            )
+            throw PDFOCRError.emptyTextDetected(page: pageIndex)
         }
 
         let result = PDFOCRResult(
@@ -101,6 +97,40 @@ actor PDFOCRService: PDFOCRServicing {
         )
         await cache.set(result)
         return result
+    }
+
+    /// Performs OCR directly on a rendered image, failing if blank or unrecognized.
+    func performOCR(on image: CGImage, pageIndex: Int = 0) async throws -> String {
+        try Task.checkCancellation()
+        #if canImport(Vision)
+        return try await withCheckedThrowingContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                if let error {
+                    continuation.resume(throwing: PDFOCRError.ocrRecognitionFailed(error.localizedDescription))
+                    return
+                }
+                guard let observations = request.results as? [VNRecognizedTextObservation], !observations.isEmpty else {
+                    continuation.resume(throwing: PDFOCRError.emptyTextDetected(page: pageIndex))
+                    return
+                }
+                let recognized = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                if recognized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    continuation.resume(throwing: PDFOCRError.emptyTextDetected(page: pageIndex))
+                } else {
+                    continuation.resume(returning: recognized)
+                }
+            }
+            request.recognitionLevel = .accurate
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(throwing: PDFOCRError.ocrRecognitionFailed(error.localizedDescription))
+            }
+        }
+        #else
+        throw PDFOCRError.ocrRecognitionFailed("Vision framework unavailable")
+        #endif
     }
 
     private func performVisionOCR(pageIndex: Int, facade: any AIPDFDocumentFacading) async throws -> String {

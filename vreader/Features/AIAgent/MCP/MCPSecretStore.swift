@@ -11,6 +11,10 @@ struct MCPSecretStore: Sendable {
         self.keychain = keychain
     }
 
+    init(serviceName: String) {
+        self.init(keychain: KeychainService(serviceIdentifier: serviceName))
+    }
+
     private func tokenAccount(for profileID: UUID, endpoint: URL? = nil) -> String {
         let host = endpoint?.host?.lowercased() ?? "default"
         return "mcp.token.\(profileID.uuidString).\(host)"
@@ -25,12 +29,24 @@ struct MCPSecretStore: Sendable {
         try keychain.saveString(token, forAccount: tokenAccount(for: profileID, endpoint: endpoint))
     }
 
+    func saveToken(_ token: String, for profileID: UUID, endpointURL: URL? = nil) throws {
+        try saveToken(token, forProfileID: profileID, endpoint: endpointURL)
+    }
+
     func fetchToken(forProfileID profileID: UUID, endpoint: URL? = nil) -> String? {
         try? keychain.readString(forAccount: tokenAccount(for: profileID, endpoint: endpoint))
     }
 
+    func token(for profileID: UUID, endpointURL: URL? = nil) throws -> String? {
+        fetchToken(forProfileID: profileID, endpoint: endpointURL)
+    }
+
     func deleteToken(forProfileID profileID: UUID, endpoint: URL? = nil) throws {
         try keychain.delete(forAccount: tokenAccount(for: profileID, endpoint: endpoint))
+    }
+
+    func deleteToken(for profileID: UUID, endpointURL: URL? = nil) throws {
+        try deleteToken(forProfileID: profileID, endpoint: endpointURL)
     }
 
     func saveOAuthTokens(accessToken: String, refreshToken: String?, forProfileID profileID: UUID, endpoint: URL? = nil) throws {

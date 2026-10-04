@@ -110,33 +110,31 @@ struct Feature177CorrectivePassMCPAndAppleTests {
 
     // MARK: - 11. MCP Auto-Connect on Startup
     @Test func mcpClientManagerAutoConnectsEnabledProfiles() async throws {
-        let store = MCPServerProfileStore(userDefaultsSuite: "test-mcp-\(UUID().uuidString)")
-        var profile = MCPServerProfile(name: "AutoServer", transport: .sse(url: URL(string: "https://mcp.test/sse")!))
-        profile.isEnabled = true
-        store.save(profile)
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        final class MockConn: MCPConnecting, @unchecked Sendable {
-            let profile: MCPServerProfile
-            var isConnected: Bool = false
-            init(profile: MCPServerProfile) { self.profile = profile }
-            func connect() async throws { isConnected = true }
-            func disconnect() async { isConnected = false }
-            func listTools() async throws -> [MCPToolDefinition] { [] }
-            func callTool(name: String, arguments: [String : Any]) async throws -> MCPToolCallResult {
-                MCPToolCallResult(content: [.text("ok")], isError: false)
-            }
-        }
+        let store = MCPServerProfileStore(storageDirectory: tempDir)
+        let profile = MCPServerProfile(
+            name: "AutoServer",
+            endpointURL: URL(string: "https://mcp.test/mcp")!,
+            isEnabled: true
+        )
+        try await store.saveProfile(profile)
 
+        let mockTool = ToolDefinition(name: "test_mcp_tool", description: "A test tool")
         let mgr = MCPClientManager(
             profileStore: store,
-            secretStore: MCPSecretStore(serviceName: "test-secrets"),
-            connectionFactory: { p, _ in MockConn(profile: p) }
+            secretStore: MCPSecretStore(),
+            connectionFactory: { p in MockMCPConnection(profile: p, mockTools: [mockTool]) }
         )
 
-        await mgr.autoConnectEnabledProfiles()
-        let active = await mgr.activeConnections()
-        #expect(active.count == 1)
-        #expect(active.first?.profile.id == profile.id)
+        let discovered = await mgr.discoverEnabledTools()
+        #expect(discovered.count == 1)
+        #expect(discovered.first?.profile.id == profile.id)
+        #expect(discovered.first?.tool.name == "test_mcp_tool")
+        let status = await mgr.status(for: profile.id)
+        #expect(status.isConnected == true)
     }
 
     // MARK: - 12. Apple Native Tool Dispatch Adapter

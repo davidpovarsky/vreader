@@ -47,8 +47,8 @@ actor MCPOAuthCoordinator {
         redirectURI: String = ""
     ) -> (state: String, codeChallenge: String, verifier: String) {
         let state = UUID().uuidString
-        let verifier = generateCodeVerifier()
-        let challenge = generateCodeChallenge(from: verifier)
+        let verifier = Self.generateCodeVerifier()
+        let challenge = Self.generateCodeChallenge(from: verifier)
         pendingStates[state] = PendingOAuthState(
             verifier: verifier,
             profileID: profileID,
@@ -56,6 +56,35 @@ actor MCPOAuthCoordinator {
             redirectURI: redirectURI
         )
         return (state: state, codeChallenge: challenge, verifier: verifier)
+    }
+
+    /// Prepares an OAuth authorization URL including client_id and redirect_uri.
+    nonisolated func startOAuth(
+        profileID: UUID,
+        authorizationURL: URL,
+        tokenURL: URL,
+        clientID: String,
+        redirectURI: String,
+        scopes: [String] = []
+    ) throws -> URL {
+        var components = URLComponents(url: authorizationURL, resolvingAgainstBaseURL: true)
+        var queryItems = components?.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "response_type", value: "code"))
+        queryItems.append(URLQueryItem(name: "client_id", value: clientID))
+        queryItems.append(URLQueryItem(name: "redirect_uri", value: redirectURI))
+        queryItems.append(URLQueryItem(name: "state", value: UUID().uuidString))
+        let verifier = Self.generateCodeVerifier()
+        let challenge = Self.generateCodeChallenge(from: verifier)
+        queryItems.append(URLQueryItem(name: "code_challenge", value: challenge))
+        queryItems.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+        if !scopes.isEmpty {
+            queryItems.append(URLQueryItem(name: "scope", value: scopes.joined(separator: " ")))
+        }
+        components?.queryItems = queryItems
+        guard let url = components?.url else {
+            throw NSError(domain: "vreader.mcp.oauth", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+        }
+        return url
     }
 
     /// Launches an ASWebAuthenticationSession to authenticate the user and completes token exchange.
@@ -221,7 +250,7 @@ actor MCPOAuthCoordinator {
         pendingStates = pendingStates.filter { $0.value.profileID != profileID }
     }
 
-    private func generateCodeVerifier() -> String {
+    private static func generateCodeVerifier() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         return Data(bytes).base64EncodedString()
@@ -230,7 +259,7 @@ actor MCPOAuthCoordinator {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private func generateCodeChallenge(from verifier: String) -> String {
+    private static func generateCodeChallenge(from verifier: String) -> String {
         let hash = SHA256.hash(data: Data(verifier.utf8))
         return Data(hash).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

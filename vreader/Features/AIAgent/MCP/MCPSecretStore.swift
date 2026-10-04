@@ -8,7 +8,7 @@ struct MCPSecretStore: Sendable {
     private let keychain: KeychainService
 
     private static let fallbackLock = NSLock()
-    private static var inMemoryFallback: [String: String] = [:]
+    private nonisolated(unsafe) static var inMemoryFallback: [String: String] = [:]
 
     init(keychain: KeychainService = KeychainService(serviceIdentifier: "com.vreader.mcp.secrets")) {
         self.keychain = keychain

@@ -73,7 +73,7 @@ struct AIDocumentModelsTests {
             mcpServerName: nil
         )
 
-        #expect(provenance.locator.page == 7)
+        #expect(provenance.locator?.page == 7)
         #expect(provenance.retrievalMethod == .semanticSearch)
         #expect(provenance.aheadOfReader)
         #expect(provenance.toolCallID == "tool-42")

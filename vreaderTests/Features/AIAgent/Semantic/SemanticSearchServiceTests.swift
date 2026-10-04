@@ -14,7 +14,7 @@ struct SemanticSearchServiceTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let metadataStore = SemanticIndexMetadataStore(storageDirectory: tempDir)
-        let indexStore = SemanticIndexStore(dimension: 384)
+        let indexStore = SemanticIndexStore(dimension: 384, indexDirectory: tempDir)
         let mockEmbedding = MockSemanticEmbeddingService()
         let service = SemanticSearchService(
             embeddingService: mockEmbedding,
@@ -101,7 +101,7 @@ struct SemanticSearchServiceTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let metadataStore = SemanticIndexMetadataStore(storageDirectory: tempDir)
-        let indexStore = SemanticIndexStore(dimension: 384)
+        let indexStore = SemanticIndexStore(dimension: 384, indexDirectory: tempDir)
         let mockEmbedding = MockSemanticEmbeddingService()
         let service = SemanticSearchService(
             embeddingService: mockEmbedding,

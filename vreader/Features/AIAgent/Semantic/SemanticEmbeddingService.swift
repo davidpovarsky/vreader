@@ -72,7 +72,12 @@ struct MockSemanticEmbeddingService: SemanticEmbeddingProviding {
 
     private func generateVector(for text: String) -> [Float] {
         var vector = [Float](repeating: 0.0, count: dimension)
-        let clean = text.lowercased()
+        var clean = text.lowercased()
+        if clean.hasPrefix("query:") {
+            clean = String(clean.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+        } else if clean.hasPrefix("passage:") {
+            clean = String(clean.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+        }
         let words = clean.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
 
         for word in words {

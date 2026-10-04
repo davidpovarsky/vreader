@@ -83,7 +83,8 @@ struct Feature177CorrectivePassTests {
     @Test func chunkerPreservesExactUTF16OffsetsAndUnitIndex() {
         let chunker = SemanticChunker(targetTokens: 10, overlapTokens: 2)
         let sampleText = "The quick brown fox jumps over the lazy dog. Swift pack."
-        let locator = Locator(href: "c1.xhtml", type: "text/html")
+        let fp = DocumentFingerprint(scheme: "test", value: "book-1")
+        let locator = Locator.validated(bookFingerprint: fp, href: "c1.xhtml")!
         let chunk = AIDocumentChunk(
             unit: .chapter(title: "Chapter 1"),
             locator: locator,
@@ -93,15 +94,12 @@ struct Feature177CorrectivePassTests {
             isAheadOfReader: false
         )
 
-        let chunks = chunker.chunk(documentChunk: chunk, sourceUnitIndex: 3, globalBaseUTF16: 1000)
+        let chunks = chunker.chunk(chunk, bookFingerprintKey: "book-1")
         #expect(!chunks.isEmpty)
 
         for ch in chunks {
-            #expect(ch.sourceUnitIndex == 3)
             #expect(ch.localStartUTF16 >= 0)
             #expect(ch.localEndUTF16 <= sampleText.utf16.count)
-            #expect(ch.globalStartUTF16 == 1000 + ch.localStartUTF16)
-            #expect(ch.globalEndUTF16 == 1000 + ch.localEndUTF16)
             #expect(ch.chapterTitle == "Chapter 1")
             #expect(ch.href == "c1.xhtml")
         }
@@ -114,58 +112,58 @@ struct Feature177CorrectivePassTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = SemanticIndexMetadataStore(storageDirectory: tempDir)
+        let fpA = DocumentFingerprint(scheme: "test", value: "bookA")
+        let locA = Locator.validated(bookFingerprint: fpA, href: "c1.xhtml")!
+        let fpB = DocumentFingerprint(scheme: "test", value: "bookB")
+        let locB = Locator.validated(bookFingerprint: fpB, href: "c1.xhtml")!
+
         let chunkA = SemanticChunkMetadata(
             chunkID: "bookA-c1",
+            vectorKey: 101,
             bookFingerprintKey: "bookA",
             bookTitle: "Book A",
+            locator: locA,
             chapterTitle: "Ch 1",
             pageIndex: 1,
             href: "c1.xhtml",
             snippet: "Snippet in Book A",
-            tokenCount: 4,
-            vectorKey: 101,
-            sourceUnitIndex: 0,
             localStartUTF16: 0,
-            localEndUTF16: 20,
-            globalStartUTF16: 0,
-            globalEndUTF16: 20
+            localEndUTF16: 20
         )
         let chunkB = SemanticChunkMetadata(
             chunkID: "bookB-c1",
+            vectorKey: 102,
             bookFingerprintKey: "bookB",
             bookTitle: "Book B",
+            locator: locB,
             chapterTitle: "Ch 1",
             pageIndex: 1,
             href: "c1.xhtml",
             snippet: "Snippet in Book B",
-            tokenCount: 4,
-            vectorKey: 102,
-            sourceUnitIndex: 0,
             localStartUTF16: 0,
-            localEndUTF16: 20,
-            globalStartUTF16: 0,
-            globalEndUTF16: 20
+            localEndUTF16: 20
         )
 
-        try await store.saveMetadata([chunkA, chunkB])
+        try await store.saveChunkMetadata([chunkA], for: "bookA")
+        try await store.saveChunkMetadata([chunkB], for: "bookB")
 
-        let loadedA = try await store.metadata(forChunkID: "bookA-c1")
+        let loadedA = await store.metadata(for: "bookA-c1")
         #expect(loadedA?.bookFingerprintKey == "bookA")
 
-        let allForA = try await store.allMetadata(forBookFingerprintKey: "bookA")
+        let allForA = await store.allChunks(for: "bookA")
         #expect(allForA.count == 1)
         #expect(allForA.first?.chunkID == "bookA-c1")
 
-        try await store.deleteMetadata(forBookFingerprintKey: "bookA")
-        let remainingA = try await store.allMetadata(forBookFingerprintKey: "bookA")
+        try await store.deleteMetadata(for: "bookA")
+        let remainingA = await store.allChunks(for: "bookA")
         #expect(remainingA.isEmpty)
 
-        let remainingB = try await store.allMetadata(forBookFingerprintKey: "bookB")
+        let remainingB = await store.allChunks(for: "bookB")
         #expect(remainingB.count == 1)
     }
 
     // MARK: - 5. USearch Relaunch Persistence & Mappings Reload
-    @Test func semanticIndexStorePersistsAndReloadsMappings() throws {
+    @Test func semanticIndexStorePersistsAndReloadsMappings() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("StoreReloadTest-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)

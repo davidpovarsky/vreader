@@ -4,11 +4,80 @@
 import Foundation
 import CryptoKit
 
+struct AISemanticModelFileSpec: Codable, Sendable, Equatable {
+    let filename: String
+    let sha256: String
+    let byteCount: Int64
+
+    init(filename: String, sha256: String, byteCount: Int64) {
+        self.filename = filename
+        self.sha256 = sha256
+        self.byteCount = byteCount
+    }
+}
+
 struct AISemanticModelManifest: Codable, Sendable, Equatable {
     let modelID: String
+    let version: String
+    let expectedFiles: [String: AISemanticModelFileSpec]
     let requiredFiles: [String]
     let fileSizes: [String: Int64]
     let sha256Hashes: [String: String]
+
+    init(
+        modelName: String,
+        version: String = "1.0",
+        expectedFiles: [String: AISemanticModelFileSpec]
+    ) {
+        self.modelID = modelName
+        self.version = version
+        self.expectedFiles = expectedFiles
+        self.requiredFiles = Array(expectedFiles.keys)
+        var sizes: [String: Int64] = [:]
+        var hashes: [String: String] = [:]
+        for (k, spec) in expectedFiles {
+            sizes[k] = spec.byteCount
+            hashes[k] = spec.sha256
+        }
+        self.fileSizes = sizes
+        self.sha256Hashes = hashes
+    }
+
+    init(
+        modelID: String,
+        requiredFiles: [String],
+        fileSizes: [String: Int64],
+        sha256Hashes: [String: String]
+    ) {
+        self.modelID = modelID
+        self.version = "1.0"
+        self.requiredFiles = requiredFiles
+        self.fileSizes = fileSizes
+        self.sha256Hashes = sha256Hashes
+        var expected: [String: AISemanticModelFileSpec] = [:]
+        for file in requiredFiles {
+            expected[file] = AISemanticModelFileSpec(
+                filename: file,
+                sha256: sha256Hashes[file] ?? "",
+                byteCount: fileSizes[file] ?? 0
+            )
+        }
+        self.expectedFiles = expected
+    }
+
+    func validateDirectory(_ directory: URL) -> Bool {
+        let fm = FileManager.default
+        for (filename, spec) in expectedFiles {
+            let fileURL = directory.appendingPathComponent(filename)
+            guard fm.fileExists(atPath: fileURL.path) else { return false }
+            let actualSize = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            guard actualSize == spec.byteCount else { return false }
+            guard let data = try? Data(contentsOf: fileURL) else { return false }
+            let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            guard hash.lowercased() == spec.sha256.lowercased() else { return false }
+        }
+        return true
+    }
 }
 
 struct AISemanticAssetValidator: Sendable {

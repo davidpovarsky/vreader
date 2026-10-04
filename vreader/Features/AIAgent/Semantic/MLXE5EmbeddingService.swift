@@ -27,6 +27,9 @@ import MLX
 actor MLXE5EmbeddingService: SemanticEmbeddingProviding {
     private static let log = Logger(subsystem: "com.vreader.app", category: "MLXE5EmbeddingService")
 
+    static let queryPrefix = "query: "
+    static let passagePrefix = "passage: "
+
     nonisolated let dimension: Int
     nonisolated let modelID: String
 
@@ -40,6 +43,14 @@ actor MLXE5EmbeddingService: SemanticEmbeddingProviding {
     ) {
         self.dimension = dimension
         self.modelID = modelID
+    }
+
+    func embed(text: String, isQuery: Bool = false) async throws -> [Float] {
+        if isQuery {
+            return try await embedQuery(text)
+        } else {
+            return try await embedPassage(text)
+        }
     }
 
     func loadModel(from directory: URL? = nil) async throws {

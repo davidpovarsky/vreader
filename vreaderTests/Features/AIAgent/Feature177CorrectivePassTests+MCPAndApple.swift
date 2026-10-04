@@ -3,6 +3,7 @@
 
 import Testing
 import Foundation
+import CoreGraphics
 @testable import vreader
 
 @MainActor
@@ -154,9 +155,9 @@ struct Feature177CorrectivePassMCPAndAppleTests {
             }
             func run(_ input: JSONValue) async -> ToolResult {
                 guard case .object(let dict) = input, case .number(let n)? = dict["number"] else {
-                    return ToolResult(content: "Missing number", isError: true)
+                    return ToolResult(toolUseID: "call_1", content: "Missing number", isError: true)
                 }
-                return ToolResult(content: "Doubled: \(Int(n * 2))", isError: false)
+                return ToolResult(toolUseID: "call_1", content: "Doubled: \(Int(n * 2))", isError: false)
             }
         }
 

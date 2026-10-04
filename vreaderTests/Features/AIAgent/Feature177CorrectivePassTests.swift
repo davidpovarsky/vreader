@@ -173,23 +173,21 @@ struct Feature177CorrectivePassTests {
 
         // Create store and add items
         let store1 = SemanticIndexStore(dimension: 4, indexDirectory: tempDir)
-        let key1 = store1.keyTable.key(for: "chunk-alpha")
-        let key2 = store1.keyTable.key(for: "chunk-beta")
-        store1.keyToBookKey[key1] = "book-1"
-        store1.keyToBookKey[key2] = "book-1"
-        try store1.save()
+        try await store1.add(chunkID: "chunk-alpha", vector: [1.0, 0.0, 0.0, 0.0], bookFingerprintKey: "book-1")
+        try await store1.add(chunkID: "chunk-beta", vector: [0.0, 1.0, 0.0, 0.0], bookFingerprintKey: "book-1")
+        try await store1.save()
 
         // Create fresh store pointing at same directory
         let store2 = SemanticIndexStore(dimension: 4, indexDirectory: tempDir)
-        #expect(store2.count() == 2)
-        #expect(store2.keyTable.chunkID(for: key1) == "chunk-alpha")
-        #expect(store2.keyTable.chunkID(for: key2) == "chunk-beta")
-        #expect(store2.keyToBookKey[key1] == "book-1")
+        let count = await store2.count()
+        #expect(count == 2)
+        let searchRes = try await store2.search(queryVector: [1.0, 0.0, 0.0, 0.0], count: 1)
+        #expect(searchRes.first?.chunkID == "chunk-alpha")
     }
 
     // MARK: - 6. Forced Vector-Key Collision Resolution
     @Test func vectorKeyTableResolvesForcedHashCollisions() {
-        let table = SemanticVectorKeyTable()
+        var table = SemanticVectorKeyTable()
         let idA = "chunk-1"
         let idB = "chunk-2"
 
@@ -208,8 +206,9 @@ struct Feature177CorrectivePassTests {
     // MARK: - 7. Hybrid Lexical + Semantic RRF Fusion
     @Test func hybridSearchFusesAndDedupesLexicalAndSemanticHits() {
         let hybrid = HybridSearchService(rrfK: 60.0)
-        let loc1 = Locator(href: "ch1.xhtml", type: "application/xhtml+xml", title: "Ch 1")
-        let loc2 = Locator(href: "ch2.xhtml", type: "application/xhtml+xml", title: "Ch 2")
+        let fp = DocumentFingerprint(scheme: "test", value: "bookA")
+        let loc1 = Locator.validated(bookFingerprint: fp, href: "ch1.xhtml")!
+        let loc2 = Locator.validated(bookFingerprint: fp, href: "ch2.xhtml")!
 
         let lexical: [HybridSearchResultItem] = [
             HybridSearchResultItem(
@@ -257,7 +256,8 @@ struct Feature177CorrectivePassTests {
 
     // MARK: - 8. Semantic Partial-Overlap Boundary
     @Test func semanticHitCarriesExactUTF16Offsets() {
-        let loc = Locator(href: "ch3.xhtml", type: "text/html", charOffsetUTF16: 120)
+        let fp = DocumentFingerprint(scheme: "test", value: "book-1")
+        let loc = Locator.validated(bookFingerprint: fp, href: "ch3.xhtml")!
         let hit = SemanticSearchHit(
             chunkID: "c-123",
             bookFingerprintKey: "book-1",
@@ -267,7 +267,7 @@ struct Feature177CorrectivePassTests {
             pageIndex: nil,
             href: "ch3.xhtml",
             snippet: "The golden key was hidden.",
-            similarity: 0.88,
+            similarityScore: 0.88,
             sourceUnitIndex: 2,
             localStartUTF16: 40,
             localEndUTF16: 80,

@@ -23,6 +23,7 @@ on:
       - chatgpt/original-ui-ios26
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -36,9 +37,25 @@ jobs:
     timeout-minutes: 180
 
     steps:
+      - name: Live Activity · refresh
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Live Activity · refresh
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Select Xcode 27
         shell: bash
         run: |
@@ -59,6 +76,14 @@ jobs:
             *) echo "Expected an iOS 27 SDK, got $SDK_VERSION"; exit 1 ;;
           esac
 
+      - name: Live Activity · refresh
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Install XcodeGen
         shell: bash
         run: |
@@ -68,6 +93,15 @@ jobs:
           fi
           xcodegen --version
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Install Metal Toolchain for MLX
         if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         shell: bash
@@ -75,6 +109,15 @@ jobs:
           set -euo pipefail
           xcodebuild -downloadComponent MetalToolchain
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Apply preview compile patches
         if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         shell: bash
@@ -82,6 +125,15 @@ jobs:
           set -euo pipefail
           python3 scripts/ci-preview-compile-patches.py
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Generate Xcode project
         if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         shell: bash
@@ -89,6 +141,15 @@ jobs:
           set -euo pipefail
           xcodegen generate --spec project.yml
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Generate Feature 177 core Xcode project
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
         shell: bash
@@ -99,6 +160,15 @@ jobs:
             --spec Feature177Core.project.yml \
             --project build/Feature177Project
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Generate Feature 177 mapping Xcode project
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
         shell: bash
@@ -109,6 +179,15 @@ jobs:
             --spec Feature177Mapping.project.yml \
             --project build/Feature177MappingProject
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Build unsigned app against iOS 27 SDK
         if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests) }}
         shell: bash
@@ -130,6 +209,15 @@ jobs:
             DEVELOPMENT_TEAM="" \
             clean build 2>&1 | tee build/xcodebuild.log
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_feature_177_core_tests || inputs.run_feature_177_mapping_tests || inputs.run_feature_177_regression_tests) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Boot iOS 27 Simulator for Feature 177 tests
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_feature_177_core_tests || inputs.run_feature_177_mapping_tests || inputs.run_feature_177_regression_tests) }}
         shell: bash
@@ -156,6 +244,15 @@ jobs:
           xcrun simctl boot "${UDID}"
           xcrun simctl bootstatus "${UDID}" -b
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Compile Feature 177 contracts against iOS 27 SDK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
         timeout-minutes: 10
@@ -180,6 +277,15 @@ jobs:
             DEVELOPMENT_TEAM="" \
             2>&1 | tee build/feature-177-contract-compile.log
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Run Feature 177 core contract tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
         shell: bash
@@ -203,6 +309,15 @@ jobs:
           scripts/run-tests.sh \
             Feature177CoreTests
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Compile Feature 177 mapping contracts against iOS 27 SDK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
         timeout-minutes: 10
@@ -227,6 +342,15 @@ jobs:
             DEVELOPMENT_TEAM="" \
             2>&1 | tee build/feature-177-mapping-compile.log
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Run Feature 177 mapping tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
         shell: bash
@@ -248,6 +372,15 @@ jobs:
           scripts/run-tests.sh \
             Feature177MappingTests
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Compile targeted Feature 177 reader regressions
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
         timeout-minutes: 45
@@ -343,6 +476,15 @@ jobs:
           mkdir -p "$PWD/build/Feature177RegressionDerivedData"
           ln -sfn "$PWD/build/SourcePackages" "$PWD/build/Feature177RegressionDerivedData/SourcePackages" || true
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Run focused Feature 177 WI-6 local retrieval and reader tool tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
         shell: bash
@@ -377,6 +519,15 @@ jobs:
             vreaderTests/AIExactSessionToolIsolationTests \
             vreaderTests/AIAgentToolRegistryIntegrationTests
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Run directly affected existing tool suites
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
         shell: bash
@@ -403,6 +554,15 @@ jobs:
             vreaderTests/ListLibraryToolTests \
             vreaderTests/AgenticToolRegistryBuilderTests
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Run focused Feature 177 WI-5 permission tests
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
         shell: bash
@@ -428,6 +588,15 @@ jobs:
             vreaderTests/AIActionConfirmationBrokerTests \
             vreaderTests/AIReadAheadAuthorizationTests
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Run targeted Feature 177 reader regressions
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
         shell: bash
@@ -513,12 +682,30 @@ jobs:
             vreaderTests/Feature177CorrectivePassTests \
             vreaderTests/Feature177CorrectivePassMCPAndAppleTests
 
+      - name: Live Activity · refresh
+        if: ${{ always() && env.FEATURE_TEST_UDID != '' }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Shut down Feature 177 test Simulator
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}
         shell: bash
         run: |
           xcrun simctl shutdown "${FEATURE_TEST_UDID}" 2>/dev/null || true
 
+      - name: Live Activity · refresh
+        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Package unsigned IPA
         if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests) }}
         shell: bash
@@ -544,6 +731,15 @@ jobs:
 
           ls -lh build/vreader-original-ui-ios27-unsigned.ipa
 
+      - name: Live Activity · refresh
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests)) }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Upload unsigned IPA artifact
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests && !inputs.run_feature_177_regression_tests)) }}
         uses: actions/upload-artifact@v4
@@ -557,6 +753,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Live Activity · refresh
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Upload Feature 177 test artifact
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_core_tests }}
         uses: actions/upload-artifact@v4
@@ -570,6 +775,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Live Activity · refresh
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Upload Feature 177 mapping test artifact
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_mapping_tests }}
         uses: actions/upload-artifact@v4
@@ -583,6 +797,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Live Activity · refresh
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
+        uses: davidpovarsky/github-automation/live-refresh@main
+        continue-on-error: true
+        with:
+          event: refresh
+          device_id: ${{ secrets.NOTIFY_DEVICE_ID }}
+          token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
+          github_token: ${{ github.token }}
       - name: Upload Feature 177 regression test artifact
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_feature_177_regression_tests }}
         uses: actions/upload-artifact@v4

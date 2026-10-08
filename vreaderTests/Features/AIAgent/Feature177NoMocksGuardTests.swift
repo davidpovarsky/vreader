@@ -240,4 +240,119 @@ struct Feature177NoMocksGuardTests {
         )
         #expect(appleSpy.executed == true)
     }
+
+    // MARK: - 5. Section 31 Final Blockers Guards
+
+    @Test("ReaderAICoordinator explicitly assigns documentSessionID to chat ViewModel")
+    func readerCoordinatorAssignsDocumentSessionID() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Views/Reader/ReaderAICoordinator.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(content.contains("chatVM.documentSessionID = self.documentSessionID"),
+                "ReaderAICoordinator must assign exact documentSessionID to chatVM during setup.")
+    }
+
+    @Test("Production Apple Foundation Models backend does not use text-JSON parsing")
+    func appleBackendDoesNotUseTextJSONParsing() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/FoundationModels/AppleFoundationModelsBackend.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(!content.contains("parseToolCall("),
+                "AppleFoundationModelsBackend must not parse tool calls from response text JSON in production.")
+        #expect(content.contains("ProvenanceTapSink"),
+                "AppleFoundationModelsBackend must track provenance through ProvenanceTapSink.")
+        #expect(content.contains("RealAppleLanguageModelSession"),
+                "AppleFoundationModelsBackend must register native Tool objects into LanguageModelSession.")
+    }
+
+    @Test("Apple Foundation Models Tool Adapter dispatches with AIToolExecutionContext")
+    func appleToolAdapterDispatchesWithContext() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/FoundationModels/AppleFoundationModelsToolAdapter.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(content.contains("AIToolExecutionContext("),
+                "AppleFoundationModelsToolAdapter must construct AIToolExecutionContext for every invocation.")
+        #expect(content.contains("registry.run(toolCall, context: execContext)"),
+                "AppleFoundationModelsToolAdapter must call registry.run with context, not context-free overload.")
+    }
+
+    @Test("SemanticIndexCoordinator does not use direct-hash fallback on missing assigned keys")
+    func semanticCoordinatorNoDirectHashFallback() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/Semantic/SemanticIndexCoordinator.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(!content.contains("assignedKeys[sc.id] ?? SemanticVectorKey.deriveKey(for: sc.id)"),
+                "SemanticIndexCoordinator must throw on missing assigned key rather than falling back to deriveKey.")
+        #expect(content.contains("missingAssignedVectorKey"),
+                "SemanticIndexCoordinator must define and throw missingAssignedVectorKey error.")
+    }
+
+    @Test("Production runtime does not silently swallow indexing errors with try?")
+    func runtimeDoesNotSwallowIndexingErrors() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/Production/AIAgentProductionRuntime.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(!content.contains("try? await coordinator.indexBook"),
+                "AIAgentProductionRuntime must not swallow indexBook errors with try?.")
+        #expect(content.contains("AIAgentSemanticRuntimeStatus"),
+                "AIAgentProductionRuntime must define and maintain explicit AIAgentSemanticRuntimeStatus.")
+        #expect(content.contains("getOrInitSemanticCoordinator"),
+                "AIAgentProductionRuntime must reuse long-lived SemanticIndexCoordinator across registry rebuilds.")
+    }
+
+    @Test("MCPOAuthCoordinator binds tokens to resourceEndpoint identity")
+    func mcpOAuthBindsToResourceOrigin() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/MCP/MCPOAuthCoordinator.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(content.contains("endpoint: pending.resourceEndpoint"),
+                "MCPOAuthCoordinator must save tokens bound to resourceEndpoint, not tokenEndpoint.")
+    }
+
+    @Test("AIAgentSemanticLibraryIndexer exists and handles multi-format indexing")
+    func libraryIndexerExistsAndHandlesFormats() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let file = repoRoot.appendingPathComponent("vreader/Features/AIAgent/Production/AIAgentSemanticLibraryIndexer.swift")
+        let content = try String(contentsOf: file, encoding: .utf8)
+
+        #expect(content.contains("extractEPUBChunks"), "Library indexer must extract EPUB chunks.")
+        #expect(content.contains("extractPDFChunks"), "Library indexer must extract PDF chunks.")
+        #expect(content.contains("extractPlainTextChunks"), "Library indexer must extract TXT/MD chunks.")
+        #expect(content.contains("rebuildLibraryIndex"), "Library indexer must provide rebuild capability.")
+        #expect(content.contains("cancelIndexing"), "Library indexer must provide cancel capability.")
+    }
 }

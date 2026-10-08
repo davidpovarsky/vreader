@@ -386,6 +386,7 @@ final class ReaderAICoordinator {
             bookFingerprint: fingerprint,
             chatSessionStore: chatSessionStore   // Feature #88: persisted sessions (nil ⇒ ephemeral)
         )
+        chatVM.documentSessionID = self.documentSessionID
         chatViewModel = chatVM
         // Feature #88 WI-3: trigger the ONE-SHOT session load from the long-lived
         // coordinator (idempotent + non-clobbering), NOT from `AIChatView.task`

@@ -2,6 +2,9 @@
 // Shares the exact same authorization, boundary policy, idempotency, and provenance infrastructure.
 
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 struct AppleFoundationModelsToolAdapter: Sendable {
     let registry: AIToolRegistry
@@ -18,19 +21,23 @@ struct AppleFoundationModelsToolAdapter: Sendable {
         self.eventSink = eventSink
     }
 
-    /// Executes a tool call parsed from Apple Foundation Models output.
+    /// Executes a tool call parsed from Apple Foundation Models output with full execution context.
     func invoke(
         toolName: String,
         input: JSONValue,
-        callID: String = UUID().uuidString
+        callID: String = UUID().uuidString,
+        turnID: String = UUID().uuidString,
+        documentSessionID: AIDocumentSessionID? = nil,
+        eventSink explicitSink: (any AIToolEventSink)? = nil
     ) async -> ToolResult {
+        let sink = explicitSink ?? self.eventSink
         let summary: String
         if case .object(let dict) = input {
             summary = dict.keys.joined(separator: ", ")
         } else {
             summary = ""
         }
-        await eventSink.emit(AIToolEvent(
+        await sink.emit(AIToolEvent(
             toolCallID: callID,
             toolName: toolName,
             phase: .running,
@@ -41,7 +48,7 @@ struct AppleFoundationModelsToolAdapter: Sendable {
 
         guard registry.hasTool(named: toolName) else {
             let notFound = ToolResult(toolUseID: callID, content: "Tool not found: \(toolName)", isError: true)
-            await eventSink.emit(AIToolEvent(
+            await sink.emit(AIToolEvent(
                 toolCallID: callID,
                 toolName: toolName,
                 phase: .failed,
@@ -50,17 +57,24 @@ struct AppleFoundationModelsToolAdapter: Sendable {
             return notFound
         }
 
-        let result = await registry.run(toolCall)
+        let execContext = AIToolExecutionContext(
+            toolCallID: callID,
+            turnID: turnID,
+            eventSink: sink,
+            readerSessionID: documentSessionID
+        )
+
+        let result = await registry.run(toolCall, context: execContext)
 
         if result.isError {
-            await eventSink.emit(AIToolEvent(
+            await sink.emit(AIToolEvent(
                 toolCallID: callID,
                 toolName: toolName,
                 phase: .failed,
                 errorMessage: result.content
             ))
         } else {
-            await eventSink.emit(AIToolEvent(
+            await sink.emit(AIToolEvent(
                 toolCallID: callID,
                 toolName: toolName,
                 phase: .succeeded,
@@ -75,9 +89,54 @@ struct AppleFoundationModelsToolAdapter: Sendable {
     func invoke(
         toolName: String,
         arguments: [String: Any],
-        callID: String = UUID().uuidString
+        callID: String = UUID().uuidString,
+        turnID: String = UUID().uuidString,
+        documentSessionID: AIDocumentSessionID? = nil
     ) async -> ToolResult {
-        await invoke(toolName: toolName, input: JSONValue(foundation: arguments), callID: callID)
+        await invoke(
+            toolName: toolName,
+            input: JSONValue(foundation: arguments),
+            callID: callID,
+            turnID: turnID,
+            documentSessionID: documentSessionID
+        )
+    }
+
+    /// Invokes a native tool call with raw arguments and commit/discard provenance tracking.
+    func invokeNative(
+        toolName: String,
+        rawArguments: String,
+        callID: String = UUID().uuidString,
+        turnID: String = UUID().uuidString,
+        documentSessionID: AIDocumentSessionID? = nil,
+        sink: ProvenanceTapSink? = nil
+    ) async -> ToolResult {
+        let jsonValue: JSONValue
+        if let data = rawArguments.data(using: .utf8),
+           let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            jsonValue = JSONValue(foundation: jsonObject)
+        } else if rawArguments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            jsonValue = .object([:])
+        } else {
+            jsonValue = .string(rawArguments)
+        }
+
+        let result = await invoke(
+            toolName: toolName,
+            input: jsonValue,
+            callID: callID,
+            turnID: turnID,
+            documentSessionID: documentSessionID,
+            eventSink: sink
+        )
+
+        if result.isError {
+            await sink?.discardSources(for: callID)
+        } else {
+            await sink?.commitSources(for: callID)
+        }
+
+        return result
     }
 
     var definitions: [ToolDefinition] {
@@ -122,3 +181,67 @@ struct AppleFoundationModelsToolAdapter: Sendable {
         return result.content
     }
 }
+
+#if canImport(FoundationModels)
+@available(iOS 26.0, macOS 26.0, *)
+struct AppleNativeToolBridge: Tool, Sendable {
+    typealias Arguments = String
+    typealias Output = String
+
+    let name: String
+    let description: String
+    let adapter: AppleFoundationModelsToolAdapter
+    let turnID: String
+    let documentSessionID: AIDocumentSessionID?
+    let sink: ProvenanceTapSink
+
+    init(
+        name: String,
+        description: String,
+        adapter: AppleFoundationModelsToolAdapter,
+        turnID: String,
+        documentSessionID: AIDocumentSessionID?,
+        sink: ProvenanceTapSink
+    ) {
+        self.name = name
+        self.description = description
+        self.adapter = adapter
+        self.turnID = turnID
+        self.documentSessionID = documentSessionID
+        self.sink = sink
+    }
+
+    func invoke(arguments: String) async throws -> String {
+        let callID = UUID().uuidString
+        let result = await adapter.invokeNative(
+            toolName: name,
+            rawArguments: arguments,
+            callID: callID,
+            turnID: turnID,
+            documentSessionID: documentSessionID,
+            sink: sink
+        )
+        return result.content
+    }
+}
+
+extension AppleFoundationModelsToolAdapter {
+    @available(iOS 26.0, macOS 26.0, *)
+    func makeNativeTools(
+        turnID: String,
+        documentSessionID: AIDocumentSessionID?,
+        sink: ProvenanceTapSink
+    ) -> [any Tool] {
+        registry.definitions().map { def in
+            AppleNativeToolBridge(
+                name: def.name,
+                description: def.description,
+                adapter: self,
+                turnID: turnID,
+                documentSessionID: documentSessionID,
+                sink: sink
+            )
+        }
+    }
+}
+#endif

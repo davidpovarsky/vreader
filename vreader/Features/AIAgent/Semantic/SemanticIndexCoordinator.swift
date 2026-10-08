@@ -13,6 +13,17 @@ enum SemanticIndexingState: Sendable, Equatable {
     case cancelled(bookFingerprintKey: String)
 }
 
+enum SemanticIndexingError: LocalizedError, Sendable, Equatable {
+    case missingAssignedVectorKey(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAssignedVectorKey(let id):
+            return "Internal consistency error: Store failed to assign vector key for chunk ID: \(id)"
+        }
+    }
+}
+
 actor SemanticIndexCoordinator {
     private static let log = Logger(subsystem: "com.vreader.app", category: "SemanticIndexCoordinator")
 
@@ -101,7 +112,9 @@ actor SemanticIndexCoordinator {
 
         var chunkMetadataList: [SemanticChunkMetadata] = []
         for sc in semanticChunks {
-            let assignedKey = assignedKeys[sc.id] ?? SemanticVectorKey.deriveKey(for: sc.id)
+            guard let assignedKey = assignedKeys[sc.id] else {
+                throw SemanticIndexingError.missingAssignedVectorKey(sc.id)
+            }
             chunkMetadataList.append(SemanticChunkMetadata(
                 chunkID: sc.id,
                 vectorKey: assignedKey,

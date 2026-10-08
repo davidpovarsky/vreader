@@ -8,6 +8,26 @@ import OSLog
 import FoundationModels
 #endif
 
+protocol AppleLanguageModelSessionProtocol: Sendable {
+    func respond(to prompt: String) async throws -> String
+}
+
+#if canImport(FoundationModels)
+@available(iOS 26.0, macOS 26.0, *)
+final class RealAppleLanguageModelSession: AppleLanguageModelSessionProtocol {
+    private let session: LanguageModelSession
+
+    init(instructions: String, tools: [any Tool]) {
+        self.session = LanguageModelSession(instructions: instructions, tools: tools)
+    }
+
+    func respond(to prompt: String) async throws -> String {
+        let response = try await session.respond(to: prompt)
+        return response.content
+    }
+}
+#endif
+
 protocol AppleFoundationModelsBackendServicing: Sendable {
     func executeTurn(
         systemPrompt: String,
@@ -15,11 +35,35 @@ protocol AppleFoundationModelsBackendServicing: Sendable {
         profile: AppleFoundationModelsProfile,
         mode: AppleFoundationModelMode,
         policy: AppleFoundationModelsPolicy?,
-        toolAdapter: AppleFoundationModelsToolAdapter?
+        toolAdapter: AppleFoundationModelsToolAdapter?,
+        documentSessionID: AIDocumentSessionID?,
+        turnID: String
     ) async throws -> AgenticResult
 }
 
 extension AppleFoundationModelsBackendServicing {
+    func executeTurn(
+        systemPrompt: String,
+        prompt: String,
+        profile: AppleFoundationModelsProfile = .currentSectionAssistant,
+        mode: AppleFoundationModelMode = .onDevice,
+        policy: AppleFoundationModelsPolicy? = nil,
+        toolAdapter: AppleFoundationModelsToolAdapter? = nil,
+        documentSessionID: AIDocumentSessionID? = nil,
+        turnID: String = UUID().uuidString
+    ) async throws -> AgenticResult {
+        try await executeTurn(
+            systemPrompt: systemPrompt,
+            prompt: prompt,
+            profile: profile,
+            mode: mode,
+            policy: policy,
+            toolAdapter: toolAdapter,
+            documentSessionID: documentSessionID,
+            turnID: turnID
+        )
+    }
+
     func executeTurn(
         systemPrompt: String,
         prompt: String,
@@ -33,7 +77,9 @@ extension AppleFoundationModelsBackendServicing {
             profile: profile,
             mode: mode,
             policy: nil,
-            toolAdapter: toolAdapter
+            toolAdapter: toolAdapter,
+            documentSessionID: nil,
+            turnID: UUID().uuidString
         )
     }
 }
@@ -43,16 +89,18 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
     private let policy: AppleFoundationModelsPolicy
     private let availability: AppleFoundationModelsAvailability
 
-#if canImport(FoundationModels)
-    private var activeSessions: [String: LanguageModelSession] = [:]
-#endif
+    typealias SessionFactory = @Sendable (String, [Any]) throws -> any AppleLanguageModelSessionProtocol
+    private let sessionFactory: SessionFactory?
+    private var activeSessions: [String: any AppleLanguageModelSessionProtocol] = [:]
 
     init(
         policy: AppleFoundationModelsPolicy = AppleFoundationModelsPolicy(),
-        availability: AppleFoundationModelsAvailability = AppleFoundationModelsAvailability()
+        availability: AppleFoundationModelsAvailability = AppleFoundationModelsAvailability(),
+        sessionFactory: SessionFactory? = nil
     ) {
         self.policy = policy
         self.availability = availability
+        self.sessionFactory = sessionFactory
     }
 
     func executeTurn(
@@ -61,14 +109,16 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
         profile: AppleFoundationModelsProfile = .currentSectionAssistant,
         mode: AppleFoundationModelMode = .onDevice,
         policy explicitPolicy: AppleFoundationModelsPolicy? = nil,
-        toolAdapter: AppleFoundationModelsToolAdapter? = nil
+        toolAdapter: AppleFoundationModelsToolAdapter? = nil,
+        documentSessionID: AIDocumentSessionID? = nil,
+        turnID: String = UUID().uuidString
     ) async throws -> AgenticResult {
         try Task.checkCancellation()
 
         let effectivePolicy = explicitPolicy ?? self.policy
         let availState = availability.checkAvailability()
         guard availState.isAvailable,
-              let resolvedMode = effectivePolicy.resolveExecutionMode(availableModes: [.onDevice, .privateCloudCompute, .automatic]) else {
+              let resolvedMode = effectivePolicy.resolveExecutionMode(availableModes: [.onDevice]) else {
             throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
                 NSLocalizedDescriptionKey: "Apple Foundation Models backend is not available in mode \(mode.rawValue)."
             ])
@@ -76,80 +126,74 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
 
         Self.log.info("Executing Apple Foundation Models turn in mode \(resolvedMode.rawValue)")
 
-#if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *) {
-            let sessionKey = "\(profile.identifier):\(systemPrompt.hashValue)"
-            let session: LanguageModelSession
-            if let existing = activeSessions[sessionKey] {
-                session = existing
-            } else {
-                let newSession = LanguageModelSession(instructions: systemPrompt)
-                activeSessions[sessionKey] = newSession
-                session = newSession
-            }
-
-            var usedTools = false
-            var currentPrompt = prompt
-            var finalText = ""
-
-            let maxIterations = (toolAdapter != nil && !toolAdapter!.registry.isEmpty) ? 4 : 1
-            for _ in 0..<maxIterations {
-                try Task.checkCancellation()
-                let response = try await session.respond(to: currentPrompt)
-                finalText = response.content
-
-                guard let adapter = toolAdapter, !adapter.registry.isEmpty else {
-                    break
-                }
-
-                if let toolCall = parseToolCall(response.content, registry: adapter.registry) {
-                    usedTools = true
-                    try Task.checkCancellation()
-                    let result = await adapter.invoke(
-                        toolName: toolCall.name,
-                        input: toolCall.input,
-                        callID: toolCall.id
-                    )
-                    currentPrompt = "Tool result for \(toolCall.name):\n\(result.content)"
-                } else {
-                    break
-                }
-            }
-
-            return AgenticResult(
-                finalText: finalText,
-                usedTools: usedTools,
-                citations: [],
-                sourceProvenances: []
-            )
+        let sessionKey: String
+        if let docID = documentSessionID {
+            sessionKey = "\(docID.fingerprintKey):\(docID.readerToken.uuidString):\(profile.identifier)"
         } else {
-            throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
-                NSLocalizedDescriptionKey: "Apple Foundation Models requires iOS 26+."
-            ])
+            sessionKey = "transient:\(UUID().uuidString):\(profile.identifier)"
         }
-#else
-        throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
-            NSLocalizedDescriptionKey: "Apple Foundation Models framework unavailable on this platform."
-        ])
-#endif
-    }
 
-    private nonisolated func parseToolCall(
-        _ content: String,
-        registry: AIToolRegistry
-    ) -> (id: String, name: String, input: JSONValue)? {
-        // Match JSON object indicating a tool call: {"tool": "...", "arguments": {...}}
-        guard let data = content.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+        let tappingSink = ProvenanceTapSink(downstream: toolAdapter?.eventSink)
+
+        let session: any AppleLanguageModelSessionProtocol
+        if let existing = activeSessions[sessionKey] {
+            session = existing
+        } else {
+            let newSession: any AppleLanguageModelSessionProtocol
+            if let factory = self.sessionFactory {
+                #if canImport(FoundationModels)
+                if #available(iOS 26.0, macOS 26.0, *) {
+                    let nativeTools = toolAdapter?.makeNativeTools(
+                        turnID: turnID,
+                        documentSessionID: documentSessionID,
+                        sink: tappingSink
+                    ) ?? []
+                    newSession = try factory(systemPrompt, nativeTools)
+                } else {
+                    newSession = try factory(systemPrompt, [])
+                }
+                #else
+                newSession = try factory(systemPrompt, [])
+                #endif
+            } else {
+                #if canImport(FoundationModels)
+                if #available(iOS 26.0, macOS 26.0, *) {
+                    let nativeTools = toolAdapter?.makeNativeTools(
+                        turnID: turnID,
+                        documentSessionID: documentSessionID,
+                        sink: tappingSink
+                    ) ?? []
+                    newSession = RealAppleLanguageModelSession(instructions: systemPrompt, tools: nativeTools)
+                } else {
+                    throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
+                        NSLocalizedDescriptionKey: "Apple Foundation Models requires iOS 26+."
+                    ])
+                }
+                #else
+                throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
+                    NSLocalizedDescriptionKey: "Apple Foundation Models framework unavailable on this platform."
+                ])
+                #endif
+            }
+            activeSessions[sessionKey] = newSession
+            session = newSession
         }
-        let toolName = (json["tool"] as? String) ?? (json["name"] as? String) ?? ""
-        guard !toolName.isEmpty, registry.hasTool(named: toolName) else {
-            return nil
-        }
-        let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) ?? [:]
-        let callID = (json["id"] as? String) ?? UUID().uuidString
-        return (id: callID, name: toolName, input: JSONValue(foundation: args))
+
+        try Task.checkCancellation()
+        let responseText = try await session.respond(to: prompt)
+        try Task.checkCancellation()
+
+        let collectedSources = await tappingSink.collectedSources()
+        let uniqueSources = AgenticChatDriver.deduplicateSources(collectedSources)
+        let citations = uniqueSources.compactMap { $0.toChatCitation() }
+        let usedTools = (toolAdapter != nil && !uniqueSources.isEmpty) || (await tappingSink.recordedCallCount > 0)
+
+        return AgenticResult(
+            finalText: responseText,
+            usedTools: usedTools,
+            citations: citations,
+            sourceProvenances: uniqueSources
+        )
     }
 
     /// Preserves bounded multi-turn conversation transcripts without persisting framework objects.

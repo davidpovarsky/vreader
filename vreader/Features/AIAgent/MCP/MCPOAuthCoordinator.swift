@@ -2,8 +2,9 @@
 // Manages PKCE code generation, state verification, ASWebAuthenticationSession browser flow,
 // token exchange, token refresh with rotation, and origin-bound Keychain storage.
 
-import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 #if canImport(AuthenticationServices)
 import AuthenticationServices
 #endif
@@ -28,6 +29,8 @@ final class WebAuthPresentationAnchor: NSObject, ASWebAuthenticationPresentation
 struct PendingOAuthState: Sendable {
     let verifier: String
     let profileID: UUID
+    let resourceEndpoint: URL
+    let tokenEndpoint: URL
     let clientID: String
     let redirectURI: String
 }
@@ -40,9 +43,11 @@ actor MCPOAuthCoordinator {
         self.secretStore = secretStore
     }
 
-    /// Generates PKCE authorization parameters: state, code_verifier, code_challenge.
+    /// Generates PKCE authorization parameters: state, code_verifier, code_challenge bound to resource origin.
     func generateAuthorizationParameters(
         forProfileID profileID: UUID,
+        resourceEndpoint: URL,
+        tokenEndpoint: URL,
         clientID: String = "",
         redirectURI: String = ""
     ) -> (state: String, codeChallenge: String, verifier: String) {
@@ -52,10 +57,28 @@ actor MCPOAuthCoordinator {
         pendingStates[state] = PendingOAuthState(
             verifier: verifier,
             profileID: profileID,
+            resourceEndpoint: resourceEndpoint,
+            tokenEndpoint: tokenEndpoint,
             clientID: clientID,
             redirectURI: redirectURI
         )
         return (state: state, codeChallenge: challenge, verifier: verifier)
+    }
+
+    /// Convenience overload for tests defaulting endpoint identities.
+    func generateAuthorizationParameters(
+        forProfileID profileID: UUID,
+        clientID: String = "",
+        redirectURI: String = ""
+    ) -> (state: String, codeChallenge: String, verifier: String) {
+        let fallbackURL = URL(string: "https://mcp.local")!
+        return generateAuthorizationParameters(
+            forProfileID: profileID,
+            resourceEndpoint: fallbackURL,
+            tokenEndpoint: fallbackURL,
+            clientID: clientID,
+            redirectURI: redirectURI
+        )
     }
 
     /// Prepares an OAuth authorization URL including client_id and redirect_uri.
@@ -91,6 +114,7 @@ actor MCPOAuthCoordinator {
     @MainActor
     func startAuthorizationFlow(
         profileID: UUID,
+        resourceEndpoint: URL,
         authorizationURL: URL,
         tokenEndpoint: URL,
         clientID: String,
@@ -100,6 +124,8 @@ actor MCPOAuthCoordinator {
         let redirectURI = "\(callbackScheme)://callback"
         let params = await generateAuthorizationParameters(
             forProfileID: profileID,
+            resourceEndpoint: resourceEndpoint,
+            tokenEndpoint: tokenEndpoint,
             clientID: clientID,
             redirectURI: redirectURI
         )
@@ -154,7 +180,26 @@ actor MCPOAuthCoordinator {
 #endif
     }
 
-    /// Handles authorization callback and completes token exchange.
+    /// Convenience overload when resourceEndpoint matches authorizationURL.
+    @MainActor
+    func startAuthorizationFlow(
+        profileID: UUID,
+        authorizationURL: URL,
+        tokenEndpoint: URL,
+        clientID: String,
+        callbackScheme: String = "vreader-mcp-oauth"
+    ) async throws {
+        try await startAuthorizationFlow(
+            profileID: profileID,
+            resourceEndpoint: authorizationURL,
+            authorizationURL: authorizationURL,
+            tokenEndpoint: tokenEndpoint,
+            clientID: clientID,
+            callbackScheme: callbackScheme
+        )
+    }
+
+    /// Handles authorization callback and completes token exchange, binding to resourceEndpoint.
     func handleCallback(
         state: String,
         code: String,
@@ -197,13 +242,24 @@ actor MCPOAuthCoordinator {
         }
 
         let refreshToken = json["refresh_token"] as? String
-        try secretStore.saveOAuthTokens(accessToken: accessToken, refreshToken: refreshToken, forProfileID: pending.profileID, endpoint: tokenEndpoint)
+        // Save access & refresh tokens bound to the MCP resource endpoint origin
+        try secretStore.saveOAuthTokens(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            forProfileID: pending.profileID,
+            endpoint: pending.resourceEndpoint
+        )
     }
 
-    /// Refreshes the OAuth access token using the stored refresh token with token rotation support.
-    func refreshToken(forProfileID profileID: UUID, tokenEndpoint: URL, clientID: String? = nil) async throws -> String {
+    /// Refreshes the OAuth access token using the stored refresh token keyed to resourceEndpoint with rotation support.
+    func refreshToken(
+        forProfileID profileID: UUID,
+        resourceEndpoint: URL,
+        tokenEndpoint: URL,
+        clientID: String? = nil
+    ) async throws -> String {
         try Task.checkCancellation()
-        guard let refreshToken = secretStore.fetchRefreshToken(forProfileID: profileID, endpoint: tokenEndpoint) else {
+        guard let refreshToken = secretStore.fetchRefreshToken(forProfileID: profileID, endpoint: resourceEndpoint) else {
             throw NSError(domain: "vreader.mcp.oauth", code: 404, userInfo: [NSLocalizedDescriptionKey: "No refresh token available"])
         }
 
@@ -236,14 +292,28 @@ actor MCPOAuthCoordinator {
 
         // Handle refresh-token rotation
         let newRefreshToken = json["refresh_token"] as? String ?? refreshToken
-        try secretStore.saveOAuthTokens(accessToken: newAccessToken, refreshToken: newRefreshToken, forProfileID: profileID, endpoint: tokenEndpoint)
+        try secretStore.saveOAuthTokens(
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            forProfileID: profileID,
+            endpoint: resourceEndpoint
+        )
         return newAccessToken
+    }
+
+    /// Backwards-compatible overload using tokenEndpoint as resource origin.
+    func refreshToken(forProfileID profileID: UUID, tokenEndpoint: URL, clientID: String? = nil) async throws -> String {
+        try await refreshToken(forProfileID: profileID, resourceEndpoint: tokenEndpoint, tokenEndpoint: tokenEndpoint, clientID: clientID)
     }
 
     /// Disconnects and removes all credentials for a profile.
     func logout(profileID: UUID, endpoint: URL? = nil) throws {
         cancelPending(forProfileID: profileID)
         try secretStore.deleteCredentials(forProfileID: profileID, endpoint: endpoint)
+    }
+
+    func logout(profileID: UUID, resourceEndpoint: URL) throws {
+        try logout(profileID: profileID, endpoint: resourceEndpoint)
     }
 
     func cancelPending(forProfileID profileID: UUID) {

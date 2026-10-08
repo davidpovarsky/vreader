@@ -19,13 +19,13 @@ actor MCPClientManager {
     init(
         profileStore: MCPServerProfileStore = MCPServerProfileStore.shared,
         secretStore: MCPSecretStore = MCPSecretStore(),
-        connectionFactory: @escaping ConnectionFactory = { profile in
-            HTTPMCPConnection(profile: profile)
-        }
+        connectionFactory: ConnectionFactory? = nil
     ) {
         self.profileStore = profileStore
         self.secretStore = secretStore
-        self.connectionFactory = connectionFactory
+        self.connectionFactory = connectionFactory ?? { [secretStore] profile in
+            HTTPMCPConnection(profile: profile, secretStore: secretStore)
+        }
     }
 
     func status(for profileID: UUID) -> MCPCompatibilityStatus {

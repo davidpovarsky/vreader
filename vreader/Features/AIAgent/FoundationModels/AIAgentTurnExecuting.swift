@@ -99,7 +99,9 @@ final class AppleFoundationModelsTurnExecutor: AIAgentTurnExecuting {
             profile: .currentSectionAssistant,
             mode: capabilities.foundationModelMode,
             policy: policy,
-            toolAdapter: toolAdapter
+            toolAdapter: toolAdapter,
+            documentSessionID: documentSessionID,
+            turnID: turnID
         )
     }
 }

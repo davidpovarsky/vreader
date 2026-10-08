@@ -66,6 +66,38 @@ struct AISemanticModelSettingsSection: View {
                 }
                 .accessibilityIdentifier("removeModelButton")
             }
+
+            if viewModel.capabilities.isSemanticSearchEnabled && viewModel.modelState.isInstalled {
+                HStack {
+                    Text("Library Index")
+                    Spacer()
+                    Text(viewModel.libraryIndexStatusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if viewModel.isLibraryIndexing {
+                    Button(role: .cancel) {
+                        Task { await viewModel.cancelLibraryIndexing() }
+                    } label: {
+                        HStack {
+                            Image(systemName: "xmark.circle")
+                            Text("Cancel Indexing")
+                        }
+                    }
+                    .accessibilityIdentifier("cancelLibraryIndexingButton")
+                } else {
+                    Button {
+                        Task { await viewModel.rebuildLibraryIndex() }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("Rebuild Library Index")
+                        }
+                    }
+                    .accessibilityIdentifier("rebuildLibraryIndexButton")
+                }
+            }
         } header: {
             Text("Semantic Search & Embeddings")
         } footer: {

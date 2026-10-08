@@ -986,6 +986,57 @@
           }
         }
       }
+    },
+    "Library Index": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Library Index"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "אינדקס ספרייה"
+          }
+        }
+      }
+    },
+    "Cancel Indexing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Indexing"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "בטל אינדוקס"
+          }
+        }
+      }
+    },
+    "Rebuild Library Index": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuild Library Index"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "בנה מחדש אינדקס ספרייה"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

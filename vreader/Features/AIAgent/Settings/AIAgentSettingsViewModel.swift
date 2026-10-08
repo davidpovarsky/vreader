@@ -11,6 +11,15 @@ final class AIAgentSettingsViewModel: @unchecked Sendable {
     var modelDiskUsage: Int64 = 0
     var mcpProfiles: [MCPServerProfile] = []
     var isAgenticToolsEnabled: Bool = false
+    var libraryIndexerState: AIAgentSemanticLibraryIndexerState = .idle
+
+    var isLibraryIndexing: Bool {
+        libraryIndexerState.isIndexing
+    }
+
+    var libraryIndexStatusText: String {
+        libraryIndexerState.displayDescription
+    }
 
     private let preferencesStore: any AIAgentPreferencesStoring
     private let capabilityStore: AIAgentCapabilityPreferencesStore
@@ -46,6 +55,7 @@ final class AIAgentSettingsViewModel: @unchecked Sendable {
         modelDiskUsage = await modelManager.diskUsageBytes()
         mcpProfiles = await mcpProfileStore.allProfiles()
         isAgenticToolsEnabled = FeatureFlags.shared.isEnabled(.agenticTools)
+        libraryIndexerState = await AIAgentProductionRuntime.shared.libraryIndexer?.state ?? .idle
     }
 
     var readAheadMode: AIReadAheadMode {
@@ -129,6 +139,16 @@ final class AIAgentSettingsViewModel: @unchecked Sendable {
         try? await modelManager.removeModel()
         modelState = await modelManager.state
         modelDiskUsage = 0
+    }
+
+    func rebuildLibraryIndex() async {
+        try? await AIAgentProductionRuntime.shared.libraryIndexer?.rebuildLibraryIndex()
+        libraryIndexerState = await AIAgentProductionRuntime.shared.libraryIndexer?.state ?? .idle
+    }
+
+    func cancelLibraryIndexing() async {
+        await AIAgentProductionRuntime.shared.libraryIndexer?.cancelIndexing()
+        libraryIndexerState = await AIAgentProductionRuntime.shared.libraryIndexer?.state ?? .idle
     }
 
     // MARK: - MCP Actions

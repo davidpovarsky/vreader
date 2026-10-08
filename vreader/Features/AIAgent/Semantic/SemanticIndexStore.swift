@@ -9,7 +9,7 @@ import CryptoKit
 import USearch
 #endif
 
-actor SemanticIndexStore {
+actor SemanticIndexStore: SemanticIndexStoring {
     let dimension: Int
     private let indexDirectory: URL
     private let fileManager = FileManager.default

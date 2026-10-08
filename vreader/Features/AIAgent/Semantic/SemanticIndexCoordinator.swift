@@ -29,7 +29,7 @@ actor SemanticIndexCoordinator {
 
     private let embeddingService: any SemanticEmbeddingProviding
     private let metadataStore: SemanticIndexMetadataStore
-    private let indexStore: SemanticIndexStore
+    private let indexStore: any SemanticIndexStoring
     private let chunker: SemanticChunker
 
     private var activeTasks: [String: Task<Void, Error>] = [:]
@@ -38,7 +38,7 @@ actor SemanticIndexCoordinator {
     init(
         embeddingService: (any SemanticEmbeddingProviding)? = nil,
         metadataStore: SemanticIndexMetadataStore = SemanticIndexMetadataStore(),
-        indexStore: SemanticIndexStore = SemanticIndexStore(),
+        indexStore: any SemanticIndexStoring = SemanticIndexStore(),
         chunker: SemanticChunker = SemanticChunker()
     ) {
         self.embeddingService = embeddingService ?? MLXE5EmbeddingService()

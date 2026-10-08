@@ -5,8 +5,8 @@ import Testing
 import Foundation
 @testable import vreader
 
-private final class FailingStoreMock: SemanticIndexStore, @unchecked Sendable {
-    override func insertBatch(coherentItems: [SemanticIndexInsertItem]) throws -> [String: UInt64] {
+private actor FailingStoreMock: SemanticIndexStoring {
+    func insertBatch(coherentItems: [SemanticIndexInsertItem]) async throws -> [String: UInt64] {
         // Deliberately omit one chunk key to test strict missing key guard
         var keys: [String: UInt64] = [:]
         for (i, item) in coherentItems.dropLast().enumerated() {
@@ -14,6 +14,9 @@ private final class FailingStoreMock: SemanticIndexStore, @unchecked Sendable {
         }
         return keys
     }
+    func search(queryVector: [Float], count: Int, bookFingerprintKey: String? = nil) async throws -> [SemanticIndexStoreResult] { [] }
+    func removeBook(fingerprintKey: String) async throws {}
+    func clear() async throws {}
 }
 
 private struct DummyEmbeddingService: SemanticEmbeddingProviding {
@@ -36,7 +39,7 @@ struct SemanticRobustnessTests {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let failingStore = FailingStoreMock(dimension: 384, indexDirectory: tempDir)
+        let failingStore = FailingStoreMock()
         let metaStore = SemanticIndexMetadataStore(storageDirectory: tempDir)
         let coordinator = SemanticIndexCoordinator(
             embeddingService: DummyEmbeddingService(),

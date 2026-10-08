@@ -15,7 +15,7 @@ private actor FailingStoreMock: SemanticIndexStoring {
         return keys
     }
     func search(queryVector: [Float], count: Int, bookFingerprintKey: String? = nil) async throws -> [SemanticIndexStoreResult] { [] }
-    func removeBook(fingerprintKey: String) async throws {}
+    func delete(bookFingerprintKey: String) async throws {}
     func clear() async throws {}
 }
 

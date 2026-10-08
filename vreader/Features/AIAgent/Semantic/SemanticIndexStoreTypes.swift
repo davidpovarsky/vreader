@@ -6,7 +6,7 @@ import Foundation
 protocol SemanticIndexStoring: Sendable {
     func insertBatch(coherentItems: [SemanticIndexInsertItem]) async throws -> [String: UInt64]
     func search(queryVector: [Float], count: Int, bookFingerprintKey: String?) async throws -> [SemanticIndexStoreResult]
-    func removeBook(fingerprintKey: String) async throws
+    func delete(bookFingerprintKey: String) async throws
     func clear() async throws
 }
 

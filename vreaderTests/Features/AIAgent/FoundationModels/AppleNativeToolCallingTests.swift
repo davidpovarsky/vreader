@@ -104,6 +104,11 @@ struct AppleNativeToolCallingTests {
         }
     }
 
+    private final class SessionBox: @unchecked Sendable {
+        var session: TestMockSession?
+        var sessions: [TestMockSession] = []
+    }
+
     // MARK: - 1. Native Tool Registration & Contextual Dispatch
 
     @Test func backendRegistersNativeToolsAndPassesAIToolExecutionContext() async throws {
@@ -115,7 +120,7 @@ struct AppleNativeToolCallingTests {
         let expectedReaderToken = UUID()
         let expectedDocSessionID = AIDocumentSessionID(fingerprintKey: "book-test", readerToken: expectedReaderToken)
 
-        var createdSession: TestMockSession?
+        let box = SessionBox()
         let backend = AppleFoundationModelsBackend(
             availability: AppleFoundationModelsAvailability(state: .available),
             sessionFactory: { instructions, tools in
@@ -131,7 +136,7 @@ struct AppleNativeToolCallingTests {
                     )
                     return "Result: \(res.content)"
                 }
-                createdSession = sess
+                box.session = sess
                 return sess
             }
         )
@@ -144,7 +149,7 @@ struct AppleNativeToolCallingTests {
             turnID: expectedTurnID
         )
 
-        #expect(createdSession != nil)
+        #expect(box.session != nil)
         #expect(result.finalText.contains("Spy success"))
         #expect(spy.receivedContexts.count == 1)
 
@@ -208,24 +213,24 @@ struct AppleNativeToolCallingTests {
         // Verify committed vs discarded sources
         let collected = await tapSink.collectedSources()
         #expect(collected.count == 1)
-        #expect(collected.first?.locator.href == "ch1.xhtml")
+        #expect(collected.first?.locator?.href == "ch1.xhtml")
         #expect(collected.first?.snippet.contains("fetch_success") == true)
 
         let citations = collected.compactMap { $0.toChatCitation() }
         #expect(citations.count == 1)
-        #expect(citations.first?.href == "ch1.xhtml")
+        #expect(citations.first?.locator?.href == "ch1.xhtml")
     }
 
     // MARK: - 3. Multi-Turn Session Reuse & Reader Token Isolation
 
     @Test func sameReaderSessionReusesInstanceWhileDifferentTokenGetsNewSession() async throws {
-        var instantiatedSessions: [TestMockSession] = []
+        let box = SessionBox()
 
         let backend = AppleFoundationModelsBackend(
             availability: AppleFoundationModelsAvailability(state: .available),
             sessionFactory: { instructions, tools in
                 let s = TestMockSession(instructions: instructions, tools: tools)
-                instantiatedSessions.append(s)
+                box.sessions.append(s)
                 return s
             }
         )
@@ -242,8 +247,8 @@ struct AppleNativeToolCallingTests {
             documentSessionID: sessionID_A,
             turnID: "turn-1"
         )
-        #expect(instantiatedSessions.count == 1)
-        let sessionA = instantiatedSessions[0]
+        #expect(box.sessions.count == 1)
+        let sessionA = box.sessions[0]
         #expect(sessionA.respondCount == 1)
 
         // Turn 2 for Reader A (must reuse sessionA)
@@ -253,7 +258,7 @@ struct AppleNativeToolCallingTests {
             documentSessionID: sessionID_A,
             turnID: "turn-2"
         )
-        #expect(instantiatedSessions.count == 1)
+        #expect(box.sessions.count == 1)
         #expect(sessionA.respondCount == 2)
 
         // Turn 1 for Reader B on the SAME book (must create distinct session instance)
@@ -263,8 +268,8 @@ struct AppleNativeToolCallingTests {
             documentSessionID: sessionID_B,
             turnID: "turn-3"
         )
-        #expect(instantiatedSessions.count == 2)
-        let sessionB = instantiatedSessions[1]
+        #expect(box.sessions.count == 2)
+        let sessionB = box.sessions[1]
         #expect(sessionA !== sessionB)
         #expect(sessionB.respondCount == 1)
         #expect(sessionA.respondCount == 2)

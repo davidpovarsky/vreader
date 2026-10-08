@@ -153,3 +153,22 @@ extension AIDocumentSnapshot {
         )
     }
 }
+
+extension Locator {
+    init(bookFingerprint: DocumentFingerprint, href: String? = nil, page: Int? = nil) {
+        self.init(
+            bookFingerprint: bookFingerprint,
+            href: href,
+            progression: nil,
+            totalProgression: nil,
+            cfi: nil,
+            page: page,
+            charOffsetUTF16: nil,
+            charRangeStartUTF16: nil,
+            charRangeEndUTF16: nil,
+            textQuote: nil,
+            textContextBefore: nil,
+            textContextAfter: nil
+        )
+    }
+}

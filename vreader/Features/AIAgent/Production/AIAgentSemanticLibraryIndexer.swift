@@ -7,6 +7,9 @@ import OSLog
 #if canImport(PDFKit)
 import PDFKit
 #endif
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -97,9 +100,6 @@ actor AIAgentSemanticLibraryIndexer {
             activeTask = nil
             state = .cancelled
         }
-        Task { [coordinator] in
-            await coordinator.rebuildAll()
-        }
     }
 
     func rebuildLibraryIndex() async throws {
@@ -138,7 +138,8 @@ actor AIAgentSemanticLibraryIndexer {
                 continue
             }
 
-            guard let fileURL = ImportedBookFileURL.resolveExisting(fingerprintKey: book.fingerprintKey, format: book.format) else {
+            let fileURL = ImportedBookFileURL.resolveExisting(fingerprintKey: book.fingerprintKey, format: book.format)
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 Self.log.warning("Could not resolve local file for book \(book.fingerprintKey)")
                 continue
             }
@@ -215,6 +216,42 @@ actor AIAgentSemanticLibraryIndexer {
         }
     }
 
+#if canImport(PDFKit)
+@MainActor
+private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
+    let doc: PDFKit.PDFDocument
+    init(doc: PDFKit.PDFDocument) { self.doc = doc }
+    var pageCount: Int { doc.pageCount }
+    var currentPageIndex: Int? { nil }
+    func text(forPage index: Int) async throws -> String {
+        doc.page(at: index)?.string ?? ""
+    }
+    func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
+        guard let page = doc.page(at: index) else { return nil }
+        let bounds = page.bounds(for: .mediaBox)
+        let maxDim = max(bounds.width, bounds.height, 1)
+        let scale = min(1.5, maxDimension / maxDim)
+        let width = Int(max(1, bounds.width * scale))
+        let height = Int(max(1, bounds.height * scale))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.scaleBy(x: scale, y: scale)
+        page.draw(with: .mediaBox, to: ctx)
+        return ctx.makeImage()
+    }
+}
+#endif
+
     private func extractPDFChunks(for book: LibraryBookItem, fileURL: URL) async throws -> [AIDocumentChunk] {
         #if canImport(PDFKit)
         guard let doc = PDFKit.PDFDocument(url: fileURL) else {
@@ -235,29 +272,16 @@ actor AIAgentSemanticLibraryIndexer {
             var pageText = page.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             var isOCR = false
 
-            #if canImport(UIKit)
             if pageText.count < 30, let ocrService {
-                let pageBounds = page.bounds(for: .mediaBox)
-                let maxDimension = max(pageBounds.width, pageBounds.height, 1)
-                let scale = min(1.5, 1200.0 / maxDimension)
-                let targetSize = CGSize(width: max(1, pageBounds.width * scale), height: max(1, pageBounds.height * scale))
-                let renderer = UIGraphicsImageRenderer(size: targetSize)
-                let image = renderer.image { ctx in
-                    UIColor.white.setFill()
-                    ctx.fill(CGRect(origin: .zero, size: targetSize))
-                    ctx.cgContext.translateBy(x: 0, y: targetSize.height)
-                    ctx.cgContext.scaleBy(x: scale, y: -scale)
-                    page.draw(with: .mediaBox, to: ctx.cgContext)
-                }
-                if let ocrResult = try? await ocrService.recognizeText(in: image) {
-                    let recognized = ocrResult.lines.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let facade = await MainActor.run { LocalPDFDocumentFacade(doc: doc) }
+                if let ocrResult = try? await ocrService.extractPageText(bookKey: book.fingerprintKey, pageIndex: pageIndex, facade: facade) {
+                    let recognized = ocrResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !recognized.isEmpty {
                         pageText = recognized
                         isOCR = true
                     }
                 }
             }
-            #endif
 
             guard !pageText.isEmpty else { continue }
 

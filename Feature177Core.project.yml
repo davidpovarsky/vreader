@@ -18,6 +18,7 @@ targets:
     platform: iOS
     sources:
       - path: vreader/Features/AIAgent/Core
+      - path: vreader/Features/AIAgent/Tracing/AISourceProvenance.swift
       - path: vreader/Models/BookFormat.swift
       - path: vreader/Models/DocumentFingerprint.swift
       - path: vreader/Models/FormatCapabilities.swift

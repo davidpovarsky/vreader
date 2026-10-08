@@ -18,7 +18,7 @@ final class RealAppleLanguageModelSession: AppleLanguageModelSessionProtocol {
     private let session: LanguageModelSession
 
     init(instructions: String, tools: [any Tool]) {
-        self.session = LanguageModelSession(instructions: instructions, tools: tools)
+        self.session = LanguageModelSession(model: SystemLanguageModel.default, tools: tools, instructions: instructions)
     }
 
     func respond(to prompt: String) async throws -> String {
@@ -184,9 +184,9 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
         try Task.checkCancellation()
 
         let collectedSources = await tappingSink.collectedSources()
-        let uniqueSources = AgenticChatDriver.deduplicateSources(collectedSources)
+        let uniqueSources = Self.deduplicateSources(collectedSources)
         let citations = uniqueSources.compactMap { $0.toChatCitation() }
-        let usedTools = (toolAdapter != nil && !uniqueSources.isEmpty) || (await tappingSink.recordedCallCount > 0)
+        let usedTools = (toolAdapter != nil && !uniqueSources.isEmpty)
 
         return AgenticResult(
             finalText: responseText,
@@ -194,6 +194,20 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
             citations: citations,
             sourceProvenances: uniqueSources
         )
+    }
+
+    private static func deduplicateSources(_ sources: [AISourceProvenance]) -> [AISourceProvenance] {
+        var seen = Set<String>()
+        var result: [AISourceProvenance] = []
+        for src in sources {
+            let key = "\(src.bookFingerprintKey)|\(src.href ?? "")|\(src.pageIndex ?? -1)|\(src.snippet)"
+            if !seen.contains(src.id) && !seen.contains(key) {
+                seen.insert(src.id)
+                seen.insert(key)
+                result.append(src)
+            }
+        }
+        return result
     }
 
     /// Preserves bounded multi-turn conversation transcripts without persisting framework objects.

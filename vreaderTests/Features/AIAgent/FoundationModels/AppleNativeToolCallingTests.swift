@@ -152,6 +152,21 @@ struct AppleNativeToolCallingTests {
         #expect(ctx.turnID == expectedTurnID)
         #expect(ctx.toolCallID == "call-native-999")
         #expect(ctx.readerSessionID == expectedDocSessionID)
+
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            let bridge = AppleNativeToolBridge(
+                name: "search_chapter",
+                description: "Test description",
+                adapter: adapter,
+                turnID: expectedTurnID,
+                documentSessionID: expectedDocSessionID,
+                sink: ProvenanceTapSink()
+            )
+            let callOutput = try await bridge.call(arguments: .init(input: "{\"query\": \"intro\"}"))
+            #expect(callOutput.contains("Spy success"))
+        }
+        #endif
     }
 
     // MARK: - 2. Provenance Capture & Failed Tool Source Exclusion

@@ -185,7 +185,12 @@ struct AppleFoundationModelsToolAdapter: Sendable {
 #if canImport(FoundationModels)
 @available(iOS 26.0, macOS 26.0, *)
 struct AppleNativeToolBridge: Tool, Sendable {
-    typealias Arguments = String
+    @Generable
+    struct Arguments: Sendable {
+        @Guide(description: "Input arguments or JSON string for the tool")
+        var input: String = ""
+    }
+
     typealias Output = String
 
     let name: String
@@ -211,11 +216,11 @@ struct AppleNativeToolBridge: Tool, Sendable {
         self.sink = sink
     }
 
-    func invoke(arguments: String) async throws -> String {
+    func call(arguments: Arguments) async throws -> String {
         let callID = UUID().uuidString
         let result = await adapter.invokeNative(
             toolName: name,
-            rawArguments: arguments,
+            rawArguments: arguments.input,
             callID: callID,
             turnID: turnID,
             documentSessionID: documentSessionID,

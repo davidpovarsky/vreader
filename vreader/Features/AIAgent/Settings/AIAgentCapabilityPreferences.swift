@@ -49,6 +49,7 @@ final class AIAgentCapabilityPreferences: Codable, @unchecked Sendable, Equatabl
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.isSemanticSearchEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSemanticSearchEnabled) ?? false
+        self.isOCREnabled = try container.decodeIfPresent(Bool.self, forKey: .isOCREnabled) ?? true
         let decodedMode = try container.decodeIfPresent(AppleFoundationModelMode.self, forKey: .foundationModelMode) ?? .onDevice
         // Public FoundationModels SDK only provides on-device SystemLanguageModel; normalize PCC safely
         self.foundationModelMode = (decodedMode == .privateCloudCompute) ? .onDevice : decodedMode

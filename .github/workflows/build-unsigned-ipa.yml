@@ -94,7 +94,7 @@ jobs:
           xcodegen --version
 
       - name: Live Activity · refresh
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_feature_177_regression_tests || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         uses: davidpovarsky/github-automation/live-refresh@main
         continue-on-error: true
         with:
@@ -103,14 +103,14 @@ jobs:
           token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
           github_token: ${{ github.token }}
       - name: Install Metal Toolchain for MLX
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_feature_177_regression_tests || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -downloadComponent MetalToolchain
 
       - name: Live Activity · refresh
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_feature_177_regression_tests || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         uses: davidpovarsky/github-automation/live-refresh@main
         continue-on-error: true
         with:
@@ -119,14 +119,14 @@ jobs:
           token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
           github_token: ${{ github.token }}
       - name: Apply preview compile patches
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_feature_177_regression_tests || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/ci-preview-compile-patches.py
 
       - name: Live Activity · refresh
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_feature_177_regression_tests || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         uses: davidpovarsky/github-automation/live-refresh@main
         continue-on-error: true
         with:
@@ -135,7 +135,7 @@ jobs:
           token: ${{ secrets.NOTIFY_DEVICE_TOKEN }}
           github_token: ${{ github.token }}
       - name: Generate Xcode project
-        if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_feature_177_regression_tests || (!inputs.run_feature_177_core_tests && !inputs.run_feature_177_mapping_tests) }}
         shell: bash
         run: |
           set -euo pipefail

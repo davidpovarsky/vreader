@@ -219,15 +219,16 @@ actor AIAgentSemanticLibraryIndexer {
 #if canImport(PDFKit)
 @MainActor
 private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
-    let doc: PDFKit.PDFDocument
-    init(doc: PDFKit.PDFDocument) { self.doc = doc }
-    var pageCount: Int { doc.pageCount }
+    let doc: PDFKit.PDFDocument?
+    var isLocked: Bool { doc?.isLocked ?? false }
+    init(url: URL) { self.doc = PDFKit.PDFDocument(url: url) }
+    var pageCount: Int { doc?.pageCount ?? 0 }
     var currentPageIndex: Int? { nil }
     func text(forPage index: Int) async throws -> String {
-        doc.page(at: index)?.string ?? ""
+        doc?.page(at: index)?.string ?? ""
     }
     func renderPageForOCR(index: Int, maxDimension: CGFloat) async throws -> CGImage? {
-        guard let page = doc.page(at: index) else { return nil }
+        guard let page = doc?.page(at: index) else { return nil }
         let bounds = page.bounds(for: .mediaBox)
         let maxDim = max(bounds.width, bounds.height, 1)
         let scale = min(1.5, maxDimension / maxDim)
@@ -254,26 +255,26 @@ private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
 
     private func extractPDFChunks(for book: LibraryBookItem, fileURL: URL) async throws -> [AIDocumentChunk] {
         #if canImport(PDFKit)
-        guard let doc = PDFKit.PDFDocument(url: fileURL) else {
+        let facade = await MainActor.run { LocalPDFDocumentFacade(url: fileURL) }
+        let (pageCount, isLocked) = await MainActor.run { (facade.pageCount, facade.isLocked) }
+        guard pageCount > 0 else {
             throw NSError(domain: "vreader.semantic.indexer", code: 404, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to open PDF document: \(fileURL.lastPathComponent)"
             ])
         }
-        guard !doc.isLocked else {
+        guard !isLocked else {
             Self.log.info("Skipping locked PDF book: \(book.fingerprintKey)")
             return []
         }
 
         var chunks: [AIDocumentChunk] = []
-        for pageIndex in 0..<doc.pageCount {
+        for pageIndex in 0..<pageCount {
             try Task.checkCancellation()
-            guard let page = doc.page(at: pageIndex) else { continue }
 
-            var pageText = page.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            var pageText = (try? await facade.text(forPage: pageIndex))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             var isOCR = false
 
             if pageText.count < 30, let ocrService {
-                let facade = await MainActor.run { LocalPDFDocumentFacade(doc: doc) }
                 if let ocrResult = try? await ocrService.extractPageText(bookKey: book.fingerprintKey, pageIndex: pageIndex, facade: facade) {
                     let recognized = ocrResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !recognized.isEmpty {

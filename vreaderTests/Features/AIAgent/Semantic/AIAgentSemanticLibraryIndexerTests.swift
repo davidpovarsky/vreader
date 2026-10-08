@@ -21,8 +21,8 @@ private final class MockLibraryStore: LibraryPersisting, @unchecked Sendable {
     func fetchBook(withKey key: String) async throws -> LibraryBookItem? {
         books.first { $0.fingerprintKey == key }
     }
-    func deleteBook(withKey key: String) async throws {
-        books.removeAll { $0.fingerprintKey == key }
+    func deleteBook(fingerprintKey: String) async throws {
+        books.removeAll { $0.fingerprintKey == fingerprintKey }
     }
     func updateLastOpened(forBookWithKey key: String, at date: Date) async throws {}
     func toggleFavorite(forBookWithKey key: String) async throws -> Bool { false }

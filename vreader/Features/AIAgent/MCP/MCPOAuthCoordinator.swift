@@ -251,38 +251,71 @@ actor MCPOAuthCoordinator {
         )
     }
 
+    /// Handles authorization callback with simulated or pre-fetched token response data, binding to resourceEndpoint.
+    func handleCallback(
+        state: String,
+        code: String,
+        responseData: Data
+    ) async throws {
+        try Task.checkCancellation()
+        guard let pending = pendingStates.removeValue(forKey: state) else {
+            throw NSError(domain: "vreader.mcp.oauth", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid OAuth state"])
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let accessToken = json["access_token"] as? String else {
+            throw NSError(domain: "vreader.mcp.oauth", code: 422, userInfo: [NSLocalizedDescriptionKey: "Malformed token response"])
+        }
+
+        let refreshToken = json["refresh_token"] as? String
+        // Save access & refresh tokens bound to the MCP resource endpoint origin
+        try secretStore.saveOAuthTokens(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            forProfileID: pending.profileID,
+            endpoint: pending.resourceEndpoint
+        )
+    }
+
     /// Refreshes the OAuth access token using the stored refresh token keyed to resourceEndpoint with rotation support.
     func refreshToken(
         forProfileID profileID: UUID,
         resourceEndpoint: URL,
         tokenEndpoint: URL,
-        clientID: String? = nil
+        clientID: String? = nil,
+        responseData: Data? = nil
     ) async throws -> String {
         try Task.checkCancellation()
         guard let refreshToken = secretStore.fetchRefreshToken(forProfileID: profileID, endpoint: resourceEndpoint) else {
             throw NSError(domain: "vreader.mcp.oauth", code: 404, userInfo: [NSLocalizedDescriptionKey: "No refresh token available"])
         }
 
-        var request = URLRequest(url: tokenEndpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let data: Data
+        if let responseData {
+            data = responseData
+        } else {
+            var request = URLRequest(url: tokenEndpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        var bodyParams: [String: String] = [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken
-        ]
-        if let clientID, !clientID.isEmpty {
-            bodyParams["client_id"] = clientID
-        }
+            var bodyParams: [String: String] = [
+                "grant_type": "refresh_token",
+                "refresh_token": refreshToken
+            ]
+            if let clientID, !clientID.isEmpty {
+                bodyParams["client_id"] = clientID
+            }
 
-        request.httpBody = bodyParams
-            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
-            .joined(separator: "&")
-            .data(using: .utf8)
+            request.httpBody = bodyParams
+                .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
+                .joined(separator: "&")
+                .data(using: .utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "vreader.mcp.oauth", code: 401, userInfo: [NSLocalizedDescriptionKey: "Token refresh failed"])
+            let (receivedData, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+                throw NSError(domain: "vreader.mcp.oauth", code: 401, userInfo: [NSLocalizedDescriptionKey: "Token refresh failed"])
+            }
+            data = receivedData
         }
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

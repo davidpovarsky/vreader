@@ -10,7 +10,7 @@ import Foundation
 struct AIExactSessionConfirmationIsolationTests {
 
     @Test func sameBookTwoTokensIsolatesConfirmationRequests() async {
-        let broker = AIActionConfirmationBroker()
+        let broker = AIActionConfirmationBroker(preferencesStore: InMemoryAIAgentPreferencesStore())
 
         let tokenA = UUID()
         let tokenB = UUID()
@@ -39,7 +39,8 @@ struct AIExactSessionConfirmationIsolationTests {
 
         // Wait until broker has request A
         for _ in 0..<20 {
-            if (await broker.pendingRequests(for: sessionA).count) == 1 { break }
+            let countA = await broker.pendingRequests(for: sessionA).count
+            if countA == 1 { break }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
 
@@ -53,31 +54,34 @@ struct AIExactSessionConfirmationIsolationTests {
         // Request B in background
         let taskB = Task { await broker.requestConfirmation(reqB) }
         for _ in 0..<20 {
-            if (await broker.pendingRequests(for: sessionB).count) == 1 { break }
+            let countB = await broker.pendingRequests(for: sessionB).count
+            if countB == 1 { break }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
 
-        #expect((await broker.pendingRequests(for: sessionA)).count == 1)
-        #expect((await broker.pendingRequests(for: sessionB)).count == 1)
+        #expect(await broker.pendingRequests(for: sessionA).count == 1)
+        #expect(await broker.pendingRequests(for: sessionB).count == 1)
 
         // 2. Allow Once in A resumes only A
-        await broker.respond(to: reqA.id, decision: .allowOnce)
+        let resolvedA = await broker.resolve(reqA.id, with: .allowOnce)
+        #expect(resolvedA)
         let decisionA = await taskA.value
-        #expect(decisionA == .allowOnce)
+        #expect(decisionA == .allowed)
 
         // B is still pending
-        #expect((await broker.pendingRequests(for: sessionA)).isEmpty)
-        #expect((await broker.pendingRequests(for: sessionB)).count == 1)
+        #expect(await broker.pendingRequests(for: sessionA).isEmpty)
+        #expect(await broker.pendingRequests(for: sessionB).count == 1)
 
         // 3. Deny in B affects only B
-        await broker.respond(to: reqB.id, decision: .deny)
+        let resolvedB = await broker.resolve(reqB.id, with: .deny)
+        #expect(resolvedB)
         let decisionB = await taskB.value
-        #expect(decisionB == .deny)
-        #expect((await broker.pendingRequests(for: sessionB)).isEmpty)
+        #expect(decisionB == .denied)
+        #expect(await broker.pendingRequests(for: sessionB).isEmpty)
     }
 
     @Test func sessionCancellationCleansOnlyTargetSessionPendingRequests() async {
-        let broker = AIActionConfirmationBroker()
+        let broker = AIActionConfirmationBroker(preferencesStore: InMemoryAIAgentPreferencesStore())
 
         let sessionA = AIDocumentSessionID(fingerprintKey: "book-1", readerToken: UUID())
         let sessionB = AIDocumentSessionID(fingerprintKey: "book-2", readerToken: UUID())
@@ -85,13 +89,13 @@ struct AIExactSessionConfirmationIsolationTests {
         let reqA = AIActionConfirmationRequest(
             toolName: "modify_text",
             actionDescription: "Modify A",
-            permissionCategory: .modifyData,
+            permissionCategory: .modifyAnnotations,
             readerSessionID: sessionA
         )
         let reqB = AIActionConfirmationRequest(
             toolName: "modify_text",
             actionDescription: "Modify B",
-            permissionCategory: .modifyData,
+            permissionCategory: .modifyAnnotations,
             readerSessionID: sessionB
         )
 
@@ -99,8 +103,9 @@ struct AIExactSessionConfirmationIsolationTests {
         let taskB = Task { await broker.requestConfirmation(reqB) }
 
         for _ in 0..<20 {
-            if (await broker.pendingRequests(for: sessionA).count) == 1 &&
-               (await broker.pendingRequests(for: sessionB).count) == 1 {
+            let countA = await broker.pendingRequests(for: sessionA).count
+            let countB = await broker.pendingRequests(for: sessionB).count
+            if countA == 1 && countB == 1 {
                 break
             }
             try? await Task.sleep(nanoseconds: 10_000_000)
@@ -109,15 +114,16 @@ struct AIExactSessionConfirmationIsolationTests {
         // Cancel Session A
         await broker.cancelSession(sessionA)
 
-        // Pending A is now empty and taskA gets denied
-        #expect((await broker.pendingRequests(for: sessionA)).isEmpty)
+        // Pending A is now empty and taskA gets cancelled
+        #expect(await broker.pendingRequests(for: sessionA).isEmpty)
         let decisionA = await taskA.value
-        #expect(decisionA == .deny)
+        #expect(decisionA == .cancelled)
 
         // Session B remains intact
-        #expect((await broker.pendingRequests(for: sessionB)).count == 1)
-        await broker.respond(to: reqB.id, decision: .allowAlways)
+        #expect(await broker.pendingRequests(for: sessionB).count == 1)
+        let resolvedB = await broker.resolve(reqB.id, with: .alwaysAllow)
+        #expect(resolvedB)
         let decisionB = await taskB.value
-        #expect(decisionB == .allowAlways)
+        #expect(decisionB == .allowed)
     }
 }

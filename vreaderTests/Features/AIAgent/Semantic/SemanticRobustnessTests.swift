@@ -99,8 +99,14 @@ struct SemanticRobustnessTests {
     // MARK: - 2. Single Job Per Book Concurrency Guard
 
     @Test func singleActiveJobPerBookGuaranteed() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
         let coordinator = SemanticIndexCoordinator(
-            embeddingService: DummyEmbeddingService()
+            embeddingService: DummyEmbeddingService(),
+            metadataStore: SemanticIndexMetadataStore(storageDirectory: tempDir.appendingPathComponent("meta")),
+            indexStore: SemanticIndexStore(dimension: 384, indexDirectory: tempDir.appendingPathComponent("vec"))
         )
 
         let fp = "book-concurrent-test"

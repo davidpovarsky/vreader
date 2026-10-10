@@ -466,6 +466,11 @@ jobs:
             -only-testing:vreaderTests/Feature177NoMocksGuardTests \
             -only-testing:vreaderTests/Feature177CorrectivePassTests \
             -only-testing:vreaderTests/Feature177CorrectivePassMCPAndAppleTests \
+            -only-testing:vreaderTests/AppleNativeToolCallingTests \
+            -only-testing:vreaderTests/AIAgentSemanticLibraryIndexerTests \
+            -only-testing:vreaderTests/MCPOAuthHostIsolationTests \
+            -only-testing:vreaderTests/AIExactSessionConfirmationIsolationTests \
+            -only-testing:vreaderTests/SemanticRobustnessTests \
             ENABLE_TESTABILITY=YES \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
@@ -680,7 +685,12 @@ jobs:
             vreaderTests/ChatActionConfirmationCardTests \
             vreaderTests/Feature177NoMocksGuardTests \
             vreaderTests/Feature177CorrectivePassTests \
-            vreaderTests/Feature177CorrectivePassMCPAndAppleTests
+            vreaderTests/Feature177CorrectivePassMCPAndAppleTests \
+            vreaderTests/AppleNativeToolCallingTests \
+            vreaderTests/AIAgentSemanticLibraryIndexerTests \
+            vreaderTests/MCPOAuthHostIsolationTests \
+            vreaderTests/AIExactSessionConfirmationIsolationTests \
+            vreaderTests/SemanticRobustnessTests
 
       - name: Live Activity · refresh
         if: ${{ always() && env.FEATURE_TEST_UDID != '' }}

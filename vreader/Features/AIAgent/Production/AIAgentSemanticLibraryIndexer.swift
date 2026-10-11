@@ -46,6 +46,15 @@ extension Notification.Name {
     static let libraryBookDidDelete = Notification.Name("vreader.library.bookDidDelete")
 }
 
+private final class DeletionObserverTokenBox: @unchecked Sendable {
+    var token: NSObjectProtocol?
+    deinit {
+        if let token {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+}
+
 actor AIAgentSemanticLibraryIndexer {
     private static let log = Logger(subsystem: "com.vreader.app", category: "AIAgentSemanticLibraryIndexer")
 
@@ -55,9 +64,9 @@ actor AIAgentSemanticLibraryIndexer {
     private let indexStore: SemanticIndexStore
     private let embeddingService: any SemanticEmbeddingProviding
     private let ocrService: (any PDFOCRServicing)?
+    private let deletionObserverBox = DeletionObserverTokenBox()
 
     private var activeTask: Task<Void, Error>?
-    private var deletionObserverTask: Task<Void, Never>?
     private var deletedDuringRun: Set<String> = []
     private(set) var state: AIAgentSemanticLibraryIndexerState = .idle
 
@@ -76,20 +85,18 @@ actor AIAgentSemanticLibraryIndexer {
         self.embeddingService = embeddingService ?? MLXE5EmbeddingService()
         self.ocrService = ocrService
 
-        let notifications = NotificationCenter.default.notifications(named: .libraryBookDidDelete)
-        self.deletionObserverTask = Task { [weak self] in
-            for await note in notifications {
-                guard let self else { break }
-                let key = (note.userInfo?["fingerprintKey"] as? String) ?? (note.object as? String)
-                if let key, !key.isEmpty {
-                    try? await self.deleteIndex(forBookKey: key)
-                }
+        let observerBox = self.deletionObserverBox
+        observerBox.token = NotificationCenter.default.addObserver(
+            forName: .libraryBookDidDelete,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            let key = (note.userInfo?["fingerprintKey"] as? String) ?? (note.object as? String)
+            guard let key, !key.isEmpty else { return }
+            Task { [weak self] in
+                try? await self?.deleteIndex(forBookKey: key)
             }
         }
-    }
-
-    deinit {
-        deletionObserverTask?.cancel()
     }
 
     /// Triggers background indexing of all eligible library books.

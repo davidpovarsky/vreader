@@ -177,10 +177,10 @@ struct AIAgentSemanticLibraryIndexerTests {
 
         let mockLib = MockLibraryStore()
         mockLib.books = [
-            LibraryBookItem(fingerprintKey: txtKey, title: "Astronomy Book", author: "A", coverImagePath: nil, format: "txt", fileByteCount: 64, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, fileState: .present, blobPath: nil, collectionNames: []),
-            LibraryBookItem(fingerprintKey: mdKey, title: "Markdown Guide", author: "B", coverImagePath: nil, format: "md", fileByteCount: 64, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, fileState: .present, blobPath: nil, collectionNames: []),
-            LibraryBookItem(fingerprintKey: epubKey, title: "Cybernetics EPUB", author: "C", coverImagePath: nil, format: "epub", fileByteCount: 256, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, fileState: .present, blobPath: nil, collectionNames: []),
-            LibraryBookItem(fingerprintKey: pdfKey, title: "Quantum PDF", author: "D", coverImagePath: nil, format: "pdf", fileByteCount: 512, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, fileState: .present, blobPath: nil, collectionNames: [])
+            LibraryBookItem(fingerprintKey: txtKey, title: "Astronomy Book", author: "A", coverImagePath: nil, format: "txt", fileByteCount: 64, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
+            LibraryBookItem(fingerprintKey: mdKey, title: "Markdown Guide", author: "B", coverImagePath: nil, format: "md", fileByteCount: 64, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
+            LibraryBookItem(fingerprintKey: epubKey, title: "Cybernetics EPUB", author: "C", coverImagePath: nil, format: "epub", fileByteCount: 256, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
+            LibraryBookItem(fingerprintKey: pdfKey, title: "Quantum PDF", author: "D", coverImagePath: nil, format: "pdf", fileByteCount: 512, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil)
         ]
 
         let indexer = AIAgentSemanticLibraryIndexer(

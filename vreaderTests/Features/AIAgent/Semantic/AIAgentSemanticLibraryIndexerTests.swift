@@ -149,6 +149,9 @@ struct AIAgentSemanticLibraryIndexerTests {
         func addHighlight(locator: Locator, selectedText: String, color: String, note: String?, toBookWithKey bookFingerprintKey: String) async throws -> HighlightRecord {
             HighlightRecord(highlightId: UUID(), locator: locator, anchor: nil, profileKey: "\(bookFingerprintKey):\(locator.canonicalHash)", selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
         }
+        func addHighlight(locator: Locator, anchor: AnnotationAnchor?, selectedText: String, color: String, note: String?, toBookWithKey bookFingerprintKey: String) async throws -> HighlightRecord {
+            HighlightRecord(highlightId: UUID(), locator: locator, anchor: anchor, profileKey: "\(bookFingerprintKey):\(locator.canonicalHash)", selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
+        }
         func removeHighlight(highlightId: UUID) async throws {}
         func updateHighlightNote(highlightId: UUID, note: String?) async throws {}
         func updateHighlightColor(highlightId: UUID, color: String) async throws {}

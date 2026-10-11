@@ -32,10 +32,10 @@ struct MCPOAuthHostIsolationTests {
         try secretStore.saveToken("tok-443", forProfileID: profileA, endpoint: httpsImplicit443)
         try secretStore.saveRefreshToken("ref-443", forProfileID: profileA, endpoint: httpsImplicit443)
         defer {
-            secretStore.deleteCredentials(forProfileID: profileA, endpoint: httpsImplicit443)
-            secretStore.deleteCredentials(forProfileID: profileA, endpoint: httpsCustom8443)
-            secretStore.deleteCredentials(forProfileID: profileA, endpoint: httpImplicit80)
-            secretStore.deleteCredentials(forProfileID: profileB, endpoint: httpsImplicit443)
+            try? secretStore.deleteCredentials(forProfileID: profileA, endpoint: httpsImplicit443)
+            try? secretStore.deleteCredentials(forProfileID: profileA, endpoint: httpsCustom8443)
+            try? secretStore.deleteCredentials(forProfileID: profileA, endpoint: httpImplicit80)
+            try? secretStore.deleteCredentials(forProfileID: profileB, endpoint: httpsImplicit443)
         }
 
         #expect(secretStore.fetchToken(forProfileID: profileA, endpoint: httpsExplicit443) == "tok-443")
@@ -80,7 +80,7 @@ struct MCPOAuthHostIsolationTests {
         let tokenURL = try #require(URL(string: "https://auth.example.com/oauth/token"))
 
         defer {
-            secretStore.deleteCredentials(forProfileID: profileID, endpoint: resourceURL)
+            try? secretStore.deleteCredentials(forProfileID: profileID, endpoint: resourceURL)
         }
 
         // 1. Generate parameters bound to resource endpoint with custom port :8443
@@ -115,13 +115,13 @@ struct MCPOAuthHostIsolationTests {
             id: profileID,
             name: "MCP 8443",
             endpointURL: resourceURL,
-            transportKind: .streamableHTTP,
-            authKind: .oauth,
-            isEnabled: true
+            isEnabled: true,
+            authType: .oauth
         )
         let conn8443 = HTTPMCPConnection(profile: profile8443, secretStore: secretStore)
         let config8443 = await conn8443.makeSessionConfiguration()
-        #expect(config8443.httpAdditionalHeaders?["Authorization"] as? String == "Bearer token-for-mcp-8443")
+        let authHeader8443 = config8443.httpAdditionalHeaders?["Authorization"] as? String
+        #expect(authHeader8443 == "Bearer token-for-mcp-8443")
 
         // 4. Verify token is NOT accessible under :443 on same host, auth.example.com, or another host
         #expect(try secretStore.token(for: profileID, endpointURL: defaultPortOnSameHost) == nil)
@@ -131,13 +131,13 @@ struct MCPOAuthHostIsolationTests {
             id: profileID,
             name: "MCP 443",
             endpointURL: defaultPortOnSameHost,
-            transportKind: .streamableHTTP,
-            authKind: .oauth,
-            isEnabled: true
+            isEnabled: true,
+            authType: .oauth
         )
         let conn443 = HTTPMCPConnection(profile: profile443, secretStore: secretStore)
         let config443 = await conn443.makeSessionConfiguration()
-        #expect(config443.httpAdditionalHeaders?["Authorization"] == nil)
+        let authHeader443 = config443.httpAdditionalHeaders?["Authorization"] as? String
+        #expect(authHeader443 == nil)
 
         let authHostToken = try secretStore.token(for: profileID, endpointURL: tokenURL)
         #expect(authHostToken == nil)

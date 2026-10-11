@@ -189,12 +189,12 @@ struct AppleNativeToolCallingTests {
             availability: AppleFoundationModelsAvailability(state: .available),
             sessionFactory: { instructions, tools in
                 let sess = TestMockSession(instructions: instructions, tools: tools)
-                sess.onRespond = { [tools] prompt in
-                    // Crucial: invoke the registered native AppleNativeToolBridge from `tools`
+                sess.onRespond = { [weak sess] prompt in
+                    // Crucial: invoke the registered native AppleNativeToolBridge from `sess?.tools`
                     // (created on Turn 1) to prove Turn 2 does NOT stay bound to Turn 1's turnID/sink/adapter.
                     #if canImport(FoundationModels)
                     if #available(iOS 26.0, macOS 26.0, *),
-                       let bridge = tools.first as? AppleNativeToolBridge {
+                       let bridge = sess?.tools.first as? AppleNativeToolBridge {
                         let out = try await bridge.call(arguments: .init(input: "{\"query\": \"\(prompt)\"}"))
                         return "Model answer using \(out)"
                     }
@@ -270,10 +270,10 @@ struct AppleNativeToolCallingTests {
             availability: AppleFoundationModelsAvailability(state: .available),
             sessionFactory: { instructions, tools in
                 let sess = TestMockSession(instructions: instructions, tools: tools)
-                sess.onRespond = { [tools] _ in
+                sess.onRespond = { [weak sess] _ in
                     #if canImport(FoundationModels)
                     if #available(iOS 26.0, macOS 26.0, *),
-                       let bridge = tools.first as? AppleNativeToolBridge {
+                       let bridge = sess?.tools.first as? AppleNativeToolBridge {
                         let out = try await bridge.call(arguments: .init(input: "{}"))
                         return "Listed: \(out)"
                     }
@@ -544,9 +544,18 @@ struct AppleNativeToolCallingTests {
 
         let store = InMemoryChatSessionStore()
         let spyTool = ContextSpyTool(name: "search_current_book")
+        let flags = FeatureFlags(environment: .prod)
+        flags.setOverride(true, for: .aiAssistant)
+        flags.setOverride(true, for: .agenticTools)
+        let service = AIService(
+            featureFlags: flags,
+            consentManager: WI11TestHelpers.makeConsentManager(hasConsent: true),
+            keychainService: KeychainService(serviceIdentifier: "com.vreader.test.\(UUID().uuidString)")
+        )
         let vm = AIChatViewModel(
-            aiService: AIService(),
+            aiService: service,
             bookFingerprint: fp,
+            featureFlags: flags,
             agenticRegistry: AIToolRegistry([spyTool]),
             chatSessionStore: store
         )

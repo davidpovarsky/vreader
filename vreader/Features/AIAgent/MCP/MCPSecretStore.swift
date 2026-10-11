@@ -94,17 +94,21 @@ struct MCPSecretStore: Sendable {
         try deleteToken(forProfileID: profileID, endpoint: endpointURL)
     }
 
+    func saveRefreshToken(_ refreshToken: String, forProfileID profileID: UUID, endpoint: URL? = nil) throws {
+        let refreshAcct = refreshTokenAccount(for: profileID, endpoint: endpoint)
+        do {
+            try keychain.saveString(refreshToken, forAccount: refreshAcct)
+        } catch let KeychainError.unexpectedStatus(status) where status == -34018 {
+            Self.fallbackLock.lock()
+            defer { Self.fallbackLock.unlock() }
+            Self.inMemoryFallback[refreshAcct] = refreshToken
+        }
+    }
+
     func saveOAuthTokens(accessToken: String, refreshToken: String?, forProfileID profileID: UUID, endpoint: URL? = nil) throws {
         try saveToken(accessToken, forProfileID: profileID, endpoint: endpoint)
         if let refreshToken {
-            let refreshAcct = refreshTokenAccount(for: profileID, endpoint: endpoint)
-            do {
-                try keychain.saveString(refreshToken, forAccount: refreshAcct)
-            } catch let KeychainError.unexpectedStatus(status) where status == -34018 {
-                Self.fallbackLock.lock()
-                defer { Self.fallbackLock.unlock() }
-                Self.inMemoryFallback[refreshAcct] = refreshToken
-            }
+            try saveRefreshToken(refreshToken, forProfileID: profileID, endpoint: endpoint)
         }
     }
 

@@ -429,11 +429,12 @@ struct AppleNativeToolCallingTests {
             private var order: [UUID] = []
 
             func fetchChatSessionSummaries(forBookWithKey bookFingerprintKey: String) async throws -> [ChatSessionSummary] {
-                order.compactMap { id in
+                order.compactMap { (id: UUID) -> ChatSessionSummary? in
                     guard let rec = records[id], rec.bookFingerprintKey == bookFingerprintKey else { return nil }
                     return ChatSessionSummary(
                         id: rec.sessionId,
                         title: rec.title,
+                        snippet: rec.messages.last?.content ?? "",
                         updatedAt: rec.updatedAt,
                         messageCount: rec.messages.count
                     )
@@ -451,9 +452,9 @@ struct AppleNativeToolCallingTests {
                     sessionId: id,
                     bookFingerprintKey: bookFingerprintKey,
                     title: title,
+                    messages: messages,
                     createdAt: now,
-                    updatedAt: now,
-                    messages: messages
+                    updatedAt: now
                 )
                 records[id] = record
                 order.insert(id, at: 0)
@@ -466,9 +467,9 @@ struct AppleNativeToolCallingTests {
                     sessionId: sessionId,
                     bookFingerprintKey: existing?.bookFingerprintKey ?? "",
                     title: title ?? existing?.title ?? "Chat",
+                    messages: messages,
                     createdAt: existing?.createdAt ?? Date(),
-                    updatedAt: Date(),
-                    messages: messages
+                    updatedAt: Date()
                 )
                 records[sessionId] = updated
                 order.removeAll { $0 == sessionId }
@@ -482,9 +483,9 @@ struct AppleNativeToolCallingTests {
                     sessionId: sessionId,
                     bookFingerprintKey: existing.bookFingerprintKey,
                     title: title,
+                    messages: existing.messages,
                     createdAt: existing.createdAt,
-                    updatedAt: Date(),
-                    messages: existing.messages
+                    updatedAt: Date()
                 )
             }
 

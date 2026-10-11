@@ -40,6 +40,7 @@ final class AIAgentProductionRuntime {
     private(set) var libraryIndexer: AIAgentSemanticLibraryIndexer?
     private(set) var semanticRuntimeStatus: AIAgentSemanticRuntimeStatus = .disabled
     private var activeIndexingBookKeys: Set<String> = []
+    private var deletionObserverTask: Task<Void, Never>?
 
     init(
         preferencesStore: any AIAgentPreferencesStoring = AIAgentPreferencesStore.shared,
@@ -55,6 +56,34 @@ final class AIAgentProductionRuntime {
         self.semanticModelManager = semanticModelManager
         self.mcpProfileStore = mcpProfileStore
         self.mcpClientManager = mcpClientManager
+
+        let notifications = NotificationCenter.default.notifications(named: .libraryBookDidDelete)
+        self.deletionObserverTask = Task { @MainActor [weak self] in
+            for await note in notifications {
+                guard let self else { break }
+                let key = (note.userInfo?["fingerprintKey"] as? String) ?? (note.object as? String)
+                if let key, !key.isEmpty {
+                    await self.handleBookDeleted(fingerprintKey: key)
+                }
+            }
+        }
+    }
+
+    deinit {
+        deletionObserverTask?.cancel()
+    }
+
+    /// Removes semantic index vectors and metadata when a book is deleted from the library.
+    func handleBookDeleted(fingerprintKey: String) async {
+        activeIndexingBookKeys.remove(fingerprintKey)
+        if let indexer = libraryIndexer {
+            try? await indexer.deleteIndex(forBookKey: fingerprintKey)
+        } else if let coordinator = semanticIndexCoordinator {
+            try? await coordinator.removeBookIndex(fingerprintKey: fingerprintKey)
+        } else {
+            try? await sharedMetadataStore.remove(forBook: fingerprintKey)
+            try? await sharedIndexStore.delete(bookFingerprintKey: fingerprintKey)
+        }
     }
 
     /// Returns the long-lived coordinator or initializes it once.
@@ -162,12 +191,17 @@ final class AIAgentProductionRuntime {
                     activeIndexingBookKeys.insert(currentBookKey)
                     Task { [weak self, coordinator, metadataStore = self.sharedMetadataStore] in
                         let existing = await metadataStore.fetchMetadata(forBook: currentBookKey)
-                        let isCompatible = existing?.isCompatible(
+                        let existingChunks = await metadataStore.allChunks(for: currentBookKey)
+                        let hasValidLocators = !existingChunks.isEmpty && existingChunks.allSatisfy(\.hasValidCanonicalLocator)
+                        let isCompatible = (existing?.isCompatible(
                             withActiveModel: AISemanticModelManager.modelIdentifier,
                             dimension: embeddingService.dimension
-                        ) ?? false
+                        ) ?? false) && hasValidLocators
 
                         if !isCompatible {
+                            if existing != nil || !existingChunks.isEmpty {
+                                try? await coordinator.removeBookIndex(fingerprintKey: currentBookKey)
+                            }
                             self?.semanticRuntimeStatus = .indexing(bookKey: currentBookKey, progress: 0.0)
                             do {
                                 let chunks = try await provider.chunks()

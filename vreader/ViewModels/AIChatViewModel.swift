@@ -282,6 +282,15 @@ final class AIChatViewModel {
 
     // Feature #177: Production turn router
     var turnRouter: (any AIAgentTurnExecuting)?
+    @ObservationIgnored var currentTransientThreadID: UUID = UUID()
+    @ObservationIgnored var threadIDByPersistedSessionID: [UUID: UUID] = [:]
+
+    var activeConversationThreadID: String {
+        if let id = activeSessionId {
+            return (threadIDByPersistedSessionID[id] ?? id).uuidString
+        }
+        return currentTransientThreadID.uuidString
+    }
 
     // Feature #177: Tool action confirmation UI
     var pendingConfirmationRequest: AIActionConfirmationRequest?
@@ -338,6 +347,9 @@ final class AIChatViewModel {
             resolveConfirmation(pending.id, response: .deny)
         }
         cancelStreaming()
+        if activeSessionId == nil {
+            currentTransientThreadID = UUID()
+        }
         messages = []
         isLoading = false
         errorMessage = nil

@@ -126,7 +126,42 @@ private extension Data {
 @Suite("AIAgentSemanticLibraryIndexerTests")
 struct AIAgentSemanticLibraryIndexerTests {
 
-    @Test func libraryIndexerIndexesAllFormatsPersistsAcrossRelaunchAndCleansUp() async throws {
+    @MainActor
+    private final class MockNavigationHandlerState: ReaderNotificationHandlerStateProtocol {
+        var scrollToOffset: Int?
+        var highlightRange: NSRange?
+        var highlightIsTemporary: Bool = false
+        var scrollSnapToTop: Bool = false
+        var highlightNonce: Int = 0
+        var persistedHighlightRanges: [PaintedHighlight] = []
+        var pendingAnnotationInfo: TextSelectionInfo?
+        var annotationNoteText: String = ""
+    }
+
+    private struct NoOpBookmarkHighlightAnnotationStore: BookmarkPersisting, HighlightPersisting, AnnotationPersisting {
+        func addBookmark(locator: Locator, title: String?, toBookWithKey bookFingerprintKey: String) async throws -> BookmarkRecord {
+            BookmarkRecord(bookmarkId: UUID(), locator: locator, profileKey: "\(bookFingerprintKey):\(locator.canonicalHash)", title: title, createdAt: Date(), updatedAt: Date())
+        }
+        func removeBookmark(bookmarkId: UUID) async throws {}
+        func fetchBookmarks(forBookWithKey bookFingerprintKey: String) async throws -> [BookmarkRecord] { [] }
+        func isBookmarked(locator: Locator, forBookWithKey bookFingerprintKey: String) async throws -> Bool { false }
+        func updateBookmarkTitle(bookmarkId: UUID, title: String?) async throws {}
+        func addHighlight(locator: Locator, selectedText: String, color: String, note: String?, toBookWithKey bookFingerprintKey: String) async throws -> HighlightRecord {
+            HighlightRecord(highlightId: UUID(), locator: locator, anchor: nil, profileKey: "\(bookFingerprintKey):\(locator.canonicalHash)", selectedText: selectedText, color: color, note: note, createdAt: Date(), updatedAt: Date())
+        }
+        func removeHighlight(highlightId: UUID) async throws {}
+        func updateHighlightNote(highlightId: UUID, note: String?) async throws {}
+        func updateHighlightColor(highlightId: UUID, color: String) async throws {}
+        func fetchHighlights(forBookWithKey bookFingerprintKey: String) async throws -> [HighlightRecord] { [] }
+        func addAnnotation(locator: Locator, content: String, toBookWithKey bookFingerprintKey: String) async throws -> AnnotationRecord {
+            AnnotationRecord(annotationId: UUID(), locator: locator, profileKey: "\(bookFingerprintKey):\(locator.canonicalHash)", content: content, createdAt: Date(), updatedAt: Date())
+        }
+        func removeAnnotation(annotationId: UUID) async throws {}
+        func updateAnnotation(annotationId: UUID, content: String) async throws {}
+        func fetchAnnotations(forBookWithKey bookFingerprintKey: String) async throws -> [AnnotationRecord] { [] }
+    }
+
+    @Test func libraryIndexerIndexesAllFormatsWithCanonicalLocatorsAndPersistsAcrossRelaunch() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -143,27 +178,49 @@ struct AIAgentSemanticLibraryIndexerTests {
             indexStore: indexStore
         )
 
-        // 1. TXT fixture
-        let txtKey = "lib:txt:\(UUID().uuidString)"
+        // 1. TXT fixture with leading whitespace + non-BMP emoji + CJK + second paragraph
+        let txtFP = DocumentFingerprint(
+            contentSHA256: "1111111111111111111111111111111111111111111111111111111111111111",
+            fileByteCount: 256,
+            format: .txt
+        )
+        let txtKey = txtFP.canonicalKey
         let txtURL = ImportedBookFileURL.resolve(fingerprintKey: txtKey, format: "txt")
         try? FileManager.default.createDirectory(at: txtURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "Chapter on astronomy and stellar mechanics.".write(to: txtURL, atomically: true, encoding: .utf8)
+        let txtContent = "   \n\n🌟 天文学 Intro paragraph.\n\nChapter on astronomy and stellar mechanics."
+        try txtContent.write(to: txtURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: txtURL) }
 
-        // 2. MD fixture
-        let mdKey = "lib:md:\(UUID().uuidString)"
+        // 2. MD fixture with leading whitespace + non-BMP emoji
+        let mdFP = DocumentFingerprint(
+            contentSHA256: "2222222222222222222222222222222222222222222222222222222222222222",
+            fileByteCount: 256,
+            format: .md
+        )
+        let mdKey = mdFP.canonicalKey
         let mdURL = ImportedBookFileURL.resolve(fingerprintKey: mdKey, format: "md")
-        try "# Heading\nDetailed guide to markdown syntax and structured formatting.".write(to: mdURL, atomically: true, encoding: .utf8)
+        let mdContent = "  \n\n# 🚀 Heading\n\nDetailed guide to markdown syntax and structured formatting."
+        try mdContent.write(to: mdURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: mdURL) }
 
         // 3. EPUB fixture
-        let epubKey = "lib:epub:\(UUID().uuidString)"
+        let epubFP = DocumentFingerprint(
+            contentSHA256: "3333333333333333333333333333333333333333333333333333333333333333",
+            fileByteCount: 512,
+            format: .epub
+        )
+        let epubKey = epubFP.canonicalKey
         let epubURL = ImportedBookFileURL.resolve(fingerprintKey: epubKey, format: "epub")
         try MinimalEPUBFixtureBuilder.writeMinimalEPUB(to: epubURL, bodyText: "Foundations of cybernetics and feedback control systems.")
         defer { try? FileManager.default.removeItem(at: epubURL) }
 
         // 4. PDF fixture
-        let pdfKey = "lib:pdf:\(UUID().uuidString)"
+        let pdfFP = DocumentFingerprint(
+            contentSHA256: "4444444444444444444444444444444444444444444444444444444444444444",
+            fileByteCount: 1024,
+            format: .pdf
+        )
+        let pdfKey = pdfFP.canonicalKey
         let pdfURL = ImportedBookFileURL.resolve(fingerprintKey: pdfKey, format: "pdf")
         #if canImport(UIKit)
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 300, height: 400))
@@ -177,10 +234,10 @@ struct AIAgentSemanticLibraryIndexerTests {
 
         let mockLib = MockLibraryStore()
         mockLib.books = [
-            LibraryBookItem(fingerprintKey: txtKey, title: "Astronomy Book", author: "A", coverImagePath: nil, format: "txt", fileByteCount: 64, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
-            LibraryBookItem(fingerprintKey: mdKey, title: "Markdown Guide", author: "B", coverImagePath: nil, format: "md", fileByteCount: 64, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
-            LibraryBookItem(fingerprintKey: epubKey, title: "Cybernetics EPUB", author: "C", coverImagePath: nil, format: "epub", fileByteCount: 256, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
-            LibraryBookItem(fingerprintKey: pdfKey, title: "Quantum PDF", author: "D", coverImagePath: nil, format: "pdf", fileByteCount: 512, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil)
+            LibraryBookItem(fingerprintKey: txtKey, title: "Astronomy Book", author: "A", coverImagePath: nil, format: "txt", fileByteCount: 256, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
+            LibraryBookItem(fingerprintKey: mdKey, title: "Markdown Guide", author: "B", coverImagePath: nil, format: "md", fileByteCount: 256, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
+            LibraryBookItem(fingerprintKey: epubKey, title: "Cybernetics EPUB", author: "C", coverImagePath: nil, format: "epub", fileByteCount: 512, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil),
+            LibraryBookItem(fingerprintKey: pdfKey, title: "Quantum PDF", author: "D", coverImagePath: nil, format: "pdf", fileByteCount: 1024, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil)
         ]
 
         let indexer = AIAgentSemanticLibraryIndexer(
@@ -199,12 +256,76 @@ struct AIAgentSemanticLibraryIndexerTests {
         }
         #expect(await indexer.state.isIndexing == false)
 
-        // Verify metadata persisted for all formats
-        #expect(await metadataStore.fetchMetadata(forBook: txtKey) != nil)
-        #expect(await metadataStore.fetchMetadata(forBook: mdKey) != nil)
-        #expect(await metadataStore.fetchMetadata(forBook: epubKey) != nil)
+        // Verify EPUB locator round-trip
+        let epubChunks = await metadataStore.allChunks(for: epubKey)
+        let epubChunk = try #require(epubChunks.first)
+        #expect(epubChunk.locator.bookFingerprint == epubFP)
+        #expect(epubChunk.locator.href == "ch1.xhtml")
+        #expect(epubChunk.sourceUnitID == "epub:ch1.xhtml")
 
-        // 5. Persisted Relaunch Search (new store instances on same disk paths without re-indexing)
+        // Verify PDF zero-based page round-trip + 1-based label
+        #if canImport(UIKit)
+        let pdfChunks = await metadataStore.allChunks(for: pdfKey)
+        let pdfChunk = try #require(pdfChunks.first)
+        #expect(pdfChunk.locator.bookFingerprint == pdfFP)
+        #expect(pdfChunk.locator.page == 0)
+        #expect(pdfChunk.pageIndex == 0)
+        #expect(pdfChunk.sourceLabel == "Page 1")
+        #expect(pdfChunk.sourceUnitID == "pdf:page:0")
+        #endif
+
+        // Verify TXT & MD UTF-16 offset round-trip with leading whitespace + non-BMP emoji + ReaderNotificationHandlers
+        let expectedTXTSegments = UTF16TextSegmenter.segments(in: txtContent)
+        let txtChunks = await metadataStore.allChunks(for: txtKey).sorted { ($0.sourceUnitIndex ?? 0) < ($1.sourceUnitIndex ?? 0) }
+        #expect(txtChunks.count == expectedTXTSegments.count)
+        let secondTXTChunk = try #require(txtChunks.last)
+        let expectedSecondSegment = try #require(expectedTXTSegments.last)
+        #expect(secondTXTChunk.locator.bookFingerprint == txtFP)
+        #expect(secondTXTChunk.locator.href == nil)
+        #expect(secondTXTChunk.locator.charOffsetUTF16 == expectedSecondSegment.startUTF16)
+        #expect(secondTXTChunk.locator.charRangeStartUTF16 == expectedSecondSegment.startUTF16)
+        #expect(secondTXTChunk.locator.charRangeEndUTF16 == expectedSecondSegment.endUTF16)
+        #expect(secondTXTChunk.sourceUnitID == "txt:segment:\(expectedSecondSegment.index)")
+
+        let mdChunks = await metadataStore.allChunks(for: mdKey).sorted { ($0.sourceUnitIndex ?? 0) < ($1.sourceUnitIndex ?? 0) }
+        let lastMDChunk = try #require(mdChunks.last)
+        #expect(lastMDChunk.locator.bookFingerprint == mdFP)
+        #expect(lastMDChunk.locator.href == nil)
+        #expect(lastMDChunk.locator.charOffsetUTF16 != nil)
+        #expect(lastMDChunk.locator.charRangeStartUTF16 != nil)
+        #expect(lastMDChunk.locator.charRangeEndUTF16 != nil)
+
+        await MainActor.run {
+            let navState = MockNavigationHandlerState()
+            let noOpStore = NoOpBookmarkHighlightAnnotationStore()
+            var navigatedOffset: Int?
+            let deps = ReaderNotificationDeps(
+                bookFingerprintKey: txtKey,
+                bookFingerprint: txtFP,
+                bookmarkPersistence: noOpStore,
+                highlightPersistence: noOpStore,
+                annotationPersistence: noOpStore,
+                locatorFactory: { fp, start, end, _ in
+                    Locator.validated(bookFingerprint: fp, charOffsetUTF16: start, charRangeStartUTF16: start, charRangeEndUTF16: end)
+                },
+                sourceText: { txtContent },
+                makeCurrentLocator: { Locator.validated(bookFingerprint: txtFP, charOffsetUTF16: 0)! },
+                onNavigate: { offset in navigatedOffset = offset }
+            )
+            ReaderNotificationHandlers.handleNavigateToLocator(
+                locator: secondTXTChunk.locator,
+                state: navState,
+                deps: deps
+            )
+            #expect(navState.scrollToOffset == expectedSecondSegment.startUTF16)
+            #expect(navigatedOffset == expectedSecondSegment.startUTF16)
+            #expect(navState.highlightRange == NSRange(
+                location: expectedSecondSegment.startUTF16,
+                length: expectedSecondSegment.endUTF16 - expectedSecondSegment.startUTF16
+            ))
+        }
+
+        // 5. Persisted Relaunch Search
         let relaunchedIndexStore = SemanticIndexStore(dimension: 384, indexDirectory: indexDir)
         let relaunchedMetaStore = SemanticIndexMetadataStore(storageDirectory: metaDir)
         let searchService = SemanticSearchService(
@@ -214,14 +335,196 @@ struct AIAgentSemanticLibraryIndexerTests {
         )
 
         let txtHits = try await searchService.searchLibrary(query: "astronomy", maxHits: 5)
-        #expect(txtHits.contains { $0.bookFingerprintKey == txtKey })
+        let matchingTXTHit = try #require(txtHits.first { $0.bookFingerprintKey == txtKey })
+        #expect(matchingTXTHit.locator.bookFingerprint == txtFP)
+        #expect(matchingTXTHit.locator.charOffsetUTF16 == expectedSecondSegment.startUTF16)
 
         let epubHits = try await searchService.searchLibrary(query: "cybernetics", maxHits: 5)
-        #expect(epubHits.contains { $0.bookFingerprintKey == epubKey })
+        let matchingEPUBHit = try #require(epubHits.first { $0.bookFingerprintKey == epubKey })
+        #expect(matchingEPUBHit.locator.bookFingerprint == epubFP)
+        #expect(matchingEPUBHit.locator.href == "ch1.xhtml")
+    }
 
-        // 6. Rebuild & Deletion Cleanup
-        try await indexer.deleteIndex(forBookKey: txtKey)
+    @Test func legacyFakeLocatorMetadataIsInvalidatedAndRebuiltAndLibraryDeletionRemovesVectors() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let indexDir = tempDir.appendingPathComponent("vectors")
+        let metaDir = tempDir.appendingPathComponent("metadata")
+
+        let indexStore = SemanticIndexStore(dimension: 384, indexDirectory: indexDir)
+        let metadataStore = SemanticIndexMetadataStore(storageDirectory: metaDir)
+        let embedder = DeterministicTestEmbedder()
+        let coordinator = SemanticIndexCoordinator(
+            embeddingService: embedder,
+            metadataStore: metadataStore,
+            indexStore: indexStore
+        )
+
+        let txtFP = DocumentFingerprint(
+            contentSHA256: "5555555555555555555555555555555555555555555555555555555555555555",
+            fileByteCount: 128,
+            format: .txt
+        )
+        let txtKey = txtFP.canonicalKey
+        let txtURL = ImportedBookFileURL.resolve(fingerprintKey: txtKey, format: "txt")
+        try? FileManager.default.createDirectory(at: txtURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Astronomy observations of distant galaxies.".write(to: txtURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: txtURL) }
+
+        // Seed legacy fake-locator metadata (scheme: "library" and href on TXT)
+        let legacyFakeLocator = Locator(
+            bookFingerprint: DocumentFingerprint(scheme: "library", value: txtKey),
+            href: txtURL.lastPathComponent
+        )
+        let legacyChunk = SemanticChunkMetadata(
+            chunkID: "legacy_chunk",
+            bookFingerprintKey: txtKey,
+            bookTitle: "Astronomy Book",
+            locator: legacyFakeLocator,
+            sourceUnitID: "content",
+            href: txtURL.lastPathComponent,
+            snippet: "Astronomy observations",
+            isOCRDerived: false
+        )
+        #expect(legacyChunk.hasValidCanonicalLocator == false)
+        let legacyMeta = SemanticIndexMetadata(
+            bookFingerprintKey: txtKey,
+            embeddingDimension: 384,
+            extractionVersion: 1,
+            chunkCount: 1
+        )
+        try await metadataStore.save(metadata: legacyMeta, chunks: [legacyChunk])
+
+        let mockLib = MockLibraryStore()
+        mockLib.books = [
+            LibraryBookItem(fingerprintKey: txtKey, title: "Astronomy Book", author: "Author", coverImagePath: nil, format: "txt", fileByteCount: 128, addedAt: Date(), lastOpenedAt: nil, isFavorite: false, totalReadingSeconds: 0, averagePagesPerHour: nil, averageWordsPerMinute: nil)
+        ]
+
+        let indexer = AIAgentSemanticLibraryIndexer(
+            library: mockLib,
+            coordinator: coordinator,
+            metadataStore: metadataStore,
+            indexStore: indexStore,
+            embeddingService: embedder,
+            ocrService: nil
+        )
+
+        // Running startIndexing(forceRebuild: false) must detect the legacy fake locator and rebuild it
+        await indexer.startIndexing(forceRebuild: false)
+        for _ in 0..<80 {
+            if case .completed = await indexer.state { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        let rebuiltChunks = await metadataStore.allChunks(for: txtKey)
+        let rebuilt = try #require(rebuiltChunks.first)
+        #expect(rebuilt.hasValidCanonicalLocator == true)
+        #expect(rebuilt.locator.bookFingerprint == txtFP)
+        #expect(rebuilt.locator.href == nil)
+        #expect(rebuilt.locator.charOffsetUTF16 == 0)
+
+        let searchService = SemanticSearchService(
+            embeddingService: embedder,
+            metadataStore: metadataStore,
+            indexStore: indexStore
+        )
+        let hitsBeforeDelete = try await searchService.searchLibrary(query: "astronomy", maxHits: 5)
+        #expect(hitsBeforeDelete.contains { $0.bookFingerprintKey == txtKey })
+
+        // Delete the book via LibraryViewModel.deleteBook(fingerprintKey:)
+        let libraryVM = await MainActor.run { LibraryViewModel(persistence: mockLib) }
+        await libraryVM.deleteBook(fingerprintKey: txtKey)
+
+        // Wait briefly for the notification observer task on indexer to complete deletion
+        for _ in 0..<40 {
+            if await metadataStore.fetchMetadata(forBook: txtKey) == nil { break }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        }
+
         #expect(await metadataStore.fetchMetadata(forBook: txtKey) == nil)
+        let hitsAfterDelete = try await searchService.searchLibrary(query: "astronomy", maxHits: 5)
+        #expect(!hitsAfterDelete.contains { $0.bookFingerprintKey == txtKey })
+    }
+
+    @Test func deletingBookWhileIndexingIsInFlightPreventsDeletedBookFromReappearing() async throws {
+        struct SlowEmbedder: SemanticEmbeddingProviding {
+            let dimension: Int = 384
+            func embedPassages(_ texts: [String]) async throws -> [[Float]] {
+                try await Task.sleep(nanoseconds: 150_000_000)
+                return texts.map { _ in
+                    var v = [Float](repeating: 0.0, count: dimension)
+                    v[0] = 1.0
+                    return v
+                }
+            }
+            func embedQuery(_ text: String) async throws -> [Float] {
+                var v = [Float](repeating: 0.0, count: dimension)
+                v[0] = 1.0
+                return v
+            }
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let indexStore = SemanticIndexStore(dimension: 384, indexDirectory: tempDir.appendingPathComponent("vec"))
+        let metadataStore = SemanticIndexMetadataStore(storageDirectory: tempDir.appendingPathComponent("meta"))
+        let slowEmbedder = SlowEmbedder()
+        let coordinator = SemanticIndexCoordinator(
+            embeddingService: slowEmbedder,
+            metadataStore: metadataStore,
+            indexStore: indexStore
+        )
+
+        let fp = DocumentFingerprint(
+            contentSHA256: "6666666666666666666666666666666666666666666666666666666666666666",
+            fileByteCount: 256,
+            format: .txt
+        )
+        let key = fp.canonicalKey
+        let loc = try #require(Locator.validated(bookFingerprint: fp, charOffsetUTF16: 0, charRangeStartUTF16: 0, charRangeEndUTF16: 42))
+        let chunk = AIDocumentChunk(
+            id: "chunk-race",
+            bookFingerprintKey: key,
+            sourceUnitID: "txt:segment:0",
+            sourceUnitIndex: 0,
+            text: "Astronomy text being indexed when deleted.",
+            locator: loc,
+            sourceLabel: "Race Book",
+            chapterTitle: nil,
+            pageIndex: nil,
+            href: nil,
+            localStartUTF16: 0,
+            localEndUTF16: 42,
+            globalStartUTF16: 0,
+            globalEndUTF16: 42,
+            isOCRDerived: false
+        )
+
+        let indexTask = Task {
+            try? await coordinator.indexBook(fingerprintKey: key, bookTitle: "Race Book", chunks: [chunk])
+        }
+
+        // Wait briefly so indexBook enters embedding
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        // Delete the book while indexing is in flight
+        try await coordinator.removeBookIndex(fingerprintKey: key)
+        await indexTask.value
+
+        #expect(await metadataStore.fetchMetadata(forBook: key) == nil)
+        #expect(await metadataStore.allChunks(for: key).isEmpty)
+
+        let searchService = SemanticSearchService(
+            embeddingService: slowEmbedder,
+            metadataStore: metadataStore,
+            indexStore: indexStore
+        )
+        let hits = try await searchService.searchLibrary(query: "astronomy", maxHits: 5)
+        #expect(!hits.contains { $0.bookFingerprintKey == key })
     }
 
     @Test func startIndexingIgnoresDuplicateAndSupportsCancellation() async {

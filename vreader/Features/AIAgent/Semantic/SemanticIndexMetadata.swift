@@ -6,6 +6,7 @@ import Foundation
 
 struct SemanticIndexMetadata: Codable, Sendable, Equatable {
     static let currentSchemaVersion = 2
+    static let currentExtractionVersion = 2
 
     let bookFingerprintKey: String
     let modelIdentifier: String
@@ -24,7 +25,7 @@ struct SemanticIndexMetadata: Codable, Sendable, Equatable {
         modelRevision: String? = nil,
         embeddingDimension: Int = AISemanticModelManager.embeddingDimension,
         chunkerVersion: Any = SemanticChunker.chunkerVersion,
-        extractionVersion: Int = 1,
+        extractionVersion: Int = SemanticIndexMetadata.currentExtractionVersion,
         vectorIndexVersion: Int = 1,
         schemaVersion: Int = SemanticIndexMetadata.currentSchemaVersion,
         buildTimestamp: Date = Date(),
@@ -45,6 +46,7 @@ struct SemanticIndexMetadata: Codable, Sendable, Equatable {
     /// Validates if this metadata matches current active configurations.
     func isCompatible(withActiveModel model: String, dimension: Int) -> Bool {
         return schemaVersion == Self.currentSchemaVersion &&
+               extractionVersion == Self.currentExtractionVersion &&
                chunkerVersion == SemanticChunker.chunkerVersion &&
                modelIdentifier == model &&
                embeddingDimension == dimension
@@ -53,6 +55,7 @@ struct SemanticIndexMetadata: Codable, Sendable, Equatable {
     /// Validates compatibility between two metadata snapshots.
     func isCompatible(with other: SemanticIndexMetadata) -> Bool {
         return schemaVersion == other.schemaVersion &&
+               extractionVersion == other.extractionVersion &&
                chunkerVersion == other.chunkerVersion &&
                embeddingDimension == other.embeddingDimension
     }
@@ -77,6 +80,36 @@ struct SemanticChunkMetadata: Codable, Sendable, Equatable, Identifiable {
     let globalStartUTF16: Int?
     let globalEndUTF16: Int?
     let isOCRDerived: Bool
+
+    /// Validates that the stored locator matches the canonical book fingerprint and format-required fields.
+    var hasValidCanonicalLocator: Bool {
+        guard let expectedFP = DocumentFingerprint(canonicalKey: bookFingerprintKey),
+              locator.bookFingerprint == expectedFP else {
+            return false
+        }
+        switch expectedFP.format {
+        case .epub:
+            guard let locatorHref = locator.href, !locatorHref.isEmpty else { return false }
+            return href == nil || locatorHref == href
+        case .pdf:
+            guard let locatorPage = locator.page, locatorPage >= 0 else { return false }
+            return pageIndex == nil || locatorPage == pageIndex
+        case .txt, .md:
+            guard let offset = locator.charOffsetUTF16, offset >= 0,
+                  let rangeStart = locator.charRangeStartUTF16,
+                  let rangeEnd = locator.charRangeEndUTF16,
+                  rangeStart == offset,
+                  rangeEnd > rangeStart,
+                  locator.href == nil else {
+                return false
+            }
+            if let gStart = globalStartUTF16, gStart != rangeStart { return false }
+            if let gEnd = globalEndUTF16, gEnd != rangeEnd { return false }
+            return true
+        case .azw3:
+            return true
+        }
+    }
 
     init(
         chunkID: String,

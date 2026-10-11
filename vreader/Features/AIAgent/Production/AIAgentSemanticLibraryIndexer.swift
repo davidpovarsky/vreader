@@ -42,6 +42,10 @@ enum AIAgentSemanticLibraryIndexerState: Sendable, Equatable {
     }
 }
 
+extension Notification.Name {
+    static let libraryBookDidDelete = Notification.Name("vreader.library.bookDidDelete")
+}
+
 actor AIAgentSemanticLibraryIndexer {
     private static let log = Logger(subsystem: "com.vreader.app", category: "AIAgentSemanticLibraryIndexer")
 
@@ -53,6 +57,8 @@ actor AIAgentSemanticLibraryIndexer {
     private let ocrService: (any PDFOCRServicing)?
 
     private var activeTask: Task<Void, Error>?
+    private var deletionObserverTask: Task<Void, Never>?
+    private var deletedDuringRun: Set<String> = []
     private(set) var state: AIAgentSemanticLibraryIndexerState = .idle
 
     init(
@@ -69,6 +75,21 @@ actor AIAgentSemanticLibraryIndexer {
         self.indexStore = indexStore
         self.embeddingService = embeddingService ?? MLXE5EmbeddingService()
         self.ocrService = ocrService
+
+        let notifications = NotificationCenter.default.notifications(named: .libraryBookDidDelete)
+        self.deletionObserverTask = Task { [weak self] in
+            for await note in notifications {
+                guard let self else { break }
+                let key = (note.userInfo?["fingerprintKey"] as? String) ?? (note.object as? String)
+                if let key, !key.isEmpty {
+                    try? await self.deleteIndex(forBookKey: key)
+                }
+            }
+        }
+    }
+
+    deinit {
+        deletionObserverTask?.cancel()
     }
 
     /// Triggers background indexing of all eligible library books.
@@ -78,6 +99,7 @@ actor AIAgentSemanticLibraryIndexer {
             return
         }
 
+        deletedDuringRun.removeAll()
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -109,11 +131,25 @@ actor AIAgentSemanticLibraryIndexer {
     }
 
     func deleteIndex(forBookKey bookKey: String) async throws {
+        deletedDuringRun.insert(bookKey)
         try await coordinator.removeBookIndex(fingerprintKey: bookKey)
+    }
+
+    private func validatedFingerprint(for book: LibraryBookItem) -> DocumentFingerprint? {
+        guard let fp = DocumentFingerprint(canonicalKey: book.fingerprintKey),
+              fp.format.rawValue.lowercased() == book.format.lowercased() else {
+            return nil
+        }
+        return fp
     }
 
     private func performLibraryIndexing(forceRebuild: Bool) async throws {
         let allBooks = try await library.fetchAllLibraryBooks()
+        let currentLibraryKeys = Set(allBooks.map(\.fingerprintKey))
+        for storedKey in await metadataStore.allBookKeys() where !currentLibraryKeys.contains(storedKey) {
+            try? await coordinator.removeBookIndex(fingerprintKey: storedKey)
+        }
+
         let eligible = allBooks.filter { book in
             let fmt = book.format.lowercased()
             let isSupportedFormat = (fmt == "epub" || fmt == "pdf" || fmt == "txt" || fmt == "md")
@@ -127,15 +163,34 @@ actor AIAgentSemanticLibraryIndexer {
         var processedCount = 0
         for (index, book) in eligible.enumerated() {
             try Task.checkCancellation()
+            if deletedDuringRun.contains(book.fingerprintKey) {
+                try? await coordinator.removeBookIndex(fingerprintKey: book.fingerprintKey)
+                continue
+            }
 
             state = .indexing(current: index + 1, total: total, currentBookTitle: book.title)
 
-            // Check if existing index is compatible
+            guard let fingerprint = validatedFingerprint(for: book) else {
+                Self.log.warning("Skipping book with invalid or mismatched canonical fingerprintKey: \(book.fingerprintKey) (format: \(book.format))")
+                try? await coordinator.removeBookIndex(fingerprintKey: book.fingerprintKey)
+                continue
+            }
+
+            // Check if existing index is compatible AND has valid canonical locators
+            let existingMeta = await metadataStore.fetchMetadata(forBook: book.fingerprintKey)
+            let existingChunks = await metadataStore.allChunks(for: book.fingerprintKey)
+            let hasValidLocators = !existingChunks.isEmpty && existingChunks.allSatisfy(\.hasValidCanonicalLocator)
+
             if !forceRebuild,
-               let existing = await metadataStore.fetchMetadata(forBook: book.fingerprintKey),
-               existing.isCompatible(withActiveModel: AISemanticModelManager.modelIdentifier, dimension: embeddingService.dimension) {
+               let existing = existingMeta,
+               existing.isCompatible(withActiveModel: AISemanticModelManager.modelIdentifier, dimension: embeddingService.dimension),
+               hasValidLocators {
                 processedCount += 1
                 continue
+            }
+
+            if existingMeta != nil || !existingChunks.isEmpty {
+                try? await coordinator.removeBookIndex(fingerprintKey: book.fingerprintKey)
             }
 
             let fileURL = ImportedBookFileURL.resolveExisting(fingerprintKey: book.fingerprintKey, format: book.format)
@@ -145,12 +200,28 @@ actor AIAgentSemanticLibraryIndexer {
             }
 
             do {
-                let chunks = try await extractChunks(for: book, fileURL: fileURL)
+                let chunks = try await extractChunks(for: book, fingerprint: fingerprint, fileURL: fileURL)
+                if deletedDuringRun.contains(book.fingerprintKey) {
+                    try? await coordinator.removeBookIndex(fingerprintKey: book.fingerprintKey)
+                    continue
+                }
                 if !chunks.isEmpty {
-                    try await coordinator.indexBook(fingerprintKey: book.fingerprintKey, chunks: chunks)
-                    processedCount += 1
+                    try await coordinator.indexBook(
+                        fingerprintKey: book.fingerprintKey,
+                        bookTitle: book.title,
+                        chunks: chunks
+                    )
+                    if deletedDuringRun.contains(book.fingerprintKey) {
+                        try? await coordinator.removeBookIndex(fingerprintKey: book.fingerprintKey)
+                    } else {
+                        processedCount += 1
+                    }
                 }
             } catch is CancellationError {
+                if deletedDuringRun.contains(book.fingerprintKey) {
+                    try? await coordinator.removeBookIndex(fingerprintKey: book.fingerprintKey)
+                    continue
+                }
                 throw CancellationError()
             } catch {
                 Self.log.error("Failed to index book \(book.title) (\(book.fingerprintKey)): \(error.localizedDescription)")
@@ -161,20 +232,28 @@ actor AIAgentSemanticLibraryIndexer {
 
     // MARK: - Format Extraction
 
-    private func extractChunks(for book: LibraryBookItem, fileURL: URL) async throws -> [AIDocumentChunk] {
+    private func extractChunks(
+        for book: LibraryBookItem,
+        fingerprint: DocumentFingerprint,
+        fileURL: URL
+    ) async throws -> [AIDocumentChunk] {
         switch book.format.lowercased() {
         case "epub":
-            return try await extractEPUBChunks(for: book, fileURL: fileURL)
+            return try await extractEPUBChunks(for: book, fingerprint: fingerprint, fileURL: fileURL)
         case "pdf":
-            return try await extractPDFChunks(for: book, fileURL: fileURL)
+            return try await extractPDFChunks(for: book, fingerprint: fingerprint, fileURL: fileURL)
         case "txt", "md":
-            return try extractPlainTextChunks(for: book, fileURL: fileURL)
+            return try extractPlainTextChunks(for: book, fingerprint: fingerprint, fileURL: fileURL)
         default:
             return []
         }
     }
 
-    private func extractEPUBChunks(for book: LibraryBookItem, fileURL: URL) async throws -> [AIDocumentChunk] {
+    private func extractEPUBChunks(
+        for book: LibraryBookItem,
+        fingerprint: DocumentFingerprint,
+        fileURL: URL
+    ) async throws -> [AIDocumentChunk] {
         let parser = EPUBParser()
         do {
             let metadata = try await parser.open(url: fileURL)
@@ -185,17 +264,20 @@ actor AIAgentSemanticLibraryIndexer {
                 guard let xhtml = try? await parser.contentForSpineItem(href: item.href) else { continue }
                 let plain = EPUBTextExtractor.stripHTML(xhtml).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !plain.isEmpty else { continue }
+                guard let locator = Locator.validated(bookFingerprint: fingerprint, href: item.href) else { continue }
+                let sourceUnitID = "epub:\(item.href)"
 
                 let chunk = AIDocumentChunk(
-                    id: "\(book.fingerprintKey):\(item.href)",
-                    bookFingerprintKey: book.fingerprintKey,
-                    sourceUnitID: item.href,
+                    id: AIDocumentChunkFactory.stableID(
+                        fingerprint: fingerprint,
+                        sourceUnitID: sourceUnitID,
+                        localStartUTF16: 0
+                    ),
+                    bookFingerprintKey: fingerprint.canonicalKey,
+                    sourceUnitID: sourceUnitID,
                     sourceUnitIndex: idx,
                     text: plain,
-                    locator: Locator(
-                        bookFingerprint: DocumentFingerprint(scheme: "library", value: book.fingerprintKey),
-                        href: item.href
-                    ),
+                    locator: locator,
                     sourceLabel: item.title ?? "Section \(idx + 1)",
                     chapterTitle: item.title,
                     pageIndex: nil,
@@ -253,7 +335,11 @@ private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
 }
 #endif
 
-    private func extractPDFChunks(for book: LibraryBookItem, fileURL: URL) async throws -> [AIDocumentChunk] {
+    private func extractPDFChunks(
+        for book: LibraryBookItem,
+        fingerprint: DocumentFingerprint,
+        fileURL: URL
+    ) async throws -> [AIDocumentChunk] {
         #if canImport(PDFKit)
         let facade = await MainActor.run { LocalPDFDocumentFacade(url: fileURL) }
         let (pageCount, isLocked) = await MainActor.run { (facade.pageCount, facade.isLocked) }
@@ -275,7 +361,7 @@ private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
             var isOCR = false
 
             if pageText.count < 30, let ocrService {
-                if let ocrResult = try? await ocrService.extractPageText(bookKey: book.fingerprintKey, pageIndex: pageIndex, facade: facade) {
+                if let ocrResult = try? await ocrService.extractPageText(bookKey: fingerprint.canonicalKey, pageIndex: pageIndex, facade: facade) {
                     let recognized = ocrResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !recognized.isEmpty {
                         pageText = recognized
@@ -285,20 +371,23 @@ private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
             }
 
             guard !pageText.isEmpty else { continue }
+            guard let locator = Locator.validated(bookFingerprint: fingerprint, page: pageIndex) else { continue }
+            let sourceUnitID = "pdf:page:\(pageIndex)"
 
             let chunk = AIDocumentChunk(
-                id: "\(book.fingerprintKey):p\(pageIndex + 1)",
-                bookFingerprintKey: book.fingerprintKey,
-                sourceUnitID: "page_\(pageIndex + 1)",
+                id: AIDocumentChunkFactory.stableID(
+                    fingerprint: fingerprint,
+                    sourceUnitID: sourceUnitID,
+                    localStartUTF16: 0
+                ),
+                bookFingerprintKey: fingerprint.canonicalKey,
+                sourceUnitID: sourceUnitID,
                 sourceUnitIndex: pageIndex,
                 text: pageText,
-                locator: Locator(
-                    bookFingerprint: DocumentFingerprint(scheme: "library", value: book.fingerprintKey),
-                    page: pageIndex + 1
-                ),
+                locator: locator,
                 sourceLabel: "Page \(pageIndex + 1)",
                 chapterTitle: nil,
-                pageIndex: pageIndex + 1,
+                pageIndex: pageIndex,
                 href: nil,
                 localStartUTF16: 0,
                 localEndUTF16: pageText.utf16.count,
@@ -314,32 +403,53 @@ private final class LocalPDFDocumentFacade: AIPDFDocumentFacading {
         #endif
     }
 
-    private func extractPlainTextChunks(for book: LibraryBookItem, fileURL: URL) throws -> [AIDocumentChunk] {
+    private func extractPlainTextChunks(
+        for book: LibraryBookItem,
+        fingerprint: DocumentFingerprint,
+        fileURL: URL
+    ) throws -> [AIDocumentChunk] {
         let plain = try ClosedBookTextExtractor.extractPlainText(url: fileURL)
-        let trimmed = plain.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
+        guard !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
-        let chunk = AIDocumentChunk(
-            id: "\(book.fingerprintKey):content",
-            bookFingerprintKey: book.fingerprintKey,
-            sourceUnitID: "content",
-            sourceUnitIndex: 0,
-            text: trimmed,
-            locator: Locator(
-                bookFingerprint: DocumentFingerprint(scheme: "library", value: book.fingerprintKey),
-                href: fileURL.lastPathComponent
-            ),
-            sourceLabel: book.title,
-            chapterTitle: nil,
-            pageIndex: nil,
-            href: fileURL.lastPathComponent,
-            localStartUTF16: 0,
-            localEndUTF16: trimmed.utf16.count,
-            globalStartUTF16: nil,
-            globalEndUTF16: nil,
-            isOCRDerived: false
-        )
-        return [chunk]
+        let sourcePrefix = book.format.lowercased() == "md" ? "md" : "txt"
+        let segments = UTF16TextSegmenter.segments(in: plain)
+        var chunks: [AIDocumentChunk] = []
+        chunks.reserveCapacity(segments.count)
+
+        for segment in segments {
+            try Task.checkCancellation()
+            let sourceUnitID = "\(sourcePrefix):segment:\(segment.index)"
+            guard let locator = Locator.validated(
+                bookFingerprint: fingerprint,
+                charOffsetUTF16: segment.startUTF16,
+                charRangeStartUTF16: segment.startUTF16,
+                charRangeEndUTF16: segment.endUTF16
+            ) else { continue }
+
+            let chunk = AIDocumentChunk(
+                id: AIDocumentChunkFactory.stableID(
+                    fingerprint: fingerprint,
+                    sourceUnitID: sourceUnitID,
+                    localStartUTF16: 0
+                ),
+                bookFingerprintKey: fingerprint.canonicalKey,
+                sourceUnitID: sourceUnitID,
+                sourceUnitIndex: segment.index,
+                text: segment.text,
+                locator: locator,
+                sourceLabel: book.title,
+                chapterTitle: nil,
+                pageIndex: nil,
+                href: nil,
+                localStartUTF16: 0,
+                localEndUTF16: segment.text.utf16.count,
+                globalStartUTF16: segment.startUTF16,
+                globalEndUTF16: segment.endUTF16,
+                isOCRDerived: false
+            )
+            chunks.append(chunk)
+        }
+        return chunks
     }
 
     private func updateState(_ newState: AIAgentSemanticLibraryIndexerState) {

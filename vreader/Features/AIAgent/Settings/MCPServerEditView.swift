@@ -150,7 +150,7 @@ struct MCPServerEditView: View {
         }
 
         if !token.isEmpty {
-            try? MCPSecretStore().saveToken(token, forProfileID: profile.id)
+            try? MCPSecretStore().saveToken(token, forProfileID: profile.id, endpoint: profile.endpointURL)
         }
 
         onSave(profile)

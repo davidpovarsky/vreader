@@ -85,6 +85,7 @@ extension AIChatViewModel {
         // still belongs to the session it was sent for (streaming handoff guard).
         noteFirstTurnStartedIfNeeded()
         let sessionAtSend = activeSessionId
+        let conversationThreadIDAtSend = activeConversationThreadID
 
         // Add user message to history
         let userMessage = ChatMessage(role: .user, content: trimmed)
@@ -144,13 +145,14 @@ extension AIChatViewModel {
                     contextText: contextText,
                     registry: registry,
                     documentSessionID: documentSessionID,
-                    turnID: UUID().uuidString
+                    turnID: UUID().uuidString,
+                    conversationID: conversationThreadIDAtSend
                 )
                 guard !Task.isCancelled, opId == opCounter else { return }
                 if let assistant = message(withId: assistantId) {
                     var updated = assistant
                     updated.content = result.finalText
-                    updated.citations = citationSnapshot
+                    updated.citations = result.citations.isEmpty ? citationSnapshot : result.citations
                     updated.sourceProvenance = result.sourceProvenances
                     replaceMessage(updated)
                 }

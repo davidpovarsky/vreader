@@ -161,6 +161,7 @@ final class AIAgentSettingsViewModel: @unchecked Sendable {
     }
 
     func deleteMCPProfile(_ profile: MCPServerProfile) async {
+        try? MCPSecretStore().deleteCredentials(forProfileID: profile.id, endpoint: profile.endpointURL)
         await mcpProfileStore.removeProfile(withID: profile.id)
         mcpProfiles = await mcpProfileStore.allProfiles()
     }

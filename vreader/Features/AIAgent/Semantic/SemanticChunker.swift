@@ -128,6 +128,28 @@ struct SemanticChunker: Sendable {
             let subGlobalStart: Int? = docChunk.globalStartUTF16.map { $0 + String(characters[0..<charStart]).utf16.count }
             let subGlobalEnd: Int? = subGlobalStart.map { $0 + slice.utf16.count }
 
+            let subLocator: Locator
+            if let gStart = subGlobalStart, let gEnd = subGlobalEnd,
+               (docChunk.locator.charOffsetUTF16 != nil || docChunk.locator.charRangeStartUTF16 != nil),
+               let updated = Locator.validated(
+                   bookFingerprint: docChunk.locator.bookFingerprint,
+                   href: docChunk.locator.href,
+                   progression: docChunk.locator.progression,
+                   totalProgression: docChunk.locator.totalProgression,
+                   cfi: docChunk.locator.cfi,
+                   page: docChunk.locator.page,
+                   charOffsetUTF16: gStart,
+                   charRangeStartUTF16: gStart,
+                   charRangeEndUTF16: gEnd,
+                   textQuote: docChunk.locator.textQuote,
+                   textContextBefore: docChunk.locator.textContextBefore,
+                   textContextAfter: docChunk.locator.textContextAfter
+               ) {
+                subLocator = updated
+            } else {
+                subLocator = docChunk.locator
+            }
+
             let chunkID = makeChunkID(
                 fingerprintKey: bookFingerprintKey,
                 sourceUnitID: docChunk.sourceUnitID,
@@ -142,7 +164,7 @@ struct SemanticChunker: Sendable {
                 sourceUnitID: docChunk.sourceUnitID,
                 sourceUnitIndex: docChunk.sourceUnitIndex,
                 text: slice,
-                locator: docChunk.locator,
+                locator: subLocator,
                 sourceLabel: docChunk.sourceLabel,
                 chapterTitle: docChunk.chapterTitle,
                 pageIndex: docChunk.pageIndex,

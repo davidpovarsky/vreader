@@ -33,6 +33,7 @@ actor SemanticIndexCoordinator {
     private let chunker: SemanticChunker
 
     private var activeTasks: [String: Task<Void, Error>] = [:]
+    private var deletionEpochs: [String: UInt64] = [:]
     private(set) var currentState: SemanticIndexingState = .idle
 
     init(
@@ -50,6 +51,7 @@ actor SemanticIndexCoordinator {
     /// Indexes a document's chunks for a given book fingerprint.
     func indexBook(
         fingerprintKey: String,
+        bookTitle: String? = nil,
         chunks: [AIDocumentChunk]
     ) async throws {
         if activeTasks[fingerprintKey] != nil {
@@ -57,10 +59,17 @@ actor SemanticIndexCoordinator {
             return
         }
 
+        let startEpoch = deletionEpochs[fingerprintKey, default: 0]
+
         let task = Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.performIndexing(fingerprintKey: fingerprintKey, chunks: chunks)
+                try await self.performIndexing(
+                    fingerprintKey: fingerprintKey,
+                    bookTitle: bookTitle,
+                    chunks: chunks,
+                    expectedEpoch: startEpoch
+                )
             } catch is CancellationError {
                 await self.recordCancellation(fingerprintKey: fingerprintKey)
                 throw CancellationError()
@@ -75,14 +84,22 @@ actor SemanticIndexCoordinator {
         try await task.value
     }
 
+    private func isDeletedOrSuperseded(fingerprintKey: String, expectedEpoch: UInt64) -> Bool {
+        Task.isCancelled || deletionEpochs[fingerprintKey, default: 0] != expectedEpoch
+    }
+
     private func performIndexing(
         fingerprintKey: String,
-        chunks: [AIDocumentChunk]
+        bookTitle: String?,
+        chunks: [AIDocumentChunk],
+        expectedEpoch: UInt64
     ) async throws {
         currentState = .indexing(bookFingerprintKey: fingerprintKey, progress: 0.0)
 
         // 1. Chunking
-        try Task.checkCancellation()
+        if isDeletedOrSuperseded(fingerprintKey: fingerprintKey, expectedEpoch: expectedEpoch) {
+            throw CancellationError()
+        }
         let semanticChunks = chunker.chunkDocument(chunks: chunks, bookFingerprintKey: fingerprintKey)
         guard !semanticChunks.isEmpty else {
             currentState = .completed(bookFingerprintKey: fingerprintKey)
@@ -94,8 +111,14 @@ actor SemanticIndexCoordinator {
         let total = semanticChunks.count
 
         for (idx, sc) in semanticChunks.enumerated() {
-            try Task.checkCancellation()
+            if isDeletedOrSuperseded(fingerprintKey: fingerprintKey, expectedEpoch: expectedEpoch) {
+                throw CancellationError()
+            }
             let vector = try await embeddingService.embedPassages([sc.text]).first ?? []
+
+            if isDeletedOrSuperseded(fingerprintKey: fingerprintKey, expectedEpoch: expectedEpoch) {
+                throw CancellationError()
+            }
 
             insertItems.append(SemanticIndexInsertItem(
                 chunkID: sc.id,
@@ -107,8 +130,18 @@ actor SemanticIndexCoordinator {
             currentState = .indexing(bookFingerprintKey: fingerprintKey, progress: progress)
         }
 
+        if isDeletedOrSuperseded(fingerprintKey: fingerprintKey, expectedEpoch: expectedEpoch) {
+            throw CancellationError()
+        }
+
         // 3. Save to Index with collision-safe key assignment and save to Metadata Store coherently
         let assignedKeys = try await indexStore.insertBatch(coherentItems: insertItems)
+
+        if isDeletedOrSuperseded(fingerprintKey: fingerprintKey, expectedEpoch: expectedEpoch) {
+            try? await indexStore.delete(bookFingerprintKey: fingerprintKey)
+            try? await metadataStore.remove(forBook: fingerprintKey)
+            throw CancellationError()
+        }
 
         var chunkMetadataList: [SemanticChunkMetadata] = []
         for sc in semanticChunks {
@@ -119,6 +152,7 @@ actor SemanticIndexCoordinator {
                 chunkID: sc.id,
                 vectorKey: assignedKey,
                 bookFingerprintKey: fingerprintKey,
+                bookTitle: bookTitle,
                 sourceUnitID: sc.sourceUnitID,
                 sourceUnitIndex: sc.sourceUnitIndex,
                 sourceLabel: sc.sourceLabel,
@@ -142,11 +176,18 @@ actor SemanticIndexCoordinator {
         )
         try await metadataStore.save(metadata: metadata, chunks: chunkMetadataList)
 
+        if isDeletedOrSuperseded(fingerprintKey: fingerprintKey, expectedEpoch: expectedEpoch) {
+            try? await metadataStore.remove(forBook: fingerprintKey)
+            try? await indexStore.delete(bookFingerprintKey: fingerprintKey)
+            throw CancellationError()
+        }
+
         currentState = .completed(bookFingerprintKey: fingerprintKey)
         Self.log.info("Finished semantic indexing for \(fingerprintKey) (\(semanticChunks.count) chunks)")
     }
 
     func cancelIndexing(for fingerprintKey: String) {
+        deletionEpochs[fingerprintKey, default: 0] &+= 1
         if let task = activeTasks[fingerprintKey] {
             task.cancel()
             activeTasks.removeValue(forKey: fingerprintKey)
@@ -155,14 +196,27 @@ actor SemanticIndexCoordinator {
     }
 
     func removeBookIndex(fingerprintKey: String) async throws {
-        cancelIndexing(for: fingerprintKey)
+        deletionEpochs[fingerprintKey, default: 0] &+= 1
+        if let task = activeTasks[fingerprintKey] {
+            task.cancel()
+            activeTasks.removeValue(forKey: fingerprintKey)
+            currentState = .cancelled(bookFingerprintKey: fingerprintKey)
+            _ = try? await task.value
+        }
         try await metadataStore.remove(forBook: fingerprintKey)
         try await indexStore.delete(bookFingerprintKey: fingerprintKey)
     }
 
     func rebuildAll() async throws {
-        for task in activeTasks.values { task.cancel() }
+        for key in activeTasks.keys {
+            deletionEpochs[key, default: 0] &+= 1
+        }
+        let runningTasks = Array(activeTasks.values)
+        for task in runningTasks { task.cancel() }
         activeTasks.removeAll()
+        for task in runningTasks {
+            _ = try? await task.value
+        }
         try await metadataStore.removeAll()
         try await indexStore.clear()
         currentState = .idle

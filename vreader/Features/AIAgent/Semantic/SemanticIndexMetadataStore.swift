@@ -121,6 +121,22 @@ actor SemanticIndexMetadataStore {
         vectorKeys.compactMap { fetchChunk(byVectorKey: $0) }
     }
 
+    func allBookKeys() -> Set<String> {
+        var keys = Set(inMemoryIndex.keys)
+        for chunk in vectorKeyToChunk.values {
+            keys.insert(chunk.bookFingerprintKey)
+        }
+        if let bookDirs = try? fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil) {
+            for dir in bookDirs {
+                var isDir: ObjCBool = false
+                if fileManager.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue {
+                    keys.insert(dir.lastPathComponent)
+                }
+            }
+        }
+        return keys
+    }
+
     func remove(forBook fingerprintKey: String) throws {
         inMemoryIndex.removeValue(forKey: fingerprintKey)
         vectorKeyToChunk = vectorKeyToChunk.filter { $0.value.bookFingerprintKey != fingerprintKey }

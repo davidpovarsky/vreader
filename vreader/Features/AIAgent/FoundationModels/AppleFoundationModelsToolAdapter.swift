@@ -6,10 +6,90 @@ import Foundation
 import FoundationModels
 #endif
 
+final class ToolInvocationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count: Int = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
+actor AppleTurnToolBinding {
+    private var currentAdapter: AppleFoundationModelsToolAdapter?
+    private var currentTurnID: String
+    private var currentDocumentSessionID: AIDocumentSessionID?
+    private var currentSink: ProvenanceTapSink?
+    private(set) var invokedToolCount: Int = 0
+
+    init(
+        adapter: AppleFoundationModelsToolAdapter? = nil,
+        turnID: String = UUID().uuidString,
+        documentSessionID: AIDocumentSessionID? = nil,
+        sink: ProvenanceTapSink? = nil
+    ) {
+        self.currentAdapter = adapter
+        self.currentTurnID = turnID
+        self.currentDocumentSessionID = documentSessionID
+        self.currentSink = sink
+    }
+
+    func bindForTurn(
+        adapter: AppleFoundationModelsToolAdapter?,
+        turnID: String,
+        documentSessionID: AIDocumentSessionID?,
+        sink: ProvenanceTapSink
+    ) {
+        self.currentAdapter = adapter
+        self.currentTurnID = turnID
+        self.currentDocumentSessionID = documentSessionID
+        self.currentSink = sink
+        self.invokedToolCount = 0
+    }
+
+    func clearTurn() {
+        self.currentAdapter = nil
+        self.currentSink = nil
+    }
+
+    func invoke(toolName: String, rawArguments: String) async -> ToolResult {
+        let callID = UUID().uuidString
+        guard let adapter = currentAdapter else {
+            return ToolResult(
+                toolUseID: callID,
+                content: "Tool adapter is not bound for the active turn",
+                isError: true
+            )
+        }
+        invokedToolCount += 1
+        return await adapter.invokeNative(
+            toolName: toolName,
+            rawArguments: rawArguments,
+            callID: callID,
+            turnID: currentTurnID,
+            documentSessionID: currentDocumentSessionID,
+            sink: currentSink
+        )
+    }
+}
+
 struct AppleFoundationModelsToolAdapter: Sendable {
     let registry: AIToolRegistry
     let executionGate: AIAgentToolExecutionGate
     let eventSink: any AIToolEventSink
+    private let invocationCounter = ToolInvocationCounter()
+
+    var invokedToolCount: Int {
+        invocationCounter.value
+    }
 
     init(
         registry: AIToolRegistry,
@@ -30,6 +110,7 @@ struct AppleFoundationModelsToolAdapter: Sendable {
         documentSessionID: AIDocumentSessionID? = nil,
         eventSink explicitSink: (any AIToolEventSink)? = nil
     ) async -> ToolResult {
+        invocationCounter.increment()
         let sink = explicitSink ?? self.eventSink
         let summary: String
         if case .object(let dict) = input {
@@ -130,7 +211,7 @@ struct AppleFoundationModelsToolAdapter: Sendable {
             eventSink: sink
         )
 
-        if result.isError {
+        if result.isError || Task.isCancelled {
             await sink?.discardSources(for: callID)
         } else {
             await sink?.commitSources(for: callID)
@@ -195,10 +276,17 @@ struct AppleNativeToolBridge: Tool, Sendable {
 
     let name: String
     let description: String
-    let adapter: AppleFoundationModelsToolAdapter
-    let turnID: String
-    let documentSessionID: AIDocumentSessionID?
-    let sink: ProvenanceTapSink
+    let binding: AppleTurnToolBinding
+
+    init(
+        name: String,
+        description: String,
+        binding: AppleTurnToolBinding
+    ) {
+        self.name = name
+        self.description = description
+        self.binding = binding
+    }
 
     init(
         name: String,
@@ -210,43 +298,50 @@ struct AppleNativeToolBridge: Tool, Sendable {
     ) {
         self.name = name
         self.description = description
-        self.adapter = adapter
-        self.turnID = turnID
-        self.documentSessionID = documentSessionID
-        self.sink = sink
-    }
-
-    func call(arguments: Arguments) async throws -> String {
-        let callID = UUID().uuidString
-        let result = await adapter.invokeNative(
-            toolName: name,
-            rawArguments: arguments.input,
-            callID: callID,
+        self.binding = AppleTurnToolBinding(
+            adapter: adapter,
             turnID: turnID,
             documentSessionID: documentSessionID,
             sink: sink
         )
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        try Task.checkCancellation()
+        let result = await binding.invoke(
+            toolName: name,
+            rawArguments: arguments.input
+        )
+        try Task.checkCancellation()
         return result.content
     }
 }
 
 extension AppleFoundationModelsToolAdapter {
     @available(iOS 26.0, macOS 26.0, *)
+    func makeNativeTools(binding: AppleTurnToolBinding) -> [any Tool] {
+        registry.definitions().map { def in
+            AppleNativeToolBridge(
+                name: def.name,
+                description: def.description,
+                binding: binding
+            )
+        }
+    }
+
+    @available(iOS 26.0, macOS 26.0, *)
     func makeNativeTools(
         turnID: String,
         documentSessionID: AIDocumentSessionID?,
         sink: ProvenanceTapSink
     ) -> [any Tool] {
-        registry.definitions().map { def in
-            AppleNativeToolBridge(
-                name: def.name,
-                description: def.description,
-                adapter: self,
-                turnID: turnID,
-                documentSessionID: documentSessionID,
-                sink: sink
-            )
-        }
+        let binding = AppleTurnToolBinding(
+            adapter: self,
+            turnID: turnID,
+            documentSessionID: documentSessionID,
+            sink: sink
+        )
+        return makeNativeTools(binding: binding)
     }
 }
 #endif

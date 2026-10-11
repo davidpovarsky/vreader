@@ -43,6 +43,7 @@ extension AIChatViewModel {
         messages = []
         settledMessages = []
         activeSessionId = nil
+        currentTransientThreadID = UUID()
         storedActiveTitle = nil   // #88 WI-4: a fresh thread derives its title from messages
         errorMessage = nil
     }
@@ -158,12 +159,14 @@ extension AIChatViewModel {
             transitionLog.error("deleteSession failed: \(String(describing: error), privacy: .public)")
             return
         }
+        threadIDByPersistedSessionID.removeValue(forKey: id)
         guard wasActive else { return }
         guard token == sessionTransitionToken else { return }
         // Reset locally first so a fallback failure still leaves a clean empty state.
         messages = []
         settledMessages = []
         activeSessionId = nil
+        currentTransientThreadID = UUID()
         storedActiveTitle = nil   // #88 WI-4 (reset; loadMostRecentRemaining re-sets it if a session remains)
         errorMessage = nil
         await loadMostRecentRemaining(token: token)
@@ -204,6 +207,7 @@ extension AIChatViewModel {
                 let record = try await store.createChatSession(
                     bookFingerprintKey: key, title: title ?? Self.defaultSessionTitle,
                     messages: snapshot)
+                threadIDByPersistedSessionID[record.sessionId] = currentTransientThreadID
                 activeSessionId = record.sessionId
             }
         } catch {

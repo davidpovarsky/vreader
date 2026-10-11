@@ -37,7 +37,8 @@ protocol AppleFoundationModelsBackendServicing: Sendable {
         policy: AppleFoundationModelsPolicy?,
         toolAdapter: AppleFoundationModelsToolAdapter?,
         documentSessionID: AIDocumentSessionID?,
-        turnID: String
+        turnID: String,
+        conversationID: String?
     ) async throws -> AgenticResult
 }
 
@@ -50,7 +51,8 @@ extension AppleFoundationModelsBackendServicing {
         policy: AppleFoundationModelsPolicy? = nil,
         toolAdapter: AppleFoundationModelsToolAdapter? = nil,
         documentSessionID: AIDocumentSessionID? = nil,
-        turnID: String = UUID().uuidString
+        turnID: String = UUID().uuidString,
+        conversationID: String? = nil
     ) async throws -> AgenticResult {
         try await executeTurn(
             systemPrompt: systemPrompt,
@@ -60,7 +62,8 @@ extension AppleFoundationModelsBackendServicing {
             policy: policy,
             toolAdapter: toolAdapter,
             documentSessionID: documentSessionID,
-            turnID: turnID
+            turnID: turnID,
+            conversationID: conversationID
         )
     }
 
@@ -79,7 +82,8 @@ extension AppleFoundationModelsBackendServicing {
             policy: nil,
             toolAdapter: toolAdapter,
             documentSessionID: nil,
-            turnID: UUID().uuidString
+            turnID: UUID().uuidString,
+            conversationID: nil
         )
     }
 }
@@ -91,7 +95,15 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
 
     typealias SessionFactory = @Sendable (String, [Any]) throws -> any AppleLanguageModelSessionProtocol
     private let sessionFactory: SessionFactory?
-    private var activeSessions: [String: any AppleLanguageModelSessionProtocol] = [:]
+
+    private struct SessionEntry {
+        let session: any AppleLanguageModelSessionProtocol
+        let binding: AppleTurnToolBinding
+        let registeredToolNames: [String]
+        let transcript: SessionTranscript
+    }
+
+    private var activeSessions: [String: SessionEntry] = [:]
 
     init(
         policy: AppleFoundationModelsPolicy = AppleFoundationModelsPolicy(),
@@ -111,7 +123,8 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
         policy explicitPolicy: AppleFoundationModelsPolicy? = nil,
         toolAdapter: AppleFoundationModelsToolAdapter? = nil,
         documentSessionID: AIDocumentSessionID? = nil,
-        turnID: String = UUID().uuidString
+        turnID: String = UUID().uuidString,
+        conversationID: String? = nil
     ) async throws -> AgenticResult {
         try Task.checkCancellation()
 
@@ -126,28 +139,35 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
 
         Self.log.info("Executing Apple Foundation Models turn in mode \(resolvedMode.rawValue)")
 
+        let normalizedConvID = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sessionKey: String
         if let docID = documentSessionID {
-            sessionKey = "\(docID.fingerprintKey):\(docID.readerToken.uuidString):\(profile.identifier)"
+            let convSegment = (normalizedConvID?.isEmpty == false) ? "conv:\(normalizedConvID!)" : "default"
+            sessionKey = "\(docID.fingerprintKey):\(docID.readerToken.uuidString):\(convSegment):\(profile.identifier)"
+        } else if let convID = normalizedConvID, !convID.isEmpty {
+            sessionKey = "general:conv:\(convID):\(profile.identifier)"
         } else {
             sessionKey = "transient:\(UUID().uuidString):\(profile.identifier)"
         }
 
         let tappingSink = ProvenanceTapSink(downstream: toolAdapter?.eventSink)
+        let currentToolNames = toolAdapter?.definitions.map(\.name) ?? []
 
-        let session: any AppleLanguageModelSessionProtocol
-        if let existing = activeSessions[sessionKey] {
-            session = existing
+        let entry: SessionEntry
+        if let existing = activeSessions[sessionKey], existing.registeredToolNames == currentToolNames {
+            entry = existing
         } else {
+            let binding = AppleTurnToolBinding(
+                adapter: toolAdapter,
+                turnID: turnID,
+                documentSessionID: documentSessionID,
+                sink: tappingSink
+            )
             let newSession: any AppleLanguageModelSessionProtocol
             if let factory = self.sessionFactory {
                 #if canImport(FoundationModels)
                 if #available(iOS 26.0, macOS 26.0, *) {
-                    let nativeTools = toolAdapter?.makeNativeTools(
-                        turnID: turnID,
-                        documentSessionID: documentSessionID,
-                        sink: tappingSink
-                    ) ?? []
+                    let nativeTools = toolAdapter?.makeNativeTools(binding: binding) ?? []
                     newSession = try factory(systemPrompt, nativeTools)
                 } else {
                     newSession = try factory(systemPrompt, [])
@@ -158,11 +178,7 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
             } else {
                 #if canImport(FoundationModels)
                 if #available(iOS 26.0, macOS 26.0, *) {
-                    let nativeTools = toolAdapter?.makeNativeTools(
-                        turnID: turnID,
-                        documentSessionID: documentSessionID,
-                        sink: tappingSink
-                    ) ?? []
+                    let nativeTools = toolAdapter?.makeNativeTools(binding: binding) ?? []
                     newSession = RealAppleLanguageModelSession(instructions: systemPrompt, tools: nativeTools)
                 } else {
                     throw NSError(domain: "vreader.apple_ai", code: 503, userInfo: [
@@ -175,18 +191,44 @@ actor AppleFoundationModelsBackend: AppleFoundationModelsBackendServicing {
                 ])
                 #endif
             }
-            activeSessions[sessionKey] = newSession
-            session = newSession
+            let created = SessionEntry(
+                session: newSession,
+                binding: binding,
+                registeredToolNames: currentToolNames,
+                transcript: SessionTranscript(sessionID: sessionKey)
+            )
+            activeSessions[sessionKey] = created
+            entry = created
         }
 
-        try Task.checkCancellation()
-        let responseText = try await session.respond(to: prompt)
-        try Task.checkCancellation()
+        await entry.binding.bindForTurn(
+            adapter: toolAdapter,
+            turnID: turnID,
+            documentSessionID: documentSessionID,
+            sink: tappingSink
+        )
+
+        let responseText: String
+        do {
+            try Task.checkCancellation()
+            responseText = try await entry.session.respond(to: prompt)
+            try Task.checkCancellation()
+        } catch {
+            await entry.binding.clearTurn()
+            throw error
+        }
+
+        let boundInvocations = await entry.binding.invokedToolCount
+        await entry.binding.clearTurn()
+
+        entry.transcript.append(role: "user", text: prompt)
+        entry.transcript.append(role: "assistant", text: responseText)
 
         let collectedSources = await tappingSink.collectedSources()
         let uniqueSources = Self.deduplicateSources(collectedSources)
         let citations = uniqueSources.compactMap { $0.toChatCitation() }
-        let usedTools = (toolAdapter != nil && !uniqueSources.isEmpty)
+        let directInvocations = toolAdapter?.invokedToolCount ?? 0
+        let usedTools = (boundInvocations > 0 || directInvocations > 0 || !uniqueSources.isEmpty)
 
         return AgenticResult(
             finalText: responseText,

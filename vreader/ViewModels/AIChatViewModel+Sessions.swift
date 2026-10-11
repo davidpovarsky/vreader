@@ -184,6 +184,7 @@ extension AIChatViewModel {
                     }
                     return
                 }
+                threadIDByPersistedSessionID[record.sessionId] = currentTransientThreadID
                 activeSessionId = record.sessionId
                 settledMessages = snapshot
                 storedActiveTitle = title ?? Self.defaultSessionTitle   // #88 WI-4

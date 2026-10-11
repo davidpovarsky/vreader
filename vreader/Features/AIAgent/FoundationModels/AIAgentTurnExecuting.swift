@@ -22,8 +22,30 @@ protocol AIAgentTurnExecuting: Sendable {
         contextText: String?,
         registry: AIToolRegistry,
         documentSessionID: AIDocumentSessionID?,
-        turnID: String
+        turnID: String,
+        conversationID: String?
     ) async throws -> AgenticResult
+}
+
+extension AIAgentTurnExecuting {
+    func executeTurn(
+        prompt: String,
+        systemPrompt: String,
+        contextText: String?,
+        registry: AIToolRegistry,
+        documentSessionID: AIDocumentSessionID?,
+        turnID: String
+    ) async throws -> AgenticResult {
+        try await executeTurn(
+            prompt: prompt,
+            systemPrompt: systemPrompt,
+            contextText: contextText,
+            registry: registry,
+            documentSessionID: documentSessionID,
+            turnID: turnID,
+            conversationID: nil
+        )
+    }
 }
 
 final class CloudProviderTurnExecutor: AIAgentTurnExecuting {
@@ -41,7 +63,8 @@ final class CloudProviderTurnExecutor: AIAgentTurnExecuting {
         contextText: String?,
         registry: AIToolRegistry,
         documentSessionID: AIDocumentSessionID?,
-        turnID: String
+        turnID: String,
+        conversationID: String? = nil
     ) async throws -> AgenticResult {
         let (config, _) = try await aiService.resolveToolProvider()
         var history: [ToolTurnMessage] = [ToolTurnMessage(role: .user, content: [.text(prompt)])]
@@ -81,7 +104,8 @@ final class AppleFoundationModelsTurnExecutor: AIAgentTurnExecuting {
         contextText: String?,
         registry: AIToolRegistry,
         documentSessionID: AIDocumentSessionID?,
-        turnID: String
+        turnID: String,
+        conversationID: String? = nil
     ) async throws -> AgenticResult {
         let toolAdapter = AppleFoundationModelsToolAdapter(
             registry: registry,
@@ -101,7 +125,8 @@ final class AppleFoundationModelsTurnExecutor: AIAgentTurnExecuting {
             policy: policy,
             toolAdapter: toolAdapter,
             documentSessionID: documentSessionID,
-            turnID: turnID
+            turnID: turnID,
+            conversationID: conversationID
         )
     }
 }
@@ -127,7 +152,8 @@ final class AIAgentTurnRouter: AIAgentTurnExecuting {
         contextText: String?,
         registry: AIToolRegistry,
         documentSessionID: AIDocumentSessionID?,
-        turnID: String
+        turnID: String,
+        conversationID: String? = nil
     ) async throws -> AgenticResult {
         switch backendChoice() {
         case .cloudProvider:
@@ -137,7 +163,8 @@ final class AIAgentTurnRouter: AIAgentTurnExecuting {
                 contextText: contextText,
                 registry: registry,
                 documentSessionID: documentSessionID,
-                turnID: turnID
+                turnID: turnID,
+                conversationID: conversationID
             )
         case .appleFoundationModels:
             return try await appleExecutor.executeTurn(
@@ -146,7 +173,8 @@ final class AIAgentTurnRouter: AIAgentTurnExecuting {
                 contextText: contextText,
                 registry: registry,
                 documentSessionID: documentSessionID,
-                turnID: turnID
+                turnID: turnID,
+                conversationID: conversationID
             )
         }
     }

@@ -29,6 +29,16 @@ final class HTTPMCPConnection: MCPConnecting, @unchecked Sendable {
         lock.withLock { _status }
     }
 
+    func makeSessionConfiguration() -> URLSessionConfiguration {
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        if profile.authType != .none,
+           let token = secretStore.fetchToken(forProfileID: profile.id, endpoint: profile.endpointURL),
+           !token.isEmpty {
+            sessionConfig.httpAdditionalHeaders = ["Authorization": "Bearer \(token)"]
+        }
+        return sessionConfig
+    }
+
     func connect() async throws {
         try Task.checkCancellation()
         guard profile.isSecureEndpoint else {
@@ -41,12 +51,7 @@ final class HTTPMCPConnection: MCPConnecting, @unchecked Sendable {
 
 #if canImport(MCP)
         do {
-            let sessionConfig = URLSessionConfiguration.default
-            if profile.authType != .none,
-               let token = secretStore.fetchToken(forProfileID: profile.id, endpoint: profile.endpointURL),
-               !token.isEmpty {
-                sessionConfig.httpAdditionalHeaders = ["Authorization": "Bearer \(token)"]
-            }
+            let sessionConfig = makeSessionConfiguration()
             let transport = HTTPClientTransport(endpoint: profile.endpointURL, configuration: sessionConfig, streaming: true)
             let client = Client(name: "vreader", version: "1.0.0")
             try await client.connect(transport: transport)

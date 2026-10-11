@@ -194,6 +194,12 @@ final class LibraryViewModel {
     func deleteBook(fingerprintKey: String) async {
         do {
             try await persistence.deleteBook(fingerprintKey: fingerprintKey)
+            NotificationCenter.default.post(
+                name: .libraryBookDidDelete,
+                object: fingerprintKey,
+                userInfo: ["fingerprintKey": fingerprintKey]
+            )
+            await AIAgentProductionRuntime.shared.handleBookDeleted(fingerprintKey: fingerprintKey)
             unsortedBooks.removeAll { $0.fingerprintKey == fingerprintKey }
             books.removeAll { $0.fingerprintKey == fingerprintKey }
             errorMessage = nil

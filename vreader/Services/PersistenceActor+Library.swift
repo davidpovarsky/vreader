@@ -95,5 +95,11 @@ extension PersistenceActor: LibraryPersisting {
         try? CustomCoverStore.removeCover(for: fingerprintKey)
 
         try context.save()
+        NotificationCenter.default.post(
+            name: .libraryBookDidDelete,
+            object: fingerprintKey,
+            userInfo: ["fingerprintKey": fingerprintKey]
+        )
+        await AIAgentProductionRuntime.shared.handleBookDeleted(fingerprintKey: fingerprintKey)
     }
 }

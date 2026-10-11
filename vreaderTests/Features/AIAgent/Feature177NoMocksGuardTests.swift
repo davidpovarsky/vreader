@@ -201,7 +201,8 @@ struct Feature177NoMocksGuardTests {
                 contextText: String?,
                 registry: AIToolRegistry,
                 documentSessionID: AIDocumentSessionID?,
-                turnID: String
+                turnID: String,
+                conversationID: String? = nil
             ) async throws -> AgenticResult {
                 executed = true
                 return AgenticResult(finalText: "Spy response", usedTools: false)
